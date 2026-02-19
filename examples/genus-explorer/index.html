@@ -1,0 +1,318 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Genus Explorer — SCODA Desktop Example</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.10.0/font/bootstrap-icons.css" rel="stylesheet">
+    <style>
+        body { background: #f5f5f5; }
+        .genus-card {
+            cursor: pointer;
+            transition: box-shadow 0.15s;
+        }
+        .genus-card:hover {
+            box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+        }
+        .badge-valid { background-color: #198754; }
+        .badge-invalid { background-color: #dc3545; }
+        .search-bar { position: sticky; top: 0; z-index: 10; background: #f5f5f5; padding: 1rem 0; }
+        .modal-body dt { font-weight: 600; color: #555; }
+        .modal-body dd { margin-bottom: 0.75rem; }
+        #loading { text-align: center; padding: 3rem; }
+        #error-banner { display: none; }
+        .count-badge { font-size: 0.85rem; }
+    </style>
+</head>
+<body>
+
+<!-- Navbar -->
+<nav class="navbar navbar-dark bg-dark mb-0">
+    <div class="container-fluid">
+        <span class="navbar-brand mb-0 h1">
+            <i class="bi bi-bug"></i> Genus Explorer
+        </span>
+        <span class="navbar-text text-light">
+            SCODA Desktop — Custom SPA Example
+        </span>
+    </div>
+</nav>
+
+<!-- Error Banner -->
+<div id="error-banner" class="alert alert-danger m-3" role="alert">
+    <strong>Connection Error:</strong> Could not reach the SCODA Desktop API at
+    <code id="error-url"></code>.
+    Make sure SCODA Desktop is running.
+</div>
+
+<!-- Search & Filters -->
+<div class="container-fluid search-bar">
+    <div class="row g-2 align-items-center">
+        <div class="col-md-6">
+            <div class="input-group">
+                <span class="input-group-text"><i class="bi bi-search"></i></span>
+                <input type="text" id="search-input" class="form-control"
+                       placeholder="Search genus name...">
+            </div>
+        </div>
+        <div class="col-md-3">
+            <select id="period-filter" class="form-select">
+                <option value="">All Periods</option>
+            </select>
+        </div>
+        <div class="col-md-2">
+            <select id="validity-filter" class="form-select">
+                <option value="">All</option>
+                <option value="1">Valid only</option>
+                <option value="0">Invalid only</option>
+            </select>
+        </div>
+        <div class="col-md-1 text-end">
+            <span id="result-count" class="badge bg-secondary count-badge">0</span>
+        </div>
+    </div>
+</div>
+
+<!-- Card Grid -->
+<div class="container-fluid">
+    <div id="loading"><div class="spinner-border text-primary"></div><p class="mt-2">Loading genera...</p></div>
+    <div id="card-grid" class="row g-3" style="display:none;"></div>
+    <div id="no-results" class="text-center text-muted py-5" style="display:none;">
+        <i class="bi bi-emoji-neutral" style="font-size:2rem;"></i>
+        <p>No genera match your filters.</p>
+    </div>
+</div>
+
+<!-- Footer -->
+<footer class="text-center text-muted py-3 mt-4 border-top">
+    <small>Total: <span id="total-count">0</span> genera |
+    Powered by <strong>SCODA Desktop</strong> API</small>
+</footer>
+
+<!-- Detail Modal -->
+<div class="modal fade" id="detail-modal" tabindex="-1">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="modal-title"></h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body" id="modal-body">
+                <div class="text-center py-3"><div class="spinner-border text-primary"></div></div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+<script>
+// ========== Configuration ==========
+const API_BASE = 'http://localhost:8080';
+
+// ========== State ==========
+let allGenera = [];
+let periodCodes = new Set();
+
+// ========== Init ==========
+document.addEventListener('DOMContentLoaded', init);
+
+async function init() {
+    try {
+        const resp = await fetch(`${API_BASE}/api/queries/genera_list/execute`);
+        if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+        const data = await resp.json();
+        allGenera = data.rows || [];
+
+        // Collect unique period codes
+        allGenera.forEach(g => {
+            if (g.temporal_code) periodCodes.add(g.temporal_code);
+        });
+        populatePeriodFilter();
+
+        document.getElementById('total-count').textContent = allGenera.length;
+        document.getElementById('loading').style.display = 'none';
+        document.getElementById('card-grid').style.display = 'flex';
+
+        renderCards(allGenera);
+    } catch (err) {
+        document.getElementById('loading').style.display = 'none';
+        document.getElementById('error-banner').style.display = 'block';
+        document.getElementById('error-url').textContent = API_BASE;
+        console.error('Failed to load genera:', err);
+    }
+
+    // Event listeners
+    document.getElementById('search-input').addEventListener('input', applyFilters);
+    document.getElementById('period-filter').addEventListener('change', applyFilters);
+    document.getElementById('validity-filter').addEventListener('change', applyFilters);
+}
+
+// ========== Filters ==========
+function populatePeriodFilter() {
+    const select = document.getElementById('period-filter');
+    const sorted = [...periodCodes].sort();
+    sorted.forEach(code => {
+        const opt = document.createElement('option');
+        opt.value = code;
+        opt.textContent = code;
+        select.appendChild(opt);
+    });
+}
+
+function applyFilters() {
+    const query = document.getElementById('search-input').value.toLowerCase().trim();
+    const period = document.getElementById('period-filter').value;
+    const validity = document.getElementById('validity-filter').value;
+
+    const filtered = allGenera.filter(g => {
+        if (query && !g.name.toLowerCase().includes(query)) return false;
+        if (period && g.temporal_code !== period) return false;
+        if (validity !== '' && String(g.is_valid) !== validity) return false;
+        return true;
+    });
+
+    renderCards(filtered);
+}
+
+// ========== Rendering ==========
+function renderCards(genera) {
+    const grid = document.getElementById('card-grid');
+    const noResults = document.getElementById('no-results');
+    const countBadge = document.getElementById('result-count');
+
+    countBadge.textContent = genera.length;
+
+    if (genera.length === 0) {
+        grid.innerHTML = '';
+        grid.style.display = 'none';
+        noResults.style.display = 'block';
+        return;
+    }
+
+    noResults.style.display = 'none';
+    grid.style.display = 'flex';
+
+    // Limit rendering for performance
+    const limit = 500;
+    const display = genera.slice(0, limit);
+
+    grid.innerHTML = display.map(g => `
+        <div class="col-md-4 col-lg-3">
+            <div class="card genus-card h-100" onclick="showDetail(${g.id})">
+                <div class="card-body">
+                    <h6 class="card-title">
+                        <em>${escapeHtml(g.name)}</em>
+                        <span class="badge ${g.is_valid ? 'badge-valid' : 'badge-invalid'} float-end">
+                            ${g.is_valid ? 'Valid' : 'Invalid'}
+                        </span>
+                    </h6>
+                    <p class="card-text text-muted mb-1" style="font-size:0.85rem;">
+                        ${escapeHtml(g.author || '')}${g.year ? ', ' + escapeHtml(g.year) : ''}
+                    </p>
+                    ${g.temporal_code ? `<span class="badge bg-info text-dark">${escapeHtml(g.temporal_code)}</span>` : ''}
+                </div>
+            </div>
+        </div>
+    `).join('');
+
+    if (genera.length > limit) {
+        grid.innerHTML += `
+            <div class="col-12 text-center text-muted py-3">
+                Showing first ${limit} of ${genera.length} results. Narrow your search to see more.
+            </div>`;
+    }
+}
+
+// ========== Detail Modal ==========
+async function showDetail(id) {
+    const modal = new bootstrap.Modal(document.getElementById('detail-modal'));
+    document.getElementById('modal-title').textContent = 'Loading...';
+    document.getElementById('modal-body').innerHTML =
+        '<div class="text-center py-3"><div class="spinner-border text-primary"></div></div>';
+    modal.show();
+
+    try {
+        const resp = await fetch(`${API_BASE}/api/genus/${id}`);
+        if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+        const g = await resp.json();
+
+        document.getElementById('modal-title').innerHTML =
+            `<em>${escapeHtml(g.name)}</em> <small class="text-muted">${escapeHtml(g.author || '')}${g.year ? ', ' + g.year : ''}</small>`;
+
+        let html = '<dl class="row">';
+        html += field('Status', g.is_valid ? '<span class="badge badge-valid">Valid</span>' : '<span class="badge badge-invalid">Invalid</span>');
+        if (g.type_species) html += field('Type Species', `<em>${escapeHtml(g.type_species)}</em>${g.type_species_author ? ' ' + escapeHtml(g.type_species_author) : ''}`);
+        if (g.temporal_code) html += field('Temporal Range', escapeHtml(g.temporal_code));
+        if (g.family_name) html += field('Family', escapeHtml(g.family_name));
+        if (g.formation) html += field('Formation (raw)', escapeHtml(g.formation));
+        if (g.location) html += field('Location (raw)', escapeHtml(g.location));
+        if (g.notes) html += field('Notes', escapeHtml(g.notes));
+        html += '</dl>';
+
+        // Hierarchy
+        if (g.hierarchy && g.hierarchy.length > 0) {
+            html += '<h6>Taxonomy</h6><p>';
+            html += g.hierarchy.map(h => `${h.rank}: <strong>${escapeHtml(h.name)}</strong>`).join(' &rarr; ');
+            html += '</p>';
+        }
+
+        // Synonyms
+        if (g.synonyms && g.synonyms.length > 0) {
+            html += '<h6>Synonymy</h6><ul>';
+            g.synonyms.forEach(s => {
+                html += `<li>${escapeHtml(s.synonym_type)}: <em>${escapeHtml(s.senior_name)}</em>`;
+                if (s.fide_author) html += ` <small class="text-muted">fide ${escapeHtml(s.fide_author)}, ${s.fide_year || ''}</small>`;
+                html += '</li>';
+            });
+            html += '</ul>';
+        }
+
+        // Formations
+        if (g.formations && g.formations.length > 0) {
+            html += '<h6>Formations</h6><ul>';
+            g.formations.forEach(f => {
+                html += `<li>${escapeHtml(f.name)}`;
+                if (f.country) html += ` <small class="text-muted">(${escapeHtml(f.country)})</small>`;
+                html += '</li>';
+            });
+            html += '</ul>';
+        }
+
+        // Locations
+        if (g.locations && g.locations.length > 0) {
+            html += '<h6>Locations</h6><ul>';
+            g.locations.forEach(l => {
+                const parts = [];
+                if (l.region_name) parts.push(l.region_name);
+                if (l.country_name) parts.push(l.country_name);
+                html += `<li>${escapeHtml(parts.join(', '))}</li>`;
+            });
+            html += '</ul>';
+        }
+
+        // Raw entry
+        if (g.raw_entry) {
+            html += '<h6>Raw Entry</h6><pre class="bg-light p-2 rounded" style="font-size:0.8rem;white-space:pre-wrap;">' + escapeHtml(g.raw_entry) + '</pre>';
+        }
+
+        document.getElementById('modal-body').innerHTML = html;
+    } catch (err) {
+        document.getElementById('modal-body').innerHTML =
+            `<div class="alert alert-danger">Failed to load detail: ${escapeHtml(err.message)}</div>`;
+    }
+}
+
+function field(label, value) {
+    return `<dt class="col-sm-4">${label}</dt><dd class="col-sm-8">${value}</dd>`;
+}
+
+function escapeHtml(str) {
+    if (!str) return '';
+    const div = document.createElement('div');
+    div.textContent = String(str);
+    return div.innerHTML;
+}
+</script>
+</body>
+</html>

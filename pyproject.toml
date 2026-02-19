@@ -1,0 +1,30 @@
+[build-system]
+requires = ["setuptools>=68.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "scoda-engine"
+version = "0.1.0"
+description = "SCODA Engine — runtime for Self-Contained Data Artifacts"
+requires-python = ">=3.10"
+dependencies = [
+    "fastapi>=0.104.0",
+    "httpx>=0.25.0",
+    "mcp>=1.0.0",
+    "starlette>=0.27.0",
+    "uvicorn>=0.24.0",
+    "jinja2>=3.1.0",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=7.0", "pytest-asyncio>=0.21", "pyinstaller>=5.0"]
+
+[project.scripts]
+scoda-serve = "scoda_engine.serve:main"
+scoda-mcp = "scoda_engine.mcp_server:main"
+
+[tool.setuptools.packages.find]
+include = ["scoda_engine*"]
+
+[tool.setuptools.package-data]
+scoda_engine = ["templates/*.html", "static/**/*"]
