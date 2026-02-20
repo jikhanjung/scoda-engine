@@ -1,13 +1,13 @@
 #!/usr/bin/env python3
 """
-SCODA Release Mechanism — Phase 16
+SCODA Release Mechanism
 
 Packages a versioned, self-contained release artifact:
-  releases/trilobase-v{version}/
-  ├── trilobase.db        (read-only SQLite copy)
-  ├── metadata.json       (identity + provenance + statistics)
-  ├── checksums.sha256    (sha256sum --check compatible)
-  └── README.md           (usage notes)
+  releases/{artifact_id}-v{version}/
+  ├── {artifact_id}.db     (read-only SQLite copy)
+  ├── metadata.json        (identity + provenance + statistics)
+  ├── checksums.sha256     (sha256sum --check compatible)
+  └── README.md            (usage notes)
 
 Usage:
   python scripts/release.py              # create release
@@ -28,7 +28,12 @@ from datetime import datetime, timezone
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
 from scoda_engine.scoda_package import ScodaPackage
 
-DEFAULT_DB = os.path.join(os.path.dirname(__file__), '..', 'trilobase.db')
+# SCODA core tables excluded from auto-discovery statistics
+_SCODA_META_TABLES = {
+    'artifact_metadata', 'provenance', 'schema_descriptions',
+    'ui_display_intent', 'ui_queries', 'ui_manifest',
+}
+
 DEFAULT_OUTPUT = os.path.join(os.path.dirname(__file__), '..', 'releases')
 
 
@@ -45,6 +50,30 @@ def get_version(db_path):
         print("Error: No 'version' key in artifact_metadata.", file=sys.stderr)
         raise SystemExit(1)
     return row['value']
+
+
+def get_artifact_id(db_path):
+    """Read artifact_id from artifact_metadata table."""
+    conn = sqlite3.connect(db_path)
+    conn.row_factory = sqlite3.Row
+    cursor = conn.cursor()
+    cursor.execute(
+        "SELECT value FROM artifact_metadata WHERE key = 'artifact_id'")
+    row = cursor.fetchone()
+    conn.close()
+    return row['value'] if row else 'unknown'
+
+
+def get_artifact_name(db_path):
+    """Read name from artifact_metadata table."""
+    conn = sqlite3.connect(db_path)
+    conn.row_factory = sqlite3.Row
+    cursor = conn.cursor()
+    cursor.execute(
+        "SELECT value FROM artifact_metadata WHERE key = 'name'")
+    row = cursor.fetchone()
+    conn.close()
+    return row['value'] if row else 'Unknown'
 
 
 def calculate_sha256(file_path):
@@ -71,35 +100,28 @@ def store_sha256(db_path, sha256_hash):
 
 
 def get_statistics(db_path):
-    """Calculate database statistics (mirrors app.py logic)."""
+    """Calculate database statistics by auto-discovering user tables."""
     conn = sqlite3.connect(db_path)
     conn.row_factory = sqlite3.Row
     cursor = conn.cursor()
 
-    stats = {}
-    for rank in ['Class', 'Order', 'Suborder', 'Superfamily', 'Family', 'Genus']:
-        cursor.execute(
-            "SELECT COUNT(*) as count FROM taxonomic_ranks WHERE rank = ?",
-            (rank,))
-        stats[rank.lower()] = cursor.fetchone()['count']
-
-    # Rename 'genus' to 'genera' for readability
-    stats['genera'] = stats.pop('genus')
-
+    # Discover all user tables (exclude SCODA meta tables and sqlite internals)
     cursor.execute(
-        "SELECT COUNT(*) as count FROM taxonomic_ranks "
-        "WHERE rank = 'Genus' AND is_valid = 1")
-    stats['valid_genera'] = cursor.fetchone()['count']
+        "SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'"
+    )
+    all_tables = [row['name'] for row in cursor.fetchall()]
 
-    cursor.execute("SELECT COUNT(*) as count FROM synonyms")
-    stats['synonyms'] = cursor.fetchone()['count']
+    stats = {}
+    total = 0
+    for table in sorted(all_tables):
+        if table in _SCODA_META_TABLES:
+            continue
+        cursor.execute(f"SELECT COUNT(*) as count FROM [{table}]")
+        count = cursor.fetchone()['count']
+        stats[table] = count
+        total += count
 
-    cursor.execute("SELECT COUNT(*) as count FROM bibliography")
-    stats['bibliography'] = cursor.fetchone()['count']
-
-    # Note: formations/countries are now in paleocore.db (Phase 34)
-    # user_annotations are in overlay DB (Phase 20), not canonical DB
-
+    stats['total_records'] = total
     conn.close()
     return stats
 
@@ -128,8 +150,8 @@ def build_metadata_json(db_path, sha256_hash):
     provenance = get_provenance(db_path)
 
     result = {
-        'artifact_id': metadata.get('artifact_id', 'trilobase'),
-        'name': metadata.get('name', 'Trilobase'),
+        'artifact_id': metadata.get('artifact_id', 'unknown'),
+        'name': metadata.get('name', 'Unknown'),
         'version': metadata.get('version'),
         'schema_version': metadata.get('schema_version', '1.0'),
         'created_at': metadata.get('created_at',
@@ -144,18 +166,22 @@ def build_metadata_json(db_path, sha256_hash):
     return result
 
 
-def generate_readme(version, sha256_hash, stats):
+def generate_readme(version, sha256_hash, stats, artifact_id=None, name=None):
     """Generate a release README.md string."""
+    artifact_id = artifact_id or 'unknown'
+    name = name or 'Unknown'
+    db_filename = f"{artifact_id}.db"
+
     lines = [
-        f"# Trilobase v{version}",
+        f"# {name} v{version}",
         "",
-        "Trilobite genus-level taxonomy database (SCODA artifact).",
+        "SCODA data artifact.",
         "",
         "## Contents",
         "",
         "| File | Description |",
         "|------|-------------|",
-        "| `trilobase.db` | SQLite database (read-only) |",
+        f"| `{db_filename}` | SQLite database (read-only) |",
         "| `metadata.json` | Artifact metadata, provenance, and statistics |",
         "| `checksums.sha256` | SHA-256 checksum for integrity verification |",
         "| `README.md` | This file |",
@@ -170,31 +196,27 @@ def generate_readme(version, sha256_hash, stats):
         "",
         "## Statistics",
         "",
-        f"- Genera: {stats.get('genera', 'N/A')}",
-        f"- Valid genera: {stats.get('valid_genera', 'N/A')}",
-        f"- Families: {stats.get('family', 'N/A')}",
-        f"- Orders: {stats.get('order', 'N/A')}",
-        f"- Synonyms: {stats.get('synonyms', 'N/A')}",
-        f"- Bibliography: {stats.get('bibliography', 'N/A')}",
+    ]
+
+    for key, value in stats.items():
+        lines.append(f"- {key}: {value}")
+
+    lines += [
         "",
         "## Usage",
         "",
         "```bash",
-        "sqlite3 trilobase.db",
+        f"sqlite3 {db_filename}",
         "```",
         "",
         "```sql",
         "-- Browse metadata",
         "SELECT * FROM artifact_metadata;",
-        "",
-        "-- List valid genera",
-        "SELECT name, author, year FROM taxonomic_ranks",
-        "WHERE rank = 'Genus' AND is_valid = 1 ORDER BY name;",
         "```",
         "",
         "## License",
         "",
-        "CC-BY-4.0",
+        "See metadata.json for license information.",
         "",
     ]
     return "\n".join(lines)
@@ -209,10 +231,14 @@ def create_release(db_path, output_dir):
         raise SystemExit(1)
 
     version = get_version(db_path)
+    artifact_id = get_artifact_id(db_path)
+    name = get_artifact_name(db_path)
+    db_filename = f"{artifact_id}.db"
+    scoda_filename = f"{artifact_id}.scoda"
 
     # 2. Determine release directory
     release_dir = os.path.join(
-        os.path.abspath(output_dir), f"trilobase-v{version}")
+        os.path.abspath(output_dir), f"{artifact_id}-v{version}")
 
     # 3. Refuse to overwrite (immutability)
     if os.path.exists(release_dir):
@@ -226,7 +252,7 @@ def create_release(db_path, output_dir):
     os.makedirs(release_dir)
 
     # 4. Copy DB
-    db_dest = os.path.join(release_dir, 'trilobase.db')
+    db_dest = os.path.join(release_dir, db_filename)
     shutil.copy2(db_path, db_dest)
 
     # 5. Set read-only
@@ -247,17 +273,18 @@ def create_release(db_path, output_dir):
     # 9. Write checksums.sha256
     checksums_path = os.path.join(release_dir, 'checksums.sha256')
     with open(checksums_path, 'w', encoding='utf-8') as f:
-        f.write(f"{sha256_hash}  trilobase.db\n")
+        f.write(f"{sha256_hash}  {db_filename}\n")
 
     # 10. Generate README.md
     stats = get_statistics(db_path)
-    readme_content = generate_readme(version, sha256_hash, stats)
+    readme_content = generate_readme(version, sha256_hash, stats,
+                                     artifact_id=artifact_id, name=name)
     readme_path = os.path.join(release_dir, 'README.md')
     with open(readme_path, 'w', encoding='utf-8') as f:
         f.write(readme_content)
 
     # 11. Create .scoda package in release directory
-    scoda_dest = os.path.join(release_dir, 'trilobase.scoda')
+    scoda_dest = os.path.join(release_dir, scoda_filename)
     ScodaPackage.create(db_path, scoda_dest)
 
     # 12. Summary
@@ -265,7 +292,7 @@ def create_release(db_path, output_dir):
     print(f"  Version:  {version}")
     print(f"  SHA-256:  {sha256_hash}")
     print(f"  Files:")
-    for fname in ['trilobase.db', 'trilobase.scoda', 'metadata.json', 'checksums.sha256', 'README.md']:
+    for fname in [db_filename, scoda_filename, 'metadata.json', 'checksums.sha256', 'README.md']:
         fpath = os.path.join(release_dir, fname)
         size = os.path.getsize(fpath)
         print(f"    {fname:20s} {size:>10,} bytes")
@@ -279,10 +306,10 @@ def create_release(db_path, output_dir):
 
 def main():
     parser = argparse.ArgumentParser(
-        description='Create a SCODA release package for Trilobase')
+        description='Create a SCODA release package')
     parser.add_argument(
-        '--db', default=DEFAULT_DB,
-        help='Path to source SQLite database (default: trilobase.db)')
+        '--db',
+        help='Path to source SQLite database')
     parser.add_argument(
         '--output-dir', default=DEFAULT_OUTPUT,
         help='Output directory for releases (default: releases/)')
@@ -291,20 +318,23 @@ def main():
         help='Preview release without creating files')
     args = parser.parse_args()
 
-    db_path = os.path.abspath(args.db)
+    db_path = os.path.abspath(args.db) if args.db else None
     output_dir = os.path.abspath(args.output_dir)
 
-    if not os.path.exists(db_path):
+    if not db_path or not os.path.exists(db_path):
         print(f"Error: Database not found: {db_path}", file=sys.stderr)
         raise SystemExit(1)
 
     version = get_version(db_path)
-    release_dir = os.path.join(output_dir, f"trilobase-v{version}")
+    artifact_id = get_artifact_id(db_path)
+    release_dir = os.path.join(output_dir, f"{artifact_id}-v{version}")
 
     if args.dry_run:
+        db_filename = f"{artifact_id}.db"
         print("=== DRY RUN (no files will be created) ===")
         print()
         print(f"Source DB:     {db_path}")
+        print(f"Artifact ID:   {artifact_id}")
         print(f"Version:       {version}")
         print(f"Release dir:   {release_dir}")
         print()
@@ -317,7 +347,7 @@ def main():
 
         print()
         print("Files that would be created:")
-        print(f"  {release_dir}/trilobase.db        (read-only copy)")
+        print(f"  {release_dir}/{db_filename}        (read-only copy)")
         print(f"  {release_dir}/metadata.json       (metadata + provenance)")
         print(f"  {release_dir}/checksums.sha256    (SHA-256 hash)")
         print(f"  {release_dir}/README.md           (usage notes)")
