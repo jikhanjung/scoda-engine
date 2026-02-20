@@ -545,13 +545,23 @@ def _resolve_paths():
 
     Priority:
       1. If _set_paths_for_testing() was called, use those paths.
-      2. Frozen mode (PyInstaller): look for .scoda next to executable, fallback to bundled .db.
-      3. Dev mode: look for .scoda in project root, fallback to .db.
+      2. SCODA_DB_PATH environment variable (for testing/CI).
+      3. Frozen mode (PyInstaller): look for .scoda next to executable, fallback to bundled .db.
+      4. Dev mode: look for .scoda in project root, fallback to .db.
     """
     global _canonical_db, _overlay_db, _scoda_pkg
 
     if _canonical_db is not None:
         return  # already resolved (or set by testing)
+
+    # Check environment variable override (for testing/CI)
+    env_db = os.environ.get('SCODA_DB_PATH')
+    if env_db:
+        _canonical_db = os.path.abspath(env_db)
+        name = os.path.splitext(os.path.basename(_canonical_db))[0]
+        _overlay_db = os.path.join(os.path.dirname(_canonical_db), f'{name}_overlay.db')
+        _resolve_dependencies(os.path.dirname(_canonical_db))
+        return
 
     if getattr(sys, 'frozen', False):
         base_dir = os.path.dirname(sys.executable)

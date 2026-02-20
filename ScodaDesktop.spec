@@ -20,7 +20,6 @@ a = Analysis(
     binaries=[],
     datas=[
         ('scoda_engine', 'scoda_engine'),
-        ('spa', 'spa'),
     ],
     hiddenimports=[
         'scoda_engine',

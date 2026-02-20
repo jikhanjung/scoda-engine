@@ -5,6 +5,7 @@ Tests all 7 builtin tools with realistic scenarios.
 Dynamic tools (from mcp_tools.json) are tested in test_runtime.py.
 """
 import json
+import os
 import pytest
 from contextlib import asynccontextmanager
 from mcp.client.session import ClientSession
@@ -12,11 +13,13 @@ from mcp.client.stdio import stdio_client, StdioServerParameters
 
 
 @asynccontextmanager
-async def create_session():
-    """Create a fresh MCP client session within the calling task."""
+async def create_session(db_path):
+    """Create a fresh MCP client session pointing at the given DB."""
+    env = {**os.environ, 'SCODA_DB_PATH': db_path}
     server_params = StdioServerParameters(
         command="python3",
-        args=["-m", "scoda_engine.mcp_server"]
+        args=["-m", "scoda_engine.mcp_server"],
+        env=env,
     )
     async with stdio_client(server_params) as (read, write):
         async with ClientSession(read, write) as session:
@@ -25,9 +28,10 @@ async def create_session():
 
 
 @pytest.mark.asyncio
-async def test_list_tools():
+async def test_list_tools(generic_db):
     """Test that all 7 builtin tools are exposed"""
-    async with create_session() as session:
+    db_path, _ = generic_db
+    async with create_session(db_path) as session:
         result = await session.list_tools()
         tools = result.tools
         tool_names = [tool.name for tool in tools]
@@ -49,9 +53,10 @@ async def test_list_tools():
 
 
 @pytest.mark.asyncio
-async def test_get_metadata():
+async def test_get_metadata(generic_db):
     """Test metadata (generic — artifact_metadata only, no domain statistics)"""
-    async with create_session() as session:
+    db_path, _ = generic_db
+    async with create_session(db_path) as session:
         result = await session.call_tool("get_metadata", {})
         metadata = json.loads(result.content[0].text)
 
@@ -62,9 +67,10 @@ async def test_get_metadata():
 
 
 @pytest.mark.asyncio
-async def test_get_provenance():
+async def test_get_provenance(generic_db):
     """Test data provenance information"""
-    async with create_session() as session:
+    db_path, _ = generic_db
+    async with create_session(db_path) as session:
         result = await session.call_tool("get_provenance", {})
         data = json.loads(result.content[0].text)
 
@@ -78,9 +84,10 @@ async def test_get_provenance():
 
 
 @pytest.mark.asyncio
-async def test_list_available_queries():
+async def test_list_available_queries(generic_db):
     """Test named queries list"""
-    async with create_session() as session:
+    db_path, _ = generic_db
+    async with create_session(db_path) as session:
         result = await session.call_tool("list_available_queries", {})
         data = json.loads(result.content[0].text)
 
@@ -95,9 +102,10 @@ async def test_list_available_queries():
 
 
 @pytest.mark.asyncio
-async def test_execute_named_query():
+async def test_execute_named_query(generic_db):
     """Test named query execution with a parameterless query"""
-    async with create_session() as session:
+    db_path, _ = generic_db
+    async with create_session(db_path) as session:
         list_result = await session.call_tool("list_available_queries", {})
         queries = json.loads(list_result.content[0].text)
         assert len(queries) > 0
@@ -120,41 +128,42 @@ async def test_execute_named_query():
 
 
 @pytest.mark.asyncio
-async def test_annotations_lifecycle():
+async def test_annotations_lifecycle(generic_db):
     """Test annotation create/read/delete lifecycle"""
-    async with create_session() as session:
+    db_path, _ = generic_db
+    async with create_session(db_path) as session:
         # Use execute_named_query to find a genus instead of removed search_genera
         list_result = await session.call_tool("list_available_queries", {})
         queries = json.loads(list_result.content[0].text)
 
-        # Find a query that returns genus data
-        genus_query = None
+        # Find a query that returns item data
+        item_query = None
         for q in queries:
-            if 'genus' in q['name'].lower() or 'genera' in q['name'].lower():
-                genus_query = q['name']
+            if 'items_list' == q['name']:
+                item_query = q['name']
                 break
 
-        if genus_query:
+        if item_query:
             query_result = await session.call_tool("execute_named_query", {
-                "query_name": genus_query,
+                "query_name": item_query,
                 "params": {}
             })
             query_data = json.loads(query_result.content[0].text)
             if query_data["rows"]:
                 row = query_data["rows"][0]
-                genus_id = row.get("id", 1)
-                genus_name = row.get("name", "TestGenus")
+                item_id = row.get("id", 1)
+                item_name = row.get("name", "TestItem")
             else:
-                genus_id = 1
-                genus_name = "TestGenus"
+                item_id = 1
+                item_name = "TestItem"
         else:
-            genus_id = 1
-            genus_name = "TestGenus"
+            item_id = 1
+            item_name = "TestItem"
 
         create_result = await session.call_tool("add_annotation", {
-            "entity_type": "genus",
-            "entity_id": genus_id,
-            "entity_name": genus_name,
+            "entity_type": "item",
+            "entity_id": item_id,
+            "entity_name": item_name,
             "annotation_type": "note",
             "content": "Test annotation from MCP",
             "author": "test_user"
@@ -162,14 +171,14 @@ async def test_annotations_lifecycle():
         annotation = json.loads(create_result.content[0].text)
 
         assert "id" in annotation
-        assert annotation["entity_type"] == "genus"
-        assert annotation["entity_id"] == genus_id
+        assert annotation["entity_type"] == "item"
+        assert annotation["entity_id"] == item_id
         assert annotation["content"] == "Test annotation from MCP"
         annotation_id = annotation["id"]
 
         read_result = await session.call_tool("get_annotations", {
-            "entity_type": "genus",
-            "entity_id": genus_id
+            "entity_type": "item",
+            "entity_id": item_id
         })
         annotations = json.loads(read_result.content[0].text)
 
@@ -184,8 +193,8 @@ async def test_annotations_lifecycle():
         assert "message" in delete_data
 
         verify_result = await session.call_tool("get_annotations", {
-            "entity_type": "genus",
-            "entity_id": genus_id
+            "entity_type": "item",
+            "entity_id": item_id
         })
         remaining = json.loads(verify_result.content[0].text)
 
