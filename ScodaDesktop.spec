@@ -11,6 +11,9 @@ Build with: pyinstaller ScodaDesktop.spec
 
 block_cipher = None
 
+from PyInstaller.utils.hooks import collect_submodules
+_uvicorn_imports = collect_submodules('uvicorn')
+
 # ---------------------------------------------------------------------------
 # ScodaDesktop.exe  (GUI viewer)
 # ---------------------------------------------------------------------------
@@ -35,12 +38,11 @@ a = Analysis(
         'fastapi.staticfiles',
         'fastapi.templating',
         'fastapi.middleware.cors',
-        'uvicorn',
         'sqlite3',
         'json',
         'webbrowser',
         'threading',
-    ],
+    ] + _uvicorn_imports,
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[],
@@ -101,10 +103,9 @@ mcp_a = Analysis(
         'starlette.applications',
         'starlette.routing',
         'starlette.responses',
-        'uvicorn',
         'sqlite3',
         'json',
-    ],
+    ] + _uvicorn_imports,
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[],
