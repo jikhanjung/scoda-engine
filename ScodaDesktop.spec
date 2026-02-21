@@ -11,8 +11,12 @@ Build with: pyinstaller ScodaDesktop.spec
 
 block_cipher = None
 
-from PyInstaller.utils.hooks import collect_submodules
-_uvicorn_imports = collect_submodules('uvicorn')
+from PyInstaller.utils.hooks import collect_all
+
+# Collect uvicorn + all its submodules, data files, and binaries.
+# collect_all returns (datas, binaries, hiddenimports) — more thorough
+# than collect_submodules which only returns module names.
+_uvi_datas, _uvi_binaries, _uvi_hidden = collect_all('uvicorn')
 
 # ---------------------------------------------------------------------------
 # ScodaDesktop.exe  (GUI viewer)
@@ -20,10 +24,10 @@ _uvicorn_imports = collect_submodules('uvicorn')
 a = Analysis(
     ['launcher_gui.py'],
     pathex=['core'],
-    binaries=[],
+    binaries=[] + _uvi_binaries,
     datas=[
         ('scoda_engine', 'scoda_engine'),
-    ],
+    ] + _uvi_datas,
     hiddenimports=[
         'scoda_engine',
         'scoda_engine.gui',
@@ -38,11 +42,12 @@ a = Analysis(
         'fastapi.staticfiles',
         'fastapi.templating',
         'fastapi.middleware.cors',
+        'uvicorn',
         'sqlite3',
         'json',
         'webbrowser',
         'threading',
-    ] + _uvicorn_imports,
+    ] + _uvi_hidden,
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[],
@@ -84,11 +89,11 @@ exe = EXE(
 mcp_a = Analysis(
     ['launcher_mcp.py'],
     pathex=['core'],
-    binaries=[],
+    binaries=[] + _uvi_binaries,
     datas=[
         ('scoda_engine/scoda_package.py', 'scoda_engine'),
         ('scoda_engine/__init__.py', 'scoda_engine'),
-    ],
+    ] + _uvi_datas,
     hiddenimports=[
         'scoda_engine',
         'scoda_engine.mcp_server',
@@ -103,9 +108,10 @@ mcp_a = Analysis(
         'starlette.applications',
         'starlette.routing',
         'starlette.responses',
+        'uvicorn',
         'sqlite3',
         'json',
-    ] + _uvicorn_imports,
+    ] + _uvi_hidden,
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[],
