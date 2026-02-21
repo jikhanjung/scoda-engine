@@ -16,7 +16,7 @@ block_cipher = None
 # ---------------------------------------------------------------------------
 a = Analysis(
     ['launcher_gui.py'],
-    pathex=[],
+    pathex=['core'],
     binaries=[],
     datas=[
         ('scoda_engine', 'scoda_engine'),
@@ -81,7 +81,7 @@ exe = EXE(
 # ---------------------------------------------------------------------------
 mcp_a = Analysis(
     ['launcher_mcp.py'],
-    pathex=[],
+    pathex=['core'],
     binaries=[],
     datas=[
         ('scoda_engine/scoda_package.py', 'scoda_engine'),
