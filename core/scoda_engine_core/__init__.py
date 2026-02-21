@@ -1,5 +1,7 @@
 """scoda_engine_core — pure-stdlib library for .scoda data packages."""
 
+__version__ = "0.1.0"
+
 from .scoda_package import (
     ScodaPackage, PackageRegistry,
     get_db, ensure_overlay_db, get_canonical_db_path, get_overlay_db_path,

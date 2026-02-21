@@ -16,6 +16,7 @@ import sys
 import time
 import subprocess
 
+from scoda_engine import __version__
 import scoda_engine_core as scoda_package
 
 
@@ -65,7 +66,7 @@ class TkLogHandler(logging.Handler):
 class ScodaDesktopGUI:
     def __init__(self):
         self.root = tk.Tk()
-        self.root.title("SCODA Desktop")
+        self.root.title(f"SCODA Desktop v{__version__}")
         self.root.geometry("800x600")
         self.root.resizable(True, True)
         self.root.minsize(600, 400)

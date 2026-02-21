@@ -18,6 +18,7 @@
 | P05: SCODA distribution strategy and architecture design | Done | `devlog/20260220_P05_*` |
 | P06: scoda-engine-core separation plan | Done | `devlog/20260221_P06_core_separation_plan.md` |
 | S-2: scoda-engine-core separation | Done | Monorepo `core/` + shim + import migration |
+| P07: Version management strategy | Done | `devlog/20260221_P07_version_management_strategy.md` |
 
 ### Test Status
 
@@ -110,6 +111,13 @@ pytest tests/
 | PyInstaller build | `python scripts/build.py` |
 | Release packaging | `python scripts/release.py` |
 
+### Version Management
+
+- 두 패키지 독립 SemVer: `scoda-engine-core` (PyPI) / `scoda-engine` (Desktop)
+- Git 태그: `core-v*` (Core), `desktop-v*` (Desktop)
+- 런타임 접근: `from scoda_engine_core import __version__` / `from scoda_engine import __version__`
+- 릴리스 시 `pyproject.toml` + `__init__.py`의 `__version__` 동기화 필수
+
 ### Conventions
 
 - Core library: `from scoda_engine_core import ScodaPackage, get_db`
@@ -128,6 +136,7 @@ pytest tests/
 | Future roadmap | `devlog/20260219_P01_future_roadmap.md` |
 | Distribution strategy | `devlog/20260220_P05_SCODA_Distribution_and_Architecture_Strategy.md` |
 | Core separation plan | `devlog/20260221_P06_core_separation_plan.md` |
+| Version management strategy | `devlog/20260221_P07_version_management_strategy.md` |
 | SCODA concepts | `docs/SCODA_CONCEPT.md` |
 | API reference | `docs/API_REFERENCE.md` |
 | MCP guide | `docs/MCP_GUIDE.md` |
