@@ -55,6 +55,43 @@ P06 계획서(`devlog/20260221_P06_core_separation_plan.md`)의 10단계를 실�
 
 모든 테스트 통과 (runtime + MCP subprocess).
 
+## PyInstaller 빌드 수정 (ScodaDesktop.spec)
+
+Windows에서 exe 빌드 후 실행 시 여러 문제가 발생하여 순차적으로 수정.
+**근본 원인**: conda/pip 환경이 제대로 세팅되지 않은 상태에서 빌드하여
+PyInstaller가 의존성을 찾지 못한 것이 핵심 문제였음.
+
+### 수정 이력
+
+| 문제 | 원인 | 수정 |
+|------|------|------|
+| `No module named 'glob'` | `datas`로 .py 복사 시 import 의존성 미추적 | `datas`에서 `scoda_engine_core` 제거 |
+| `No module named 'scoda_engine_core'` | editable install의 `.pth`를 PyInstaller가 못 따라감 | `pathex=['core']` 추가 |
+| `No module named 'uvicorn'` | 빌드 환경 pip 미설치 + PyInstaller 수집 불충분 | `collect_all('uvicorn')` + 환경 재설치 |
+
+### 최종 ScodaDesktop.spec 핵심 변경
+
+```python
+from PyInstaller.utils.hooks import collect_all
+_uvi_datas, _uvi_binaries, _uvi_hidden = collect_all('uvicorn')
+
+a = Analysis(
+    pathex=['core'],                    # scoda_engine_core 소스 경로
+    binaries=[] + _uvi_binaries,
+    datas=[...] + _uvi_datas,
+    hiddenimports=[..., 'uvicorn'] + _uvi_hidden,
+)
+```
+
+### 빌드 전 필수 사항
+
+```bash
+pip install -e ./core
+pip install -e ".[dev]"
+```
+
+빌드 환경에서 반드시 위 명령을 먼저 실행해야 PyInstaller가 모든 의존성을 수집할 수 있음.
+
 ## 주의사항
 
 1. 테스트에서 모듈 내부 변수(`_registry`, `_scoda_pkg` 등) 접근 시
