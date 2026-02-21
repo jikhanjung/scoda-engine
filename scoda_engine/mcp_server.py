@@ -17,7 +17,7 @@ import uvicorn
 
 logger = logging.getLogger(__name__)
 
-from .scoda_package import get_db, ensure_overlay_db, get_mcp_tools
+from scoda_engine_core import get_db, ensure_overlay_db, get_mcp_tools
 
 def row_to_dict(row):
     return dict(row)

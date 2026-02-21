@@ -3,7 +3,7 @@
 ## 1. 개요
 
 본 문서는 SCODA 프로젝트에서 PyPI 배포, scoda-engine-core 분리, 그리고
-ScodeDesktop 데스크탑 애플리케이션의 향후 운영 전략에 대한 논의를 정리한
+ScodaDesktop 데스크탑 애플리케이션의 향후 운영 전략에 대한 논의를 정리한
 것이다.
 
 목표는 다음과 같다.
@@ -31,7 +31,7 @@ PyPI는 다음을 위한 저장소이다.
 
 ### 2.2 현재 구조의 문제점
 
-현재 ScodeDesktop는 다음 요소를 포함한다.
+현재 ScodaDesktop는 다음 요소를 포함한다.
 
 -   GUI
 -   패키지 로더
@@ -112,9 +112,9 @@ scoda-engine-core는 SCODA 패키지를 해석·관리하는 핵심 엔진이다
 
 ------------------------------------------------------------------------
 
-## 4. ScodeDesktop의 역할 정의
+## 4. ScodaDesktop의 역할 정의
 
-ScodeDesktop는 사용자 인터페이스 계층이다.
+ScodaDesktop는 사용자 인터페이스 계층이다.
 
 주요 목표:
 
@@ -127,7 +127,7 @@ ScodeDesktop는 사용자 인터페이스 계층이다.
 
 ------------------------------------------------------------------------
 
-## 5. ScodeDesktop 배포 전략
+## 5. ScodaDesktop 배포 전략
 
 ### 5.1 기본 배포 채널
 
@@ -225,7 +225,7 @@ ScodeDesktop는 사용자 인터페이스 계층이다.
       src/scoda/
       tests/
 
-    scode-desktop/
+    scoda-desktop/
       ui/
       main.py
       build/

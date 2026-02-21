@@ -12,9 +12,9 @@ import zipfile
 
 import pytest
 
-import scoda_engine.scoda_package as scoda_package
+import scoda_engine_core as scoda_package
 from scoda_engine.app import app
-from scoda_engine.scoda_package import get_db, ScodaPackage, PackageRegistry
+from scoda_engine_core import get_db, ScodaPackage, PackageRegistry
 
 # Import release script functions
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(__file__)), 'scripts'))
@@ -830,7 +830,7 @@ class TestPackageRegistry:
         pkg_dir.mkdir()
         ScodaPackage.create(canonical_db_path, str(pkg_dir / "test.scoda"))
 
-        from scoda_engine.scoda_package import PackageRegistry
+        from scoda_engine_core import PackageRegistry
         reg = PackageRegistry()
         reg.scan(str(pkg_dir))
 
@@ -848,7 +848,7 @@ class TestPackageRegistry:
         pkg_dir.mkdir()
         ScodaPackage.create(canonical_db_path, str(pkg_dir / "test.scoda"))
 
-        from scoda_engine.scoda_package import PackageRegistry
+        from scoda_engine_core import PackageRegistry
         reg = PackageRegistry()
         reg.scan(str(pkg_dir))
 
@@ -868,7 +868,7 @@ class TestPackageRegistry:
         pkg_dir.mkdir()
         ScodaPackage.create(canonical_db_path, str(pkg_dir / "test.scoda"))
 
-        from scoda_engine.scoda_package import PackageRegistry
+        from scoda_engine_core import PackageRegistry
         reg = PackageRegistry()
         reg.scan(str(pkg_dir))
 
@@ -900,7 +900,7 @@ class TestPackageRegistry:
                                 {"name": "dep-data", "alias": "dep"}
                             ]})
 
-        from scoda_engine.scoda_package import PackageRegistry
+        from scoda_engine_core import PackageRegistry
         reg = PackageRegistry()
         reg.scan(str(pkg_dir))
 
@@ -928,7 +928,7 @@ class TestPackageRegistry:
         ScodaPackage.create(dep_path, str(pkg_dir / "dep-data.scoda"),
                             metadata={"name": "dep-data"})
 
-        from scoda_engine.scoda_package import PackageRegistry
+        from scoda_engine_core import PackageRegistry
         reg = PackageRegistry()
         reg.scan(str(pkg_dir))
 
@@ -952,7 +952,7 @@ class TestPackageRegistry:
         ScodaPackage.create(dep_path, str(pkg_dir / "dep-data.scoda"),
                             metadata={"name": "dep-data"})
 
-        from scoda_engine.scoda_package import PackageRegistry
+        from scoda_engine_core import PackageRegistry
         reg = PackageRegistry()
         reg.scan(str(pkg_dir))
 
@@ -986,7 +986,7 @@ class TestPackageRegistry:
         pkg_dir = tmp_path / "pkg_err"
         pkg_dir.mkdir()
 
-        from scoda_engine.scoda_package import PackageRegistry
+        from scoda_engine_core import PackageRegistry
         reg = PackageRegistry()
         reg.scan(str(pkg_dir))
 
@@ -1054,38 +1054,38 @@ class TestActivePackage:
     def test_set_active_package_routes_get_db(self, generic_db, tmp_path):
         """set_active_package() should make get_db() use registry."""
         canonical_db_path, overlay_db_path = generic_db
-        import scoda_engine.scoda_package as sp
-        from scoda_engine.scoda_package import PackageRegistry
+        import scoda_engine_core.scoda_package as sp_mod
+        from scoda_engine_core import PackageRegistry
 
         pkg_dir = str(tmp_path / "active_pkg")
         os.makedirs(pkg_dir, exist_ok=True)
         ScodaPackage.create(canonical_db_path, os.path.join(pkg_dir, "sample-data.scoda"))
 
-        old_registry = sp._registry
-        sp._registry = PackageRegistry()
-        sp._registry.scan(pkg_dir)
+        old_registry = sp_mod._registry
+        sp_mod._registry = PackageRegistry()
+        sp_mod._registry.scan(pkg_dir)
 
         try:
-            sp.set_active_package('sample-data')
-            conn = sp.get_db()
+            sp_mod.set_active_package('sample-data')
+            conn = sp_mod.get_db()
             cursor = conn.cursor()
             cursor.execute("SELECT COUNT(*) as cnt FROM items")
             count = cursor.fetchone()['cnt']
             assert count > 0
             conn.close()
         finally:
-            sp._active_package_name = None
-            sp._registry.close_all()
-            sp._registry = old_registry
+            sp_mod._active_package_name = None
+            sp_mod._registry.close_all()
+            sp_mod._registry = old_registry
 
     def test_active_package_cleared_by_testing(self, generic_db):
         """_set_paths_for_testing() should clear active package."""
-        import scoda_engine.scoda_package as sp
-        sp._active_package_name = 'something'
+        import scoda_engine_core.scoda_package as sp_mod
+        sp_mod._active_package_name = 'something'
         canonical_db_path, overlay_db_path = generic_db
-        sp._set_paths_for_testing(canonical_db_path, overlay_db_path)
-        assert sp._active_package_name is None
-        sp._reset_paths()
+        sp_mod._set_paths_for_testing(canonical_db_path, overlay_db_path)
+        assert sp_mod._active_package_name is None
+        sp_mod._reset_paths()
 
 
 # ---------------------------------------------------------------------------
@@ -1505,7 +1505,7 @@ class TestDynamicMcpTools:
 
     def test_registry_get_mcp_tools(self, generic_scoda_with_mcp_tools, tmp_path):
         """PackageRegistry.get_mcp_tools should return tools from .scoda package."""
-        from scoda_engine.scoda_package import PackageRegistry
+        from scoda_engine_core import PackageRegistry
         scoda_path, _, _ = generic_scoda_with_mcp_tools
 
         registry = PackageRegistry()
@@ -1525,7 +1525,7 @@ class TestDynamicMcpTools:
 
     def test_registry_get_mcp_tools_not_found(self):
         """PackageRegistry.get_mcp_tools should return None for unknown package."""
-        from scoda_engine.scoda_package import PackageRegistry
+        from scoda_engine_core import PackageRegistry
         registry = PackageRegistry()
         assert registry.get_mcp_tools('nonexistent') is None
 
@@ -1533,23 +1533,24 @@ class TestDynamicMcpTools:
 
     def test_module_get_mcp_tools_with_scoda(self, generic_scoda_with_mcp_tools, tmp_path):
         """Module-level get_mcp_tools should work via legacy _scoda_pkg path."""
-        from scoda_engine.scoda_package import get_mcp_tools as module_get_mcp_tools
+        import scoda_engine_core.scoda_package as sp_mod
+        from scoda_engine_core import get_mcp_tools as module_get_mcp_tools
         scoda_path, canonical, overlay = generic_scoda_with_mcp_tools
 
         # Open .scoda and set it as the module-level _scoda_pkg
         pkg = ScodaPackage(scoda_path)
-        old_pkg = scoda_package._scoda_pkg
-        old_canonical = scoda_package._canonical_db
+        old_pkg = sp_mod._scoda_pkg
+        old_canonical = sp_mod._canonical_db
         try:
-            scoda_package._scoda_pkg = pkg
-            scoda_package._canonical_db = pkg.db_path  # ensure _resolve_paths won't re-resolve
-            scoda_package._active_package_name = None
+            sp_mod._scoda_pkg = pkg
+            sp_mod._canonical_db = pkg.db_path  # ensure _resolve_paths won't re-resolve
+            sp_mod._active_package_name = None
             tools = module_get_mcp_tools()
             assert tools is not None
             assert len(tools['tools']) == 3
         finally:
-            scoda_package._scoda_pkg = old_pkg
-            scoda_package._canonical_db = old_canonical
+            sp_mod._scoda_pkg = old_pkg
+            sp_mod._canonical_db = old_canonical
             pkg.close()
 
 

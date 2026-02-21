@@ -1,5 +1,11 @@
 # CLAUDE.md — SCODA Engine
 
+## Session Start
+
+At the beginning of each session, read `docs/HANDOFF.md` first to understand the current
+project status, in-progress work, and next steps. Key architecture and dev setup are also
+documented there.
+
 ## Quick Start
 
 This is the **SCODA Engine** runtime — a generic viewer/server for `.scoda` data packages.
@@ -18,16 +24,21 @@ SCODA Engine provides:
 
 ```
 scoda-engine/
-├── pyproject.toml              # Package metadata + dependencies
+├── pyproject.toml              # Desktop package metadata + dependencies
 ├── README.md
 ├── CLAUDE.md
 ├── pytest.ini                  # pytest config (testpaths=tests)
 ├── ScodaDesktop.spec           # PyInstaller build spec
 ├── launcher_gui.py             # GUI entry point
 ├── launcher_mcp.py             # MCP entry point
-├── scoda_engine/               # Main package
+├── core/                       # scoda-engine-core (independent PyPI package)
+│   ├── pyproject.toml          # Zero dependencies, pure stdlib
+│   └── scoda_engine_core/
+│       ├── __init__.py         # Public API re-exports
+│       └── scoda_package.py    # Core: .scoda ZIP, DB access, PackageRegistry
+├── scoda_engine/               # Desktop/server package
 │   ├── __init__.py
-│   ├── scoda_package.py        # Core: .scoda ZIP, DB access, PackageRegistry
+│   ├── scoda_package.py        # Backward-compat shim → scoda_engine_core
 │   ├── app.py                  # FastAPI web server
 │   ├── mcp_server.py           # MCP server (stdio/SSE)
 │   ├── gui.py                  # Tkinter GUI
@@ -51,6 +62,7 @@ scoda-engine/
 ## Key Architecture
 
 - **Zero domain code**: All domain logic comes from `.scoda` packages
+- **Monorepo with core separation**: `scoda_engine_core` (pure stdlib) + `scoda_engine` (desktop/server)
 - **Manifest-driven UI**: Views, detail modals, and actions defined in DB `ui_manifest`
 - **Named queries**: SQL in `ui_queries` table, executed via `/api/query/<name>`
 - **Composite detail**: `/api/composite/<view>?id=N` assembles multi-query responses
@@ -60,6 +72,7 @@ scoda-engine/
 ## Testing
 
 ```bash
+pip install -e ./core
 pip install -e ".[dev]"
 pytest tests/
 ```
@@ -68,6 +81,8 @@ Test fixtures use trilobase-style sample data but test **SCODA mechanisms** (man
 
 ## Conventions
 
-- Internal imports use relative (`from .scoda_package import ...`)
+- Core library imports: `from scoda_engine_core import ScodaPackage, get_db`
+- Desktop/server internal imports: `from scoda_engine_core import ...` (not relative)
 - External/test imports use absolute (`from scoda_engine.app import app`)
+- Backward-compat shim: `scoda_engine.scoda_package` still works via `sys.modules` redirect
 - Subprocess calls use `-m` flag (`python -m scoda_engine.mcp_server`)

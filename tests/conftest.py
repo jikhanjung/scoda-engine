@@ -18,9 +18,9 @@ import sys
 
 import pytest
 
-import scoda_engine.scoda_package as scoda_package
+import scoda_engine_core as scoda_package
 from scoda_engine.app import app
-from scoda_engine.scoda_package import get_db, ScodaPackage
+from scoda_engine_core import get_db, ScodaPackage
 
 # Import overlay DB init (used by generic_db fixture)
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(__file__)), 'scripts'))

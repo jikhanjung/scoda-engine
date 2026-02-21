@@ -48,7 +48,7 @@ def main():
         os.chdir(base_path)
 
         if args.package:
-            from .scoda_package import set_active_package
+            from scoda_engine_core import set_active_package
             set_active_package(args.package)
 
         from .app import app

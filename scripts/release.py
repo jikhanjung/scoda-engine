@@ -26,7 +26,7 @@ from datetime import datetime, timezone
 
 # Add parent directory for scoda_package import
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
-from scoda_engine.scoda_package import ScodaPackage
+from scoda_engine_core import ScodaPackage
 
 # SCODA core tables excluded from auto-discovery statistics
 _SCODA_META_TABLES = {

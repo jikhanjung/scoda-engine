@@ -20,6 +20,7 @@ a = Analysis(
     binaries=[],
     datas=[
         ('scoda_engine', 'scoda_engine'),
+        ('core/scoda_engine_core', 'scoda_engine_core'),
     ],
     hiddenimports=[
         'scoda_engine',
@@ -28,6 +29,8 @@ a = Analysis(
         'scoda_engine.app',
         'scoda_engine.mcp_server',
         'scoda_engine.serve',
+        'scoda_engine_core',
+        'scoda_engine_core.scoda_package',
         'fastapi',
         'fastapi.responses',
         'fastapi.staticfiles',
@@ -84,11 +87,14 @@ mcp_a = Analysis(
     datas=[
         ('scoda_engine/scoda_package.py', 'scoda_engine'),
         ('scoda_engine/__init__.py', 'scoda_engine'),
+        ('core/scoda_engine_core', 'scoda_engine_core'),
     ],
     hiddenimports=[
         'scoda_engine',
         'scoda_engine.mcp_server',
         'scoda_engine.scoda_package',
+        'scoda_engine_core',
+        'scoda_engine_core.scoda_package',
         'mcp',
         'mcp.server',
         'mcp.server.stdio',

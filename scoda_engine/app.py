@@ -17,7 +17,7 @@ import sqlite3
 
 logger = logging.getLogger(__name__)
 
-from .scoda_package import get_db
+from scoda_engine_core import get_db
 
 app = FastAPI(title="SCODA Desktop")
 
@@ -706,6 +706,6 @@ if __name__ == '__main__':
                         help='Active package name')
     args = parser.parse_args()
     if args.package:
-        from .scoda_package import set_active_package
+        from scoda_engine_core import set_active_package
         set_active_package(args.package)
     uvicorn.run(app, host='0.0.0.0', port=8080)

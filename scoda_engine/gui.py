@@ -16,7 +16,7 @@ import sys
 import time
 import subprocess
 
-from . import scoda_package
+import scoda_engine_core as scoda_package
 
 
 class LogRedirector:
@@ -109,6 +109,8 @@ class ScodaDesktopGUI:
         self._tk_log_handler.setFormatter(logging.Formatter("%(name)s: %(message)s"))
         logging.getLogger("scoda_engine").setLevel(logging.INFO)
         logging.getLogger("scoda_engine").addHandler(self._tk_log_handler)
+        logging.getLogger("scoda_engine_core").setLevel(logging.INFO)
+        logging.getLogger("scoda_engine_core").addHandler(self._tk_log_handler)
 
         # Initial log messages
         self._append_log("SCODA Desktop initialized")

@@ -8,6 +8,7 @@ version = "0.1.0"
 description = "SCODA Engine — runtime for Self-Contained Data Artifacts"
 requires-python = ">=3.10"
 dependencies = [
+    "scoda-engine-core>=0.1.0",
     "fastapi>=0.104.0",
     "httpx>=0.25.0",
     "mcp>=1.0.0",
@@ -25,6 +26,7 @@ scoda-mcp = "scoda_engine.mcp_server:main"
 
 [tool.setuptools.packages.find]
 include = ["scoda_engine*"]
+exclude = ["core*"]
 
 [tool.setuptools.package-data]
 scoda_engine = ["templates/*.html", "static/**/*"]
