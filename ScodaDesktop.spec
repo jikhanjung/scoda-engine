@@ -20,7 +20,6 @@ a = Analysis(
     binaries=[],
     datas=[
         ('scoda_engine', 'scoda_engine'),
-        ('core/scoda_engine_core', 'scoda_engine_core'),
     ],
     hiddenimports=[
         'scoda_engine',
@@ -87,7 +86,6 @@ mcp_a = Analysis(
     datas=[
         ('scoda_engine/scoda_package.py', 'scoda_engine'),
         ('scoda_engine/__init__.py', 'scoda_engine'),
-        ('core/scoda_engine_core', 'scoda_engine_core'),
     ],
     hiddenimports=[
         'scoda_engine',
