@@ -1,6 +1,6 @@
 """scoda_engine_core — pure-stdlib library for .scoda data packages."""
 
-__version__ = "0.1.0"
+__version__ = "0.1.1"
 
 from .scoda_package import (
     ScodaPackage, PackageRegistry,
