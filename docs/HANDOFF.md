@@ -20,8 +20,10 @@
 | S-2: scoda-engine-core separation | Done | Monorepo `core/` + shim + import migration |
 | P07: Version management strategy | Done | `devlog/20260221_P07_version_management_strategy.md` |
 | P08/S-5: SCODA spec alignment | Done | `devlog/20260222_P08_scoda_spec_alignment.md` |
-| S-3: validate_manifest dedup | Done | Core `validate_manifest` module + thin script wrapper |
-| P10: trilobase validate_manifest cleanup | Done | trilobase 쪽 중복 삭제 + `scoda_engine_core` 임포트 전환 |
+| S-3: validate_manifest dedup | Done | `0bd54ba`, core v0.1.1 |
+| P10: trilobase validate_manifest cleanup | Done | trilobase repo에서 완료 |
+| Boolean 표시 라벨 통일 | Done | `da362c8` |
+| P11: Tree Snapshot Design v1 검토 | Done | `devlog/20260222_P11_tree_snapshot_design_review.md` |
 
 ### Test Status
 
@@ -29,9 +31,32 @@
 - All fixtures converted to domain-independent generic data
 - MCP subprocess tests support `SCODA_DB_PATH` environment variable
 
+### Recent Session (2026-02-22) Summary
+
+오늘 세션에서 진행한 작업:
+
+1. **S-3 구현**: `validate_manifest`/`validate_db`를 `scoda-engine-core`로 이동, `scripts/validate_manifest.py`를 thin wrapper로 교체, 테스트 임포트 경로 수정
+2. **Core 버전 범프**: `scoda-engine-core` 0.1.0 → 0.1.1 (새 public API 반영)
+3. **CRLF 경고 해결**: `.gitattributes` 추가 + local git config 설정
+4. **P10 계획 및 실행**: trilobase 쪽 `validate_manifest.py` 중복 제거 (trilobase repo에서 완료)
+5. **Boolean 표시 수정**: 기본 라벨 "Yes"/"No" → "True"/"False" 상수화, 4곳 렌더링 통일, tree item list에 누락된 boolean 처리 추가
+6. **P11 Tree Snapshot 검토**: Design v1 문서 검토 — 범용성 분석, 2-layer 설계 제안, 후속 검토 6개 영역 명시
+
 ---
 
 ## 2. Next Steps (by priority)
+
+### Tree Snapshot 설계 심화 (P11 후속)
+
+`docs/Trilobase_Tree_Snapshot_Design_v1.md`의 설계를 구체화.
+검토 결과 tree opinion 패턴은 SCODA 범용 메커니즘으로 설계 가능.
+후속 검토 항목: `devlog/20260222_P11_tree_snapshot_design_review.md` Section 7 참조.
+
+주요 미결 항목:
+- 2-layer API 경계 (범용 framework + 도메인 plugin)
+- Resolve 알고리즘 설계
+- 기존 manifest/overlay와의 통합 시나리오
+- Phase 0 POC 범위 확정
 
 ### S-4: SCODA Back-office
 
@@ -59,6 +84,8 @@ scoda-engine contains no domain-specific code. All domain logic comes from `.sco
 - `ui_queries` table: named SQL queries
 - `/api/query/<name>`: query execution endpoint
 - `/api/composite/<view>?id=N`: multi-query composite response
+- Generic viewer supports: hierarchy (tree/nested_table), table, detail modal, global search, annotations
+- Boolean columns: customizable via `true_label`/`false_label`, defaults `BOOLEAN_TRUE_LABEL`/`BOOLEAN_FALSE_LABEL`
 
 ### MCP Tools
 
@@ -137,7 +164,8 @@ pytest tests/
 | Distribution strategy | `devlog/20260220_P05_SCODA_Distribution_and_Architecture_Strategy.md` |
 | Core separation plan | `devlog/20260221_P06_core_separation_plan.md` |
 | Version management strategy | `devlog/20260221_P07_version_management_strategy.md` |
+| Tree Snapshot design | `docs/Trilobase_Tree_Snapshot_Design_v1.md` |
+| Tree Snapshot review | `devlog/20260222_P11_tree_snapshot_design_review.md` |
 | SCODA concepts | `docs/SCODA_CONCEPT.md` |
 | API reference | `docs/API_REFERENCE.md` |
 | MCP guide | `docs/MCP_GUIDE.md` |
-| Trilobase cleanup plan | `devlog/20260222_P10_trilobase_validate_manifest_cleanup.md` |
