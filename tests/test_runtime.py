@@ -23,7 +23,7 @@ from release import (
     calculate_sha256, store_sha256, get_statistics,
     get_provenance, build_metadata_json, generate_readme, create_release
 )
-from validate_manifest import validate_manifest, validate_db
+from scoda_engine_core import validate_manifest, validate_db
 
 
 

@@ -11,3 +11,4 @@ from .scoda_package import (
     _set_paths_for_testing, _reset_paths, _reset_registry,
     _parse_semver, _check_version_constraint,
 )
+from .validate_manifest import validate_manifest, validate_db

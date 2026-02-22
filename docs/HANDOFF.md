@@ -20,6 +20,7 @@
 | S-2: scoda-engine-core separation | Done | Monorepo `core/` + shim + import migration |
 | P07: Version management strategy | Done | `devlog/20260221_P07_version_management_strategy.md` |
 | P08/S-5: SCODA spec alignment | Done | `devlog/20260222_P08_scoda_spec_alignment.md` |
+| S-3: validate_manifest dedup | Done | Core `validate_manifest` module + thin script wrapper |
 
 ### Test Status
 
@@ -30,10 +31,6 @@
 ---
 
 ## 2. Next Steps (by priority)
-
-### S-3: validate_manifest.py Deduplication
-
-Replace trilobase's copy of `validate_manifest.py` with an import from `scoda-engine-core`.
 
 ### S-4: SCODA Back-office
 
