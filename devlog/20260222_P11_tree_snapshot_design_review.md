@@ -126,3 +126,61 @@ Phase 1 착수 전에 구체 스키마 정의 필요.
 | 기존 아키텍처 연동 | overlay/manifest와의 관계 정의 필요 |
 | Phase 1 스코프 | 축소 권장 (Phase 0 POC 선행) |
 | 문서 포맷 | pandoc 아티팩트 정리 필요 |
+
+---
+
+## 7. 후속 검토 필요 항목
+
+본 검토는 구조적/방향성 수준의 의견이며, 설계를 본격 진행하기 전에
+아래 항목들에 대한 심층 검토가 필요함.
+
+### 7.1 Snapshot JSON 스키마 심층 검토
+
+- **rules 필드 확장성**: `prefer_opinion` 외에 어떤 규칙 타입이 필요한가?
+  범용 레이어에서 지원할 규칙 타입과 도메인 전용 타입의 경계 정의
+- **overrides 필드 의미론**: `set_parent`, `treat_as_valid` 외에 어떤 오버라이드가 가능한가?
+  범용 오버라이드 (노드 이동, 삭제, 속성 변경)와 도메인 오버라이드의 분리
+- **options 필드 버전 호환성**: 정책이 추가/변경될 때 이전 스냅샷과의 호환성 보장 방법
+- **스키마 버전 관리**: `schema: "scoda.view_snapshot.v1"` → v2 전환 시 마이그레이션 전략
+
+### 7.2 Resolve 알고리즘 설계
+
+- **우선순위 충돌 해결**: 동일 노드에 복수 규칙이 적용될 때 결정 로직
+  (priority 숫자 비교만으로 충분한가? tie-breaking 정책은?)
+- **Cycle detection**: override로 인한 순환 참조 감지 및 처리 방법
+- **부분 resolve**: 규칙으로 해결 안 되는 노드의 처리
+  (에러? 경고? 기본값 적용?)
+- **성능**: 대규모 tree (수만 노드)에서의 resolve 성능 고려
+
+### 7.3 2-Layer API 경계 설계
+
+- **범용 프레임워크가 도메인 플러그인에 노출할 인터페이스 정의**
+  (규칙 타입 등록, 충돌 해결 콜백, 정책 핸들러 등)
+- **플러그인 디스커버리**: 도메인 규칙을 어떻게 등록하는가?
+  (.scoda 패키지 내 설정 파일? manifest 확장? Python entry point?)
+- **범용 규칙의 최소 집합**: 도메인 플러그인 없이도 동작하는 기본 규칙은 무엇인가?
+  (예: `set_parent`, `remove_node`, `set_attribute` 정도?)
+
+### 7.4 기존 시스템 통합 시나리오
+
+- **manifest 확장 구체안**: `source_snapshot` 필드가 실제로 어떻게 동작하는가?
+  hierarchy 뷰에서 source_query와 source_snapshot이 공존할 때의 우선순위
+- **API 엔드포인트 설계**: 스냅샷 CRUD, resolve 결과 조회 등의 REST API
+- **generic viewer 변경 범위**: 스냅샷 선택 UI, resolve된 tree 표시 등
+  기존 app.js에 어느 정도 변경이 필요한가?
+- **MCP 도구 확장**: 스냅샷 관련 MCP 도구 (생성, 조회, 비교) 설계
+
+### 7.5 저장소/영속성 설계
+
+- **스냅샷 JSON의 물리적 저장 위치**: canonical DB 내 테이블 vs 별도 JSON 파일 vs overlay DB
+- **resolved tree 캐싱 전략**: 매번 resolve vs 결과 캐싱?
+  캐시 무효화 조건은? (패키지 버전 변경 시 자동 무효화?)
+- **스냅샷 간 공유/참조**: 다른 패키지의 스냅샷을 참조할 수 있는가?
+  (의존 패키지의 tree 구조를 가져오는 경우)
+
+### 7.6 사용자 워크플로우 구체화
+
+- **View Builder UI 상세 설계**: 규칙 추가/제거, 우선순위 조정 인터페이스
+- **Conflict Inspector 상호작용**: 충돌 목록 표시 → 사용자 선택 → override 자동 생성 흐름
+- **스냅샷 비교 UI**: 두 스냅샷 간 차이를 어떻게 시각화할 것인가?
+  (tree diff? 노드별 변경 목록?)
