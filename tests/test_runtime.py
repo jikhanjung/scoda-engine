@@ -2309,3 +2309,408 @@ class TestManifestValidator:
         canonical_db_path, _ = generic_db
         errors, warnings = validate_db(canonical_db_path)
         assert errors == [], f"Unexpected errors: {errors}"
+
+
+# ---------------------------------------------------------------------------
+# S-5: SemVer parsing and version constraint checking
+# ---------------------------------------------------------------------------
+
+class TestSemVer:
+    """Tests for _parse_semver and _check_version_constraint."""
+
+    def test_parse_full_version(self):
+        from scoda_engine_core import _parse_semver
+        assert _parse_semver("1.2.3") == (1, 2, 3)
+
+    def test_parse_two_part(self):
+        from scoda_engine_core import _parse_semver
+        assert _parse_semver("1.2") == (1, 2, 0)
+
+    def test_parse_one_part(self):
+        from scoda_engine_core import _parse_semver
+        assert _parse_semver("3") == (3, 0, 0)
+
+    def test_parse_with_prerelease(self):
+        from scoda_engine_core import _parse_semver
+        assert _parse_semver("1.2.3-alpha") == (1, 2, 3)
+
+    def test_parse_invalid_raises(self):
+        from scoda_engine_core import _parse_semver
+        with pytest.raises(ValueError):
+            _parse_semver("abc")
+
+    def test_parse_empty_raises(self):
+        from scoda_engine_core import _parse_semver
+        with pytest.raises(ValueError):
+            _parse_semver("")
+
+    def test_parse_none_raises(self):
+        from scoda_engine_core import _parse_semver
+        with pytest.raises(ValueError):
+            _parse_semver(None)
+
+    def test_constraint_exact_match(self):
+        from scoda_engine_core import _check_version_constraint
+        assert _check_version_constraint("1.0.0", "==1.0.0") is True
+        assert _check_version_constraint("1.0.1", "==1.0.0") is False
+
+    def test_constraint_plain_version(self):
+        """Plain version string should be treated as ==."""
+        from scoda_engine_core import _check_version_constraint
+        assert _check_version_constraint("0.3.0", "0.3.0") is True
+        assert _check_version_constraint("0.3.1", "0.3.0") is False
+
+    def test_constraint_range(self):
+        from scoda_engine_core import _check_version_constraint
+        assert _check_version_constraint("0.1.5", ">=0.1.1,<0.2.0") is True
+        assert _check_version_constraint("0.2.0", ">=0.1.1,<0.2.0") is False
+        assert _check_version_constraint("0.1.0", ">=0.1.1,<0.2.0") is False
+
+    def test_constraint_empty(self):
+        from scoda_engine_core import _check_version_constraint
+        assert _check_version_constraint("1.0.0", "") is True
+        assert _check_version_constraint("1.0.0", None) is True
+
+    def test_constraint_not_equal(self):
+        from scoda_engine_core import _check_version_constraint
+        assert _check_version_constraint("1.0.0", "!=1.0.0") is False
+        assert _check_version_constraint("1.0.1", "!=1.0.0") is True
+
+    def test_constraint_gt_lt(self):
+        from scoda_engine_core import _check_version_constraint
+        assert _check_version_constraint("2.0.0", ">1.0.0") is True
+        assert _check_version_constraint("1.0.0", ">1.0.0") is False
+        assert _check_version_constraint("0.9.0", "<1.0.0") is True
+        assert _check_version_constraint("1.0.0", "<1.0.0") is False
+
+    def test_constraint_lte(self):
+        from scoda_engine_core import _check_version_constraint
+        assert _check_version_constraint("1.0.0", "<=1.0.0") is True
+        assert _check_version_constraint("1.0.1", "<=1.0.0") is False
+
+
+# ---------------------------------------------------------------------------
+# S-5: Checksum verification on load
+# ---------------------------------------------------------------------------
+
+class TestChecksumOnLoad:
+    """Tests for automatic checksum verification during ScodaPackage.__init__."""
+
+    def test_normal_load_passes(self, generic_db, tmp_path):
+        """A valid .scoda package should load without error."""
+        from scoda_engine_core import ScodaPackage
+        canonical_db, _ = generic_db
+        scoda_path = str(tmp_path / "good.scoda")
+        ScodaPackage.create(canonical_db, scoda_path)
+
+        with ScodaPackage(scoda_path) as pkg:
+            assert pkg.verify_checksum() is True
+
+    def test_corrupted_raises_checksum_error(self, generic_db, tmp_path):
+        """A .scoda with tampered data.db should raise ScodaChecksumError."""
+        from scoda_engine_core import ScodaPackage, ScodaChecksumError
+        canonical_db, _ = generic_db
+        scoda_path = str(tmp_path / "bad.scoda")
+        ScodaPackage.create(canonical_db, scoda_path)
+
+        # Tamper: rewrite data.db inside the ZIP with garbage
+        tampered_path = str(tmp_path / "tampered.scoda")
+        with zipfile.ZipFile(scoda_path, 'r') as zf_in:
+            manifest = json.loads(zf_in.read('manifest.json'))
+            with zipfile.ZipFile(tampered_path, 'w') as zf_out:
+                zf_out.writestr('manifest.json', json.dumps(manifest))
+                zf_out.writestr('data.db', b'corrupted data here')
+                zf_out.writestr('assets/', '')
+
+        with pytest.raises(ScodaChecksumError):
+            ScodaPackage(tampered_path)
+
+    def test_verify_checksum_false_skips(self, generic_db, tmp_path):
+        """verify_checksum=False should skip checksum check."""
+        from scoda_engine_core import ScodaPackage
+        canonical_db, _ = generic_db
+        scoda_path = str(tmp_path / "skip.scoda")
+        ScodaPackage.create(canonical_db, scoda_path)
+
+        # Tamper
+        tampered_path = str(tmp_path / "tampered2.scoda")
+        with zipfile.ZipFile(scoda_path, 'r') as zf_in:
+            manifest = json.loads(zf_in.read('manifest.json'))
+            with zipfile.ZipFile(tampered_path, 'w') as zf_out:
+                zf_out.writestr('manifest.json', json.dumps(manifest))
+                zf_out.writestr('data.db', b'corrupted data here')
+                zf_out.writestr('assets/', '')
+
+        # Should NOT raise
+        with ScodaPackage(tampered_path, verify_checksum=False) as pkg:
+            assert pkg.name == manifest['name']
+
+    def test_no_checksum_in_manifest_passes(self, generic_db, tmp_path):
+        """Package without data_checksum_sha256 should load fine (backward compat)."""
+        from scoda_engine_core import ScodaPackage
+        canonical_db, _ = generic_db
+        scoda_path = str(tmp_path / "nochecksum.scoda")
+        ScodaPackage.create(canonical_db, scoda_path)
+
+        # Remove checksum from manifest
+        no_cs_path = str(tmp_path / "nocs.scoda")
+        with zipfile.ZipFile(scoda_path, 'r') as zf_in:
+            manifest = json.loads(zf_in.read('manifest.json'))
+            del manifest['data_checksum_sha256']
+            db_data = zf_in.read('data.db')
+            with zipfile.ZipFile(no_cs_path, 'w') as zf_out:
+                zf_out.writestr('manifest.json', json.dumps(manifest))
+                zf_out.writestr('data.db', db_data)
+                zf_out.writestr('assets/', '')
+
+        with ScodaPackage(no_cs_path) as pkg:
+            assert pkg.verify_checksum() is True  # no checksum → True
+
+    def test_registry_skips_bad_checksum(self, generic_db, tmp_path):
+        """PackageRegistry.scan() should skip packages with bad checksums."""
+        from scoda_engine_core import ScodaPackage, PackageRegistry
+        canonical_db, _ = generic_db
+
+        pkg_dir = tmp_path / "reg_cs"
+        pkg_dir.mkdir()
+
+        # Create a good package
+        good_path = str(pkg_dir / "good.scoda")
+        ScodaPackage.create(canonical_db, good_path)
+
+        # Create a tampered package
+        tampered_path = str(pkg_dir / "bad.scoda")
+        with zipfile.ZipFile(good_path, 'r') as zf_in:
+            manifest = json.loads(zf_in.read('manifest.json'))
+            manifest['name'] = 'bad-data'
+            with zipfile.ZipFile(tampered_path, 'w') as zf_out:
+                zf_out.writestr('manifest.json', json.dumps(manifest))
+                zf_out.writestr('data.db', b'corrupted')
+                zf_out.writestr('assets/', '')
+
+        reg = PackageRegistry()
+        reg.scan(str(pkg_dir))
+
+        names = [p['name'] for p in reg.list_packages()]
+        assert 'sample-data' in names
+        assert 'bad-data' not in names
+        reg.close_all()
+
+
+# ---------------------------------------------------------------------------
+# S-5: Dependency validation (required + version constraint)
+# ---------------------------------------------------------------------------
+
+class TestDependencyValidation:
+    """Tests for required/optional dependency and version constraint validation."""
+
+    def test_required_missing_raises(self, generic_db, generic_dep_db, tmp_path):
+        """Missing required dependency should raise ScodaDependencyError."""
+        from scoda_engine_core import ScodaPackage, PackageRegistry, ScodaDependencyError
+        canonical_db, _ = generic_db
+
+        pkg_dir = tmp_path / "dep_req"
+        pkg_dir.mkdir()
+
+        # Create main with required dep that doesn't exist in pkg_dir
+        ScodaPackage.create(canonical_db, str(pkg_dir / "main.scoda"),
+                            metadata={"name": "main",
+                                      "dependencies": [{"name": "missing-dep", "alias": "md"}]})
+
+        reg = PackageRegistry()
+        reg.scan(str(pkg_dir))
+
+        with pytest.raises(ScodaDependencyError, match="missing-dep"):
+            reg.get_db('main')
+        reg.close_all()
+
+    def test_optional_missing_skipped(self, generic_db, tmp_path):
+        """Missing optional dependency should be skipped (no error)."""
+        from scoda_engine_core import ScodaPackage, PackageRegistry
+        canonical_db, _ = generic_db
+
+        pkg_dir = tmp_path / "dep_opt"
+        pkg_dir.mkdir()
+
+        ScodaPackage.create(canonical_db, str(pkg_dir / "main.scoda"),
+                            metadata={"name": "main",
+                                      "dependencies": [
+                                          {"name": "optional-dep", "alias": "opt",
+                                           "required": False}
+                                      ]})
+
+        reg = PackageRegistry()
+        reg.scan(str(pkg_dir))
+
+        # Should not raise
+        conn = reg.get_db('main')
+        databases = conn.execute("PRAGMA database_list").fetchall()
+        db_names = [row['name'] for row in databases]
+        assert 'opt' not in db_names  # optional dep not attached
+        conn.close()
+        reg.close_all()
+
+    def test_version_satisfied(self, generic_db, generic_dep_db, tmp_path):
+        """Dependency with satisfied version constraint should be attached."""
+        from scoda_engine_core import ScodaPackage, PackageRegistry
+        canonical_db, _ = generic_db
+        dep_path = generic_dep_db
+
+        pkg_dir = tmp_path / "dep_ver_ok"
+        pkg_dir.mkdir()
+
+        # dep-data has version 0.3.0
+        ScodaPackage.create(dep_path, str(pkg_dir / "dep-data.scoda"),
+                            metadata={"name": "dep-data"})
+        ScodaPackage.create(canonical_db, str(pkg_dir / "main.scoda"),
+                            metadata={"name": "main",
+                                      "dependencies": [
+                                          {"name": "dep-data", "alias": "dep",
+                                           "version": ">=0.2.0,<1.0.0"}
+                                      ]})
+
+        reg = PackageRegistry()
+        reg.scan(str(pkg_dir))
+
+        conn = reg.get_db('main')
+        databases = conn.execute("PRAGMA database_list").fetchall()
+        db_names = [row['name'] for row in databases]
+        assert 'dep' in db_names
+        conn.close()
+        reg.close_all()
+
+    def test_version_not_satisfied_required(self, generic_db, generic_dep_db, tmp_path):
+        """Required dep with unsatisfied version should raise ScodaDependencyError."""
+        from scoda_engine_core import ScodaPackage, PackageRegistry, ScodaDependencyError
+        canonical_db, _ = generic_db
+        dep_path = generic_dep_db
+
+        pkg_dir = tmp_path / "dep_ver_bad"
+        pkg_dir.mkdir()
+
+        # dep-data has version 0.3.0
+        ScodaPackage.create(dep_path, str(pkg_dir / "dep-data.scoda"),
+                            metadata={"name": "dep-data"})
+        ScodaPackage.create(canonical_db, str(pkg_dir / "main.scoda"),
+                            metadata={"name": "main",
+                                      "dependencies": [
+                                          {"name": "dep-data", "alias": "dep",
+                                           "version": ">=1.0.0"}
+                                      ]})
+
+        reg = PackageRegistry()
+        reg.scan(str(pkg_dir))
+
+        with pytest.raises(ScodaDependencyError, match="dep-data"):
+            reg.get_db('main')
+        reg.close_all()
+
+    def test_version_not_satisfied_optional(self, generic_db, generic_dep_db, tmp_path):
+        """Optional dep with unsatisfied version should be skipped."""
+        from scoda_engine_core import ScodaPackage, PackageRegistry
+        canonical_db, _ = generic_db
+        dep_path = generic_dep_db
+
+        pkg_dir = tmp_path / "dep_ver_opt"
+        pkg_dir.mkdir()
+
+        ScodaPackage.create(dep_path, str(pkg_dir / "dep-data.scoda"),
+                            metadata={"name": "dep-data"})
+        ScodaPackage.create(canonical_db, str(pkg_dir / "main.scoda"),
+                            metadata={"name": "main",
+                                      "dependencies": [
+                                          {"name": "dep-data", "alias": "dep",
+                                           "required": False,
+                                           "version": ">=1.0.0"}
+                                      ]})
+
+        reg = PackageRegistry()
+        reg.scan(str(pkg_dir))
+
+        conn = reg.get_db('main')
+        databases = conn.execute("PRAGMA database_list").fetchall()
+        db_names = [row['name'] for row in databases]
+        assert 'dep' not in db_names  # version mismatch, optional → skipped
+        conn.close()
+        reg.close_all()
+
+    def test_required_default_true(self, generic_db, tmp_path):
+        """Dependency without 'required' field should default to required=True."""
+        from scoda_engine_core import ScodaPackage, PackageRegistry, ScodaDependencyError
+        canonical_db, _ = generic_db
+
+        pkg_dir = tmp_path / "dep_default"
+        pkg_dir.mkdir()
+
+        # No 'required' field in dep spec → should default to True
+        ScodaPackage.create(canonical_db, str(pkg_dir / "main.scoda"),
+                            metadata={"name": "main",
+                                      "dependencies": [
+                                          {"name": "nonexistent", "alias": "ne"}
+                                      ]})
+
+        reg = PackageRegistry()
+        reg.scan(str(pkg_dir))
+
+        with pytest.raises(ScodaDependencyError):
+            reg.get_db('main')
+        reg.close_all()
+
+
+# ---------------------------------------------------------------------------
+# S-5: CHANGELOG.md support
+# ---------------------------------------------------------------------------
+
+class TestChangelog:
+    """Tests for CHANGELOG.md in .scoda packages."""
+
+    def test_create_with_changelog(self, generic_db, tmp_path):
+        """create() with changelog_path should include CHANGELOG.md in ZIP."""
+        from scoda_engine_core import ScodaPackage
+        canonical_db, _ = generic_db
+
+        changelog = tmp_path / "CHANGELOG.md"
+        changelog.write_text("# Changelog\n\n## 1.0.0\n- Initial release\n")
+
+        scoda_path = str(tmp_path / "with_cl.scoda")
+        ScodaPackage.create(canonical_db, scoda_path, changelog_path=str(changelog))
+
+        with zipfile.ZipFile(scoda_path, 'r') as zf:
+            assert 'CHANGELOG.md' in zf.namelist()
+
+    def test_changelog_property(self, generic_db, tmp_path):
+        """changelog property should return the file contents."""
+        from scoda_engine_core import ScodaPackage
+        canonical_db, _ = generic_db
+
+        cl_text = "# Changelog\n\n## 1.0.0\n- Initial release\n"
+        changelog = tmp_path / "CHANGELOG.md"
+        changelog.write_text(cl_text)
+
+        scoda_path = str(tmp_path / "cl.scoda")
+        ScodaPackage.create(canonical_db, scoda_path, changelog_path=str(changelog))
+
+        with ScodaPackage(scoda_path) as pkg:
+            assert pkg.changelog == cl_text
+
+    def test_changelog_none_when_absent(self, generic_db, tmp_path):
+        """changelog property should return None when no CHANGELOG.md."""
+        from scoda_engine_core import ScodaPackage
+        canonical_db, _ = generic_db
+
+        scoda_path = str(tmp_path / "no_cl.scoda")
+        ScodaPackage.create(canonical_db, scoda_path)
+
+        with ScodaPackage(scoda_path) as pkg:
+            assert pkg.changelog is None
+
+    def test_create_without_changelog_path(self, generic_db, tmp_path):
+        """create() without changelog_path should work fine (backward compat)."""
+        from scoda_engine_core import ScodaPackage
+        canonical_db, _ = generic_db
+
+        scoda_path = str(tmp_path / "no_cl2.scoda")
+        ScodaPackage.create(canonical_db, scoda_path)
+
+        with zipfile.ZipFile(scoda_path, 'r') as zf:
+            assert 'CHANGELOG.md' not in zf.namelist()

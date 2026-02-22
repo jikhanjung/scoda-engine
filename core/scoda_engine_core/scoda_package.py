@@ -30,17 +30,38 @@ logger = logging.getLogger(__name__)
 
 
 # ---------------------------------------------------------------------------
+# Custom exceptions
+# ---------------------------------------------------------------------------
+
+class ScodaPackageError(Exception):
+    """Base exception for SCODA package errors."""
+
+
+class ScodaChecksumError(ScodaPackageError):
+    """Raised when data.db checksum does not match manifest."""
+
+
+class ScodaDependencyError(ScodaPackageError):
+    """Raised when a required dependency is missing or version-incompatible."""
+
+
+# ---------------------------------------------------------------------------
 # A. ScodaPackage class
 # ---------------------------------------------------------------------------
 
 class ScodaPackage:
     """Read/write .scoda ZIP-based data packages."""
 
-    def __init__(self, scoda_path):
+    def __init__(self, scoda_path, verify_checksum=True):
         """Open an existing .scoda package.
 
         Extracts data.db to a temp file for SQLite access.
         Temp file is cleaned up on close() or at process exit.
+
+        Args:
+            scoda_path: Path to the .scoda file.
+            verify_checksum: If True, verify data.db SHA-256 against manifest.
+                Raises ScodaChecksumError on mismatch. Default True.
         """
         self.scoda_path = os.path.abspath(scoda_path)
         if not os.path.exists(self.scoda_path):
@@ -70,6 +91,12 @@ class ScodaPackage:
             raise ValueError(f"Invalid .scoda package: missing {data_file}")
 
         self.db_path = os.path.join(self._tmp_dir, data_file)
+
+        # Verify checksum (Phase 3: spec step 6)
+        if verify_checksum and not self.verify_checksum():
+            self.close()
+            raise ScodaChecksumError(
+                f"Checksum mismatch for {os.path.basename(scoda_path)}")
 
         # Register cleanup
         atexit.register(self.close)
@@ -115,6 +142,14 @@ class ScodaPackage:
                 if n.startswith('assets/') and not n.endswith('/')]
 
     @property
+    def changelog(self):
+        """Read CHANGELOG.md from the package. Returns string or None."""
+        try:
+            return self._zf.read('CHANGELOG.md').decode('utf-8')
+        except KeyError:
+            return None
+
+    @property
     def mcp_tools(self):
         """Read mcp_tools.json from the package. Returns parsed dict or None."""
         try:
@@ -151,7 +186,8 @@ class ScodaPackage:
         self.close()
 
     @staticmethod
-    def create(db_path, output_path, metadata=None, extra_assets=None, mcp_tools_path=None):
+    def create(db_path, output_path, metadata=None, extra_assets=None,
+               mcp_tools_path=None, changelog_path=None):
         """Create a .scoda package from a SQLite database.
 
         Args:
@@ -160,6 +196,7 @@ class ScodaPackage:
             metadata: Optional dict to override/extend manifest fields.
             extra_assets: Optional dict of {archive_path: local_path} for additional files.
             mcp_tools_path: Optional path to mcp_tools.json to include in the package.
+            changelog_path: Optional path to CHANGELOG.md to include in the package.
 
         Returns:
             Path to the created .scoda file.
@@ -224,6 +261,9 @@ class ScodaPackage:
             # Add MCP tools definition
             if mcp_tools_path and os.path.exists(mcp_tools_path):
                 zf.write(mcp_tools_path, 'mcp_tools.json')
+            # Add CHANGELOG.md
+            if changelog_path and os.path.exists(changelog_path):
+                zf.write(changelog_path, 'CHANGELOG.md')
             # Add extra assets (e.g., Reference SPA files)
             if extra_assets:
                 for archive_path, local_path in extra_assets.items():
@@ -264,7 +304,7 @@ class PackageRegistry:
                     'overlay_path': overlay_path,
                     'deps': deps,
                 }
-            except (ValueError, FileNotFoundError) as e:
+            except (ValueError, FileNotFoundError, ScodaChecksumError) as e:
                 logger.warning("Skipping invalid package %s: %s",
                                os.path.basename(scoda_path), e)
                 continue  # skip invalid packages
@@ -312,17 +352,54 @@ class PackageRegistry:
         conn.execute(f"ATTACH DATABASE '{overlay_path}' AS overlay")
         logger.debug("get_db(%s): attached overlay", name)
 
-        # Attach dependencies
+        # Resolve and attach dependencies with validation
+        validated_deps = self._resolve_and_validate_deps(name)
+        for alias, dep_db_path in validated_deps:
+            conn.execute(f"ATTACH DATABASE '{dep_db_path}' AS {alias}")
+            logger.debug("get_db(%s): attached dependency as %s", name, alias)
+
+        return conn
+
+    def _resolve_and_validate_deps(self, name):
+        """Resolve and validate dependencies for a package.
+
+        Returns list of (alias, db_path) tuples for dependencies that should
+        be ATTACHed. Raises ScodaDependencyError for missing/incompatible
+        required dependencies. Optional deps that fail are skipped with warning.
+        """
+        entry = self._packages[name]
+        result = []
         for dep in entry['deps']:
             dep_name = dep.get('name')
             alias = dep.get('alias', dep_name)
-            if dep_name in self._packages:
-                dep_db_path = self._packages[dep_name]['db_path']
-                conn.execute(f"ATTACH DATABASE '{dep_db_path}' AS {alias}")
-                logger.debug("get_db(%s): attached dependency %s as %s",
-                             name, dep_name, alias)
+            required = dep.get('required', True)  # default True for backward compat
+            version_constraint = dep.get('version', '')
 
-        return conn
+            if dep_name not in self._packages:
+                if required:
+                    raise ScodaDependencyError(
+                        f"Required dependency '{dep_name}' not found for package '{name}'")
+                logger.warning("Optional dependency '%s' not found for package '%s', skipping",
+                               dep_name, name)
+                continue
+
+            # Check version constraint
+            dep_pkg = self._packages[dep_name].get('pkg')
+            if dep_pkg and version_constraint:
+                actual_version = dep_pkg.version
+                if not _check_version_constraint(actual_version, version_constraint):
+                    if required:
+                        raise ScodaDependencyError(
+                            f"Dependency '{dep_name}' version {actual_version} "
+                            f"does not satisfy constraint '{version_constraint}' "
+                            f"for package '{name}'")
+                    logger.warning(
+                        "Optional dependency '%s' version %s does not satisfy '%s', skipping",
+                        dep_name, actual_version, version_constraint)
+                    continue
+
+            result.append((alias, self._packages[dep_name]['db_path']))
+        return result
 
     def list_packages(self):
         """Return list of discovered package info dicts."""
@@ -512,18 +589,40 @@ def _resolve_dependencies(base_dir):
         for dep in deps:
             dep_name = dep.get('name')
             alias = dep.get('alias', dep_name)
+            required = dep.get('required', True)
+            version_constraint = dep.get('version', '')
             if not dep_name:
                 continue
             # Try .scoda first, then .db
             dep_scoda = os.path.join(base_dir, f'{dep_name}.scoda')
+            dep_db = os.path.join(base_dir, f'{dep_name}.db')
             if os.path.exists(dep_scoda):
-                pkg = ScodaPackage(dep_scoda)
+                try:
+                    pkg = ScodaPackage(dep_scoda)
+                except ScodaChecksumError as e:
+                    if required:
+                        raise
+                    logger.warning("Optional dependency '%s' checksum failed: %s", dep_name, e)
+                    continue
+                # Version check
+                if version_constraint and not _check_version_constraint(pkg.version, version_constraint):
+                    if required:
+                        raise ScodaDependencyError(
+                            f"Dependency '{dep_name}' version {pkg.version} "
+                            f"does not satisfy '{version_constraint}'")
+                    logger.warning("Optional dependency '%s' version %s does not satisfy '%s', skipping",
+                                   dep_name, pkg.version, version_constraint)
+                    pkg.close()
+                    continue
                 _dep_pkgs.append(pkg)
                 _dep_dbs[alias] = pkg.db_path
+            elif os.path.exists(dep_db):
+                _dep_dbs[alias] = dep_db
+            elif required:
+                raise ScodaDependencyError(
+                    f"Required dependency '{dep_name}' not found")
             else:
-                dep_db = os.path.join(base_dir, f'{dep_name}.db')
-                if os.path.exists(dep_db):
-                    _dep_dbs[alias] = dep_db
+                logger.warning("Optional dependency '%s' not found, skipping", dep_name)
 
     # Fallback: auto-discover paleocore if 'pc' alias not yet resolved
     if 'pc' not in _dep_dbs:
@@ -776,6 +875,67 @@ def get_scoda_info():
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
+import re as _re
+
+
+def _parse_semver(version_str):
+    """Parse a SemVer string into (major, minor, patch) tuple.
+
+    Supports: "1.2.3", "1.2", "1", and strips pre-release suffixes like "-alpha".
+    Raises ValueError on invalid input.
+    """
+    if not version_str or not isinstance(version_str, str):
+        raise ValueError(f"Invalid version string: {version_str!r}")
+    # Strip pre-release suffix (e.g. "-alpha", "-rc.1")
+    base = version_str.split('-')[0].strip()
+    parts = base.split('.')
+    if not parts or not all(p.isdigit() for p in parts):
+        raise ValueError(f"Invalid version string: {version_str!r}")
+    major = int(parts[0])
+    minor = int(parts[1]) if len(parts) > 1 else 0
+    patch = int(parts[2]) if len(parts) > 2 else 0
+    return (major, minor, patch)
+
+
+def _check_version_constraint(actual_version, constraint_str):
+    """Check if actual_version satisfies a version constraint string.
+
+    Supported operators: >=, >, <=, <, ==, !=
+    Comma-separated AND: ">=0.1.1,<0.2.0"
+    Empty/None → True (no constraint).
+    Plain version "0.1.1" → treated as "==0.1.1" (backward compat).
+    """
+    if not constraint_str:
+        return True
+
+    actual = _parse_semver(actual_version)
+
+    _OP_RE = _re.compile(r'^(>=|>|<=|<|==|!=)(.+)$')
+    _OPS = {
+        '>=': lambda a, b: a >= b,
+        '>':  lambda a, b: a > b,
+        '<=': lambda a, b: a <= b,
+        '<':  lambda a, b: a < b,
+        '==': lambda a, b: a == b,
+        '!=': lambda a, b: a != b,
+    }
+
+    for part in constraint_str.split(','):
+        part = part.strip()
+        if not part:
+            continue
+        m = _OP_RE.match(part)
+        if m:
+            op_str, ver_str = m.group(1), m.group(2)
+        else:
+            # Plain version string → treat as ==
+            op_str, ver_str = '==', part
+        target = _parse_semver(ver_str)
+        if not _OPS[op_str](actual, target):
+            return False
+    return True
+
 
 def _sha256_file(file_path):
     """Calculate SHA-256 of a file."""

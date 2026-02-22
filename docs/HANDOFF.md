@@ -1,6 +1,6 @@
 # SCODA Engine — Project Handoff Document
 
-**Last updated:** 2026-02-21
+**Last updated:** 2026-02-22
 
 ---
 
@@ -19,10 +19,11 @@
 | P06: scoda-engine-core separation plan | Done | `devlog/20260221_P06_core_separation_plan.md` |
 | S-2: scoda-engine-core separation | Done | Monorepo `core/` + shim + import migration |
 | P07: Version management strategy | Done | `devlog/20260221_P07_version_management_strategy.md` |
+| P08/S-5: SCODA spec alignment | Done | `devlog/20260222_P08_scoda_spec_alignment.md` |
 
 ### Test Status
 
-- All tests passing: `pytest tests/` (runtime + MCP)
+- All 225 tests passing: `pytest tests/` (runtime + MCP + S-5)
 - All fixtures converted to domain-independent generic data
 - MCP subprocess tests support `SCODA_DB_PATH` environment variable
 
