@@ -3,6 +3,10 @@
  * Manifest-driven frontend for browsing SCODA data packages
  */
 
+// Defaults
+const BOOLEAN_TRUE_LABEL = 'True';
+const BOOLEAN_FALSE_LABEL = 'False';
+
 // State
 let selectedLeafId = null;
 let detailModal = null;
@@ -321,7 +325,7 @@ function renderTableViewRows(viewKey) {
                     const color = val || '';
                     val = color ? `<span class="color-chip" style="background-color:${color}" title="${color}"></span> ${color}` : '';
                 } else if (col.type === 'boolean') {
-                    val = val ? 'Yes' : 'No';
+                    val = val ? (col.true_label || BOOLEAN_TRUE_LABEL) : (col.false_label || BOOLEAN_FALSE_LABEL);
                 } else if (val == null) {
                     val = '';
                 }
@@ -878,7 +882,11 @@ function renderTreeItemTable() {
         columns.forEach(col => {
             let val = g[col.key];
             if (col.truncate && val) val = truncate(val, col.truncate);
-            if (val == null) val = '';
+            if (col.format === 'boolean') {
+                val = val ? (col.true_label || BOOLEAN_TRUE_LABEL) : (col.false_label || BOOLEAN_FALSE_LABEL);
+            } else if (val == null) {
+                val = '';
+            }
             if (col.italic) {
                 html += `<td class="item-name"><i>${val}</i></td>`;
             } else {
@@ -1246,7 +1254,7 @@ function formatFieldValue(field, value, data) {
 
     if (value == null || value === '') {
         // For boolean, treat null/undefined as false
-        if (fmt === 'boolean') return field.false_label || 'No';
+        if (fmt === 'boolean') return field.false_label || BOOLEAN_FALSE_LABEL;
         return '-';
     }
 
@@ -1255,7 +1263,7 @@ function formatFieldValue(field, value, data) {
             return `<i>${value}</i>`;
         case 'boolean': {
             const cls = value ? '' : (field.false_class || '');
-            const label = value ? (field.true_label || 'Yes') : (field.false_label || 'No');
+            const label = value ? (field.true_label || BOOLEAN_TRUE_LABEL) : (field.false_label || BOOLEAN_FALSE_LABEL);
             return cls ? `<span class="${cls}">${label}</span>` : label;
         }
         case 'link': {
@@ -1374,7 +1382,7 @@ function renderLinkedTable(section, data) {
                     val = `<a class="detail-link" onclick="event.stopPropagation(); openDetail('${col.link.detail_view}', ${linkId})">${val}</a>`;
                 }
             } else if (col.format === 'boolean') {
-                val = val ? 'Yes' : 'No';
+                val = val ? (col.true_label || BOOLEAN_TRUE_LABEL) : (col.false_label || BOOLEAN_FALSE_LABEL);
             } else if (col.format === 'color_chip') {
                 val = val ? `<span class="color-chip" style="background-color:${val}"></span> ${val}` : '';
             } else if (col.format === 'code') {
