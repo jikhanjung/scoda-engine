@@ -35,7 +35,8 @@ scoda-engine/
 │   ├── pyproject.toml          # Zero dependencies, pure stdlib
 │   └── scoda_engine_core/
 │       ├── __init__.py         # Public API re-exports
-│       └── scoda_package.py    # Core: .scoda ZIP, DB access, PackageRegistry
+│       ├── scoda_package.py    # Core: .scoda ZIP, DB access, PackageRegistry
+│       └── validate_manifest.py # Manifest validator/linter (pure functions)
 ├── scoda_engine/               # Desktop/server package
 │   ├── __init__.py
 │   ├── scoda_package.py        # Backward-compat shim → scoda_engine_core
@@ -47,7 +48,7 @@ scoda-engine/
 │   └── static/{css,js}/        # Generic viewer assets
 ├── scripts/
 │   ├── build.py                # PyInstaller EXE builder
-│   ├── validate_manifest.py    # Manifest validator/linter
+│   ├── validate_manifest.py    # Manifest validator CLI (thin wrapper → core)
 │   ├── init_overlay_db.py      # Overlay DB initializer
 │   └── release.py              # Release packager
 ├── examples/genus-explorer/    # Example SPA

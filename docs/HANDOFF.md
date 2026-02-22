@@ -32,6 +32,11 @@
 
 ## 2. Next Steps (by priority)
 
+### P10: trilobase validate_manifest 중복 제거
+
+trilobase 쪽 `scripts/validate_manifest.py` 삭제 및 `scoda_engine_core` 임포트로 전환.
+계획: `devlog/20260222_P10_trilobase_validate_manifest_cleanup.md`
+
 ### S-4: SCODA Back-office
 
 Web-based tool for managing and packaging `.scoda` packages (long-term project).
@@ -66,9 +71,10 @@ scoda-engine contains no domain-specific code. All domain logic comes from `.sco
 ### Package Layout (Monorepo)
 
 ```
-core/scoda_engine_core/     # PyPI: scoda-engine-core (pure stdlib, zero deps)
+core/scoda_engine_core/     # PyPI: scoda-engine-core v0.1.1 (pure stdlib, zero deps)
 ├── __init__.py             # Public API re-exports
-└── scoda_package.py        # Core: .scoda ZIP, DB access, PackageRegistry
+├── scoda_package.py        # Core: .scoda ZIP, DB access, PackageRegistry
+└── validate_manifest.py    # Manifest validator/linter (pure functions)
 
 scoda_engine/               # PyPI: scoda-engine (desktop/server)
 ├── scoda_package.py        # Backward-compat shim → scoda_engine_core
@@ -138,3 +144,4 @@ pytest tests/
 | SCODA concepts | `docs/SCODA_CONCEPT.md` |
 | API reference | `docs/API_REFERENCE.md` |
 | MCP guide | `docs/MCP_GUIDE.md` |
+| Trilobase cleanup plan | `devlog/20260222_P10_trilobase_validate_manifest_cleanup.md` |
