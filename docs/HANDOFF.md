@@ -21,6 +21,7 @@
 | P07: Version management strategy | Done | `devlog/20260221_P07_version_management_strategy.md` |
 | P08/S-5: SCODA spec alignment | Done | `devlog/20260222_P08_scoda_spec_alignment.md` |
 | S-3: validate_manifest dedup | Done | Core `validate_manifest` module + thin script wrapper |
+| P10: trilobase validate_manifest cleanup | Done | trilobase 쪽 중복 삭제 + `scoda_engine_core` 임포트 전환 |
 
 ### Test Status
 
@@ -31,11 +32,6 @@
 ---
 
 ## 2. Next Steps (by priority)
-
-### P10: trilobase validate_manifest 중복 제거
-
-trilobase 쪽 `scripts/validate_manifest.py` 삭제 및 `scoda_engine_core` 임포트로 전환.
-계획: `devlog/20260222_P10_trilobase_validate_manifest_cleanup.md`
 
 ### S-4: SCODA Back-office
 
