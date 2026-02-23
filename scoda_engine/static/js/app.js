@@ -76,10 +76,13 @@ async function loadManifest() {
 
         buildViewTabs();
 
-        // Show package name in navbar
+        // Show package name as main title, SCODA Desktop as subtitle
         if (data.package && data.package.name) {
-            const el = document.getElementById('navbar-pkg-name');
-            if (el) el.textContent = `${data.package.name} v${data.package.version}`;
+            const titleEl = document.getElementById('navbar-title');
+            const subtitleEl = document.getElementById('navbar-subtitle');
+            if (titleEl) titleEl.textContent = `${data.package.name} v${data.package.version}`;
+            if (subtitleEl) subtitleEl.textContent = 'SCODA Desktop';
+            document.title = `${data.package.name} v${data.package.version}`;
         }
     } catch (error) {
         // Graceful degradation: manifest unavailable, use existing UI
