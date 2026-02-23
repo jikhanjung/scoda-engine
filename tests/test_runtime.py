@@ -2685,7 +2685,7 @@ class TestChangelog:
 
         cl_text = "# Changelog\n\n## 1.0.0\n- Initial release\n"
         changelog = tmp_path / "CHANGELOG.md"
-        changelog.write_text(cl_text)
+        changelog.write_text(cl_text, newline="\n")
 
         scoda_path = str(tmp_path / "cl.scoda")
         ScodaPackage.create(canonical_db, scoda_path, changelog_path=str(changelog))
