@@ -20,16 +20,16 @@ def check_pyinstaller():
     """Check if PyInstaller is installed, install if not."""
     try:
         import PyInstaller
-        print(f"✓ PyInstaller {PyInstaller.__version__} found")
+        print(f"[OK] PyInstaller {PyInstaller.__version__} found")
         return True
     except ImportError:
         print("PyInstaller not found. Installing...")
         try:
             subprocess.check_call([sys.executable, "-m", "pip", "install", "pyinstaller"])
-            print("✓ PyInstaller installed")
+            print("[OK] PyInstaller installed")
             return True
         except subprocess.CalledProcessError:
-            print("✗ Failed to install PyInstaller", file=sys.stderr)
+            print("[FAIL] Failed to install PyInstaller", file=sys.stderr)
             return False
 
 
@@ -40,7 +40,7 @@ def clean_build():
         if os.path.exists(path):
             print(f"  Removing {path}/")
             shutil.rmtree(path)
-    print("✓ Clean complete")
+    print("[OK] Clean complete")
 
 
 def build_executable():
@@ -61,10 +61,10 @@ def build_executable():
         result = subprocess.run(cmd, check=True, capture_output=False)
         return result.returncode == 0
     except subprocess.CalledProcessError as e:
-        print(f"\n✗ Build failed with exit code {e.returncode}", file=sys.stderr)
+        print(f"\n[FAIL] Build failed with exit code {e.returncode}", file=sys.stderr)
         return False
     except FileNotFoundError:
-        print("\n✗ PyInstaller not found in PATH", file=sys.stderr)
+        print("\n[FAIL] PyInstaller not found in PATH", file=sys.stderr)
         return False
 
 
@@ -79,14 +79,14 @@ def print_results():
 
     if exe_path.exists():
         size_mb = exe_path.stat().st_size / (1024 * 1024)
-        print(f"\n✓ Executable created: {exe_path}")
+        print(f"\n[OK] Executable created: {exe_path}")
         print(f"  Size: {size_mb:.1f} MB")
 
         print("\nNext steps:")
         print(f"  1. Test: ./{exe_path}")
         print(f"  2. Distribute: Copy dist/{exe_name} + .scoda packages to users")
     else:
-        print(f"\n✗ Expected executable not found: {exe_path}", file=sys.stderr)
+        print(f"\n[FAIL] Expected executable not found: {exe_path}", file=sys.stderr)
         return False
 
     return True
@@ -107,7 +107,7 @@ def main():
 
     # Check spec file exists
     if not os.path.exists('ScodaDesktop.spec'):
-        print("\n✗ ScodaDesktop.spec not found", file=sys.stderr)
+        print("\n[FAIL] ScodaDesktop.spec not found", file=sys.stderr)
         print("Run this script from the project root directory", file=sys.stderr)
         sys.exit(1)
 
