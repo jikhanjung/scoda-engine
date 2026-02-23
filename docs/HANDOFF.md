@@ -25,6 +25,7 @@
 | Boolean 표시 라벨 통일 | Done | `da362c8` |
 | P11: Tree Snapshot Design v1 검토 | Done | `devlog/20260222_P11_tree_snapshot_design_review.md` |
 | P12: GitHub Actions CI 테스트 자동화 | Done | `devlog/20260223_P12_github_actions_ci.md` |
+| P13: Manual Release 워크플로우 | Done | `devlog/20260223_P13_manual_release_workflow.md` |
 
 ### Test Status
 
@@ -37,6 +38,7 @@
 오늘 세션에서 진행한 작업:
 
 1. **P12: GitHub Actions CI 테스트 자동화**: PR/main push 시 pytest 자동 실행 워크플로우 구축 (OS: ubuntu/windows, Python: 3.10/3.12)
+2. **P13: Manual Release 워크플로우**: workflow_dispatch 기반 수동 릴리스 — PyInstaller 빌드 → ZIP 아티팩트 → GitHub Release 생성 (OS: ubuntu/windows, Python 3.12)
 
 ---
 
@@ -167,3 +169,4 @@ pytest tests/
 | API reference | `docs/API_REFERENCE.md` |
 | MCP guide | `docs/MCP_GUIDE.md` |
 | CI workflow | `.github/workflows/test.yml` |
+| Release workflow | `.github/workflows/release.yml` |

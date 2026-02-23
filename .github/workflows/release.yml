@@ -1,0 +1,109 @@
+name: Manual Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      version_tag:
+        description: "Version tag (e.g. v0.2.0)"
+        required: true
+        type: string
+      prerelease:
+        description: "Mark as pre-release"
+        required: false
+        type: boolean
+        default: false
+      release_notes:
+        description: "Release notes (optional, supports markdown)"
+        required: false
+        type: string
+        default: ""
+
+jobs:
+  build:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+        include:
+          - os: ubuntu-latest
+            artifact_name: ScodaDesktop-linux
+          - os: windows-latest
+            artifact_name: ScodaDesktop-windows
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ./core
+          pip install -e ".[dev]"
+          pip install pyinstaller
+
+      - name: Build with PyInstaller
+        run: python scripts/build.py --clean
+
+      - name: Package artifacts (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          cd dist
+          zip -j ../ScodaDesktop-linux.zip ScodaDesktop ScodaMCP
+          cd ..
+
+      - name: Package artifacts (Windows)
+        if: runner.os == 'Windows'
+        run: |
+          Compress-Archive -Path dist\ScodaDesktop.exe, dist\ScodaMCP.exe -DestinationPath ScodaDesktop-windows.zip
+        shell: pwsh
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact_name }}
+          path: ${{ matrix.artifact_name }}.zip
+          retention-days: 5
+
+  release:
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: release-assets
+
+      - name: Prepare release assets
+        run: |
+          mkdir -p final-assets
+          find release-assets -name '*.zip' -exec cp {} final-assets/ \;
+          ls -la final-assets/
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ inputs.version_tag }}-build.${{ github.run_number }}
+          name: "SCODA Desktop ${{ inputs.version_tag }}"
+          body: |
+            ## SCODA Desktop ${{ inputs.version_tag }}
+
+            ${{ inputs.release_notes }}
+
+            ### Artifacts
+            - **ScodaDesktop-windows.zip** — Windows x64 (ScodaDesktop.exe + ScodaMCP.exe)
+            - **ScodaDesktop-linux.zip** — Linux x64 (ScodaDesktop + ScodaMCP)
+
+            ---
+            Build: `${{ github.run_number }}` | Commit: `${{ github.sha }}`
+          prerelease: ${{ inputs.prerelease }}
+          files: final-assets/*
