@@ -593,8 +593,13 @@ def _resolve_dependencies(base_dir):
             version_constraint = dep.get('version', '')
             if not dep_name:
                 continue
-            # Try .scoda first, then .db
+            # Try .scoda first (exact name or versioned name-*.scoda), then .db
             dep_scoda = os.path.join(base_dir, f'{dep_name}.scoda')
+            if not os.path.exists(dep_scoda):
+                # Try versioned pattern: name-version.scoda
+                candidates = sorted(glob_mod.glob(
+                    os.path.join(base_dir, f'{dep_name}-*.scoda')))
+                dep_scoda = candidates[-1] if candidates else dep_scoda  # latest
             dep_db = os.path.join(base_dir, f'{dep_name}.db')
             if os.path.exists(dep_scoda):
                 try:
@@ -626,17 +631,24 @@ def _resolve_dependencies(base_dir):
 
     # Fallback: auto-discover paleocore if 'pc' alias not yet resolved
     if 'pc' not in _dep_dbs:
-        for candidate in ('paleocore.scoda', 'paleocore.db'):
-            candidate_path = os.path.join(base_dir, candidate)
-            if os.path.exists(candidate_path):
-                if candidate.endswith('.scoda'):
-                    pkg = ScodaPackage(candidate_path)
-                    _dep_pkgs.append(pkg)
-                    _dep_dbs['pc'] = pkg.db_path
-                else:
-                    _dep_dbs['pc'] = candidate_path
-                logger.info("Auto-discovered dependency: pc=%s", candidate)
-                break
+        # Try exact name first, then versioned pattern, then .db
+        pc_scoda = os.path.join(base_dir, 'paleocore.scoda')
+        if not os.path.exists(pc_scoda):
+            pc_candidates = sorted(glob_mod.glob(
+                os.path.join(base_dir, 'paleocore-*.scoda')))
+            pc_scoda = pc_candidates[-1] if pc_candidates else pc_scoda
+        pc_db = os.path.join(base_dir, 'paleocore.db')
+
+        if os.path.exists(pc_scoda):
+            pkg = ScodaPackage(pc_scoda)
+            _dep_pkgs.append(pkg)
+            _dep_dbs['pc'] = pkg.db_path
+            logger.info("Auto-discovered dependency: pc=%s",
+                        os.path.basename(pc_scoda))
+        elif os.path.exists(pc_db):
+            _dep_dbs['pc'] = pc_db
+            logger.info("Auto-discovered dependency: pc=%s",
+                        os.path.basename(pc_db))
 
 
 def _resolve_paths():
@@ -676,7 +688,7 @@ def _resolve_paths():
         scoda_path = scoda_files[0]
         _scoda_pkg = ScodaPackage(scoda_path)
         _canonical_db = _scoda_pkg.db_path
-        name = os.path.splitext(os.path.basename(scoda_path))[0]
+        name = _scoda_pkg.name  # use manifest name, not filename (supports versioned filenames)
         _overlay_db = os.path.join(base_dir, f'{name}_overlay.db')
     else:
         # Fallback: find first .db file
