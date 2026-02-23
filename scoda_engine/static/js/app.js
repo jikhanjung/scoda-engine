@@ -1359,7 +1359,14 @@ function renderLinkedTable(section, data) {
                 <table class="manifest-table">
                     <thead><tr>`;
     columns.forEach(col => {
-        html += `<th>${col.label}</th>`;
+        let label = col.label;
+        if (col.label_map && rows.length > 0) {
+            const values = new Set(rows.map(r => r[col.label_map.key]));
+            if (values.size === 1) {
+                label = col.label_map.map[values.values().next().value] || label;
+            }
+        }
+        html += `<th>${label}</th>`;
     });
     html += '</tr></thead><tbody>';
 
