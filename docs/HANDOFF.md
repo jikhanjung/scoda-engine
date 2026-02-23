@@ -86,6 +86,7 @@ scoda-engine contains no domain-specific code. All domain logic comes from `.sco
 - `/api/composite/<view>?id=N`: multi-query composite response
 - Generic viewer supports: hierarchy (tree/nested_table), table, detail modal, global search, annotations
 - Boolean columns: customizable via `true_label`/`false_label`, defaults `BOOLEAN_TRUE_LABEL`/`BOOLEAN_FALSE_LABEL`
+- `label_map` 동적 컬럼 label: 행 데이터의 특정 필드 값에 따라 테이블 헤더를 동적으로 결정 (혼합 시 fallback)
 
 ### MCP Tools
 
