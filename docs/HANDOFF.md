@@ -1,6 +1,6 @@
 # SCODA Engine — Project Handoff Document
 
-**Last updated:** 2026-02-22
+**Last updated:** 2026-02-23
 
 ---
 
@@ -24,6 +24,7 @@
 | P10: trilobase validate_manifest cleanup | Done | trilobase repo에서 완료 |
 | Boolean 표시 라벨 통일 | Done | `da362c8` |
 | P11: Tree Snapshot Design v1 검토 | Done | `devlog/20260222_P11_tree_snapshot_design_review.md` |
+| P12: GitHub Actions CI 테스트 자동화 | Done | `devlog/20260223_P12_github_actions_ci.md` |
 
 ### Test Status
 
@@ -31,16 +32,11 @@
 - All fixtures converted to domain-independent generic data
 - MCP subprocess tests support `SCODA_DB_PATH` environment variable
 
-### Recent Session (2026-02-22) Summary
+### Recent Session (2026-02-23) Summary
 
 오늘 세션에서 진행한 작업:
 
-1. **S-3 구현**: `validate_manifest`/`validate_db`를 `scoda-engine-core`로 이동, `scripts/validate_manifest.py`를 thin wrapper로 교체, 테스트 임포트 경로 수정
-2. **Core 버전 범프**: `scoda-engine-core` 0.1.0 → 0.1.1 (새 public API 반영)
-3. **CRLF 경고 해결**: `.gitattributes` 추가 + local git config 설정
-4. **P10 계획 및 실행**: trilobase 쪽 `validate_manifest.py` 중복 제거 (trilobase repo에서 완료)
-5. **Boolean 표시 수정**: 기본 라벨 "Yes"/"No" → "True"/"False" 상수화, 4곳 렌더링 통일, tree item list에 누락된 boolean 처리 추가
-6. **P11 Tree Snapshot 검토**: Design v1 문서 검토 — 범용성 분석, 2-layer 설계 제안, 후속 검토 6개 영역 명시
+1. **P12: GitHub Actions CI 테스트 자동화**: PR/main push 시 pytest 자동 실행 워크플로우 구축 (OS: ubuntu/windows, Python: 3.10/3.12)
 
 ---
 
@@ -170,3 +166,4 @@ pytest tests/
 | SCODA concepts | `docs/SCODA_CONCEPT.md` |
 | API reference | `docs/API_REFERENCE.md` |
 | MCP guide | `docs/MCP_GUIDE.md` |
+| CI workflow | `.github/workflows/test.yml` |
