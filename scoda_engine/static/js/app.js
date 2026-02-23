@@ -882,7 +882,7 @@ function renderTreeItemTable() {
         columns.forEach(col => {
             let val = g[col.key];
             if (col.truncate && val) val = truncate(val, col.truncate);
-            if (col.format === 'boolean') {
+            if (col.type === 'boolean' || col.format === 'boolean') {
                 val = val ? (col.true_label || BOOLEAN_TRUE_LABEL) : (col.false_label || BOOLEAN_FALSE_LABEL);
             } else if (val == null) {
                 val = '';
