@@ -28,6 +28,7 @@
 | P13: Manual Release 워크플로우 | Done | `devlog/20260223_P13_manual_release_workflow.md` |
 | P14: 임의 경로 .scoda 패키지 로딩 | Done | `devlog/20260224_012_arbitrary_scoda_path_loading.md` |
 | Desktop v0.1.1 버전 업 | Done | `scoda_engine/__init__.py`, `pyproject.toml` |
+| P15: SCODA Hub 정적 레지스트리 (scoda-engine 측) | Done | `devlog/20260224_P15_scoda_hub_static_registry.md` |
 
 ### Test Status
 
@@ -35,12 +36,22 @@
 - All fixtures converted to domain-independent generic data
 - MCP subprocess tests support `SCODA_DB_PATH` environment variable
 
+### In Progress
+
+- **P15 후속 (trilobase 측)**: `create_scoda.py` / `create_paleocore_scoda.py`에 Hub manifest (`*.manifest.json`) 자동 생성 추가, `release.yml`에 manifest 업로드 step 추가.
+
 ### Recent Session (2026-02-24) Summary
 
 오늘 세션에서 진행한 작업:
 
 1. **P14: 임의 경로 .scoda 패키지 로딩**: `PackageRegistry.register_path()`로 파일 시스템 어디에서든 `.scoda` 파일 로딩 지원. Core, CLI(`--scoda-path`), GUI(파일 열기 다이얼로그/D&D) 전체 확장. `SCODA_PACKAGE_PATH` 환경변수도 지원.
 2. **Desktop v0.1.1 버전 업**: `scoda_engine/__init__.py`, `pyproject.toml` 버전 `0.1.0` → `0.1.1`
+3. **P15: SCODA Hub 구현 완료 (scoda-engine 측)**:
+   - `hub/sources.json` — 수집 대상 repo 목록
+   - `scripts/generate_hub_index.py` — GitHub REST API로 릴리스 수집, index.json 생성 (순수 stdlib)
+   - `.github/workflows/hub-index.yml` — workflow_dispatch + 주간 cron, Pages 배포
+   - `.gitignore`에 `hub/index.json` 추가
+   - `--dry-run` 테스트 성공: trilobase v0.2.2 + paleocore v0.1.1 수집 확인
 
 ---
 
@@ -57,6 +68,20 @@
 - Resolve 알고리즘 설계
 - 기존 manifest/overlay와의 통합 시나리오
 - Phase 0 POC 범위 확정
+
+### P15 후속: trilobase Hub manifest 연동
+
+설계: `devlog/20260224_P15_scoda_hub_static_registry.md`
+
+scoda-engine 측 완료:
+- `hub/sources.json` — 수집 대상 repo 목록
+- `scripts/generate_hub_index.py` — GitHub REST API로 index.json 생성 (순수 stdlib)
+- `.github/workflows/hub-index.yml` — workflow_dispatch + 주간 cron + Pages 배포
+
+trilobase 측 작업 (후속):
+- `create_scoda.py` / `create_paleocore_scoda.py`에 Hub manifest (`*.manifest.json`) 자동 생성
+- `release.yml`에 `*.manifest.json` 업로드 추가
+- manifest 추가 시 generate_hub_index.py의 Strategy 1 (manifest 파싱)이 자동 활성화됨
 
 ### S-4: SCODA Back-office
 
@@ -175,3 +200,5 @@ pytest tests/
 | CI workflow | `.github/workflows/test.yml` |
 | Release workflow | `.github/workflows/release.yml` |
 | Arbitrary path loading (P14) | `devlog/20260224_P14_arbitrary_scoda_path_loading.md` |
+| Hub static registry (P15) | `devlog/20260224_P15_scoda_hub_static_registry.md` |
+| Hub index workflow | `.github/workflows/hub-index.yml` |

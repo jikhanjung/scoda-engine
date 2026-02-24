@@ -16,6 +16,9 @@ dist/
 # SCODA packages (generated from DB, not committed)
 *.scoda
 
+# Hub index (auto-generated, deployed to gh-pages)
+hub/index.json
+
 # Claude Code local settings
 .claude/settings.local.json
 
