@@ -242,7 +242,7 @@ def resolve_download_order(hub_index, package_name, local_packages):
 
     Resolves dependencies declared in the Hub index entry and returns
     a list of packages to download in order (dependencies first).
-    Packages already present locally are skipped.
+    Packages already present locally with the same or newer version are skipped.
 
     Args:
         hub_index: Parsed Hub index dict.
@@ -254,9 +254,21 @@ def resolve_download_order(hub_index, package_name, local_packages):
         Ordered dependency-first. Empty list if package not found in Hub.
     """
     hub_packages = hub_index.get("packages", {})
-    local_names = {pkg["name"] for pkg in local_packages}
+    local_map = {pkg["name"]: pkg.get("version", "") for pkg in local_packages}
     result = []
     visited = set()
+
+    def _needs_download(name, hub_version):
+        """Return True if the package should be downloaded."""
+        if name not in local_map:
+            return True
+        local_ver = local_map[name]
+        if not local_ver:
+            return True
+        try:
+            return _parse_semver(hub_version) > _parse_semver(local_ver)
+        except ValueError:
+            return False
 
     def _resolve(name):
         if name in visited:
@@ -273,11 +285,11 @@ def resolve_download_order(hub_index, package_name, local_packages):
         # Resolve dependencies first
         deps = entry.get("dependencies", {})
         for dep_name in deps:
-            if dep_name not in local_names:
+            if _needs_download(dep_name, hub_packages.get(dep_name, {}).get("latest", "")):
                 _resolve(dep_name)
 
-        # Add this package if not already local
-        if name not in local_names:
+        # Add this package if not local or outdated
+        if _needs_download(name, latest):
             result.append({
                 "name": name,
                 "version": latest,
