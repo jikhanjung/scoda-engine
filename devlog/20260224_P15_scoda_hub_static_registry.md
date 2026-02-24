@@ -203,20 +203,130 @@ paleocore.manifest.json
 ```
 ┌─────────────────────┐     GitHub API (read)     ┌────────────────────┐
 │  trilobase repo     │ ◄─────────────────────── │  scoda-engine repo  │
-│  - Releases         │                           │  - Actions (cron    │
-│    *.manifest.json  │                           │    or dispatch)     │
-│    *.scoda          │                           │  - generate index   │
-└─────────────────────┘                           │  - deploy to Pages  │
+│  - Releases         │                           │  - hub/sources.json │
+│    *.manifest.json  │                           │  - Actions (cron    │
+│    *.scoda          │                           │    or dispatch)     │
+└─────────────────────┘                           │  - generate index   │
+                                                  │  → hub/index.json   │
+                                                  │  - deploy to Pages  │
                                                   └────────────────────┘
 ```
+
+#### 수집 대상 설정: `hub/sources.json`
+
+수집 대상 repo 목록은 `hub/sources.json`에 기록한다.
+이 파일은 수동으로 관리하며 git에 커밋된다.
+
+```
+hub/
+├── sources.json       # 수집 대상 repo 목록 (수동 관리, git 커밋)
+└── index.json         # 생성 결과 (자동 생성, gh-pages 브랜치 or .gitignore)
+```
+
+`hub/sources.json` 예시:
+
+```json
+[
+  {
+    "repo": "jikhanjung/trilobase",
+    "type": "github_releases"
+  }
+]
+```
+
+새 패키지 repo가 생기면 여기에 항목을 추가하기만 하면 된다.
+`index.json`은 자동 생성물이므로 main 브랜치에는 커밋하지 않고,
+gh-pages 브랜치에만 배포하거나 `.gitignore`에 추가한다.
 
 **워크플로우 트리거**: `workflow_dispatch` (수동) + `schedule` (주 1회 cron)
 
 **처리 순서**:
-1. 설정 파일(`hub-sources.json`)에서 수집 대상 repo 목록 읽기
+1. `hub/sources.json`에서 수집 대상 repo 목록 읽기
 2. 각 repo의 최신 릴리스에서 `*.manifest.json` 다운로드
 3. manifest들을 병합하여 `index.json` 생성
 4. `gh-pages` 브랜치에 배포
+
+#### 릴리스 수집 방법: GitHub API
+
+scoda-engine Actions에서 trilobase 등 외부 repo의 최신 릴리스 정보를
+읽는 방법. public repo이므로 인증 없이도 가능하지만,
+Actions에서는 rate limit 회피를 위해 자동 제공되는 `GITHUB_TOKEN`을 사용하는 게 좋다.
+
+**GitHub CLI (`gh`)** — Actions에서 가장 간편:
+
+```bash
+# 최신 릴리스의 태그명 + asset 목록
+gh release view --repo jikhanjung/trilobase --json tagName,assets
+
+# asset별 파일명 + 다운로드 URL 추출
+gh release view --repo jikhanjung/trilobase \
+  --json assets --jq '.assets[] | {name, url}'
+
+# *.manifest.json만 필터링해서 다운로드
+gh release download --repo jikhanjung/trilobase \
+  --pattern '*.manifest.json' --dir /tmp/manifests
+```
+
+**REST API** (대안):
+
+```bash
+# 최신 릴리스 (tag_name, assets[].name, assets[].browser_download_url)
+curl -s https://api.github.com/repos/jikhanjung/trilobase/releases/latest
+```
+
+#### index 생성 스크립트 의사코드
+
+```python
+# scripts/generate_hub_index.py (scoda-engine repo)
+import json, subprocess
+
+with open('hub/sources.json') as f:
+    sources = json.load(f)  # [{"repo": "jikhanjung/trilobase"}, ...]
+
+packages = {}
+for src in sources:
+    repo = src['repo']
+    # 1) 최신 릴리스의 asset 목록 가져오기
+    result = subprocess.run(
+        ['gh', 'release', 'view', '--repo', repo,
+         '--json', 'tagName,assets'],
+        capture_output=True, text=True)
+    release = json.loads(result.stdout)
+
+    # 2) *.manifest.json 다운로드 + 파싱
+    for asset in release['assets']:
+        if asset['name'].endswith('.manifest.json'):
+            manifest = download_and_parse(asset['url'])
+            pkg_id = manifest['package_id']
+            version = manifest['version']
+
+            # 3) 같은 릴리스에서 .scoda asset의 URL/size 수집
+            scoda_asset = find_asset(release, f"{pkg_id}-{version}.scoda")
+
+            packages.setdefault(pkg_id, {"latest": version, "versions": {}})
+            packages[pkg_id]["latest"] = version
+            packages[pkg_id]["versions"][version] = {
+                **manifest,
+                "download_url": scoda_asset['url'],
+                "size_bytes": scoda_asset['size'],
+            }
+
+# 4) index.json 생성
+index = {
+    "hub_version": "1.0",
+    "generated_at": now_iso(),
+    "sources": sources,
+    "packages": packages,
+}
+with open('hub/index.json', 'w') as f:
+    json.dump(index, f, indent=2)
+```
+
+이 스크립트를 Actions workflow에서 실행하면:
+- 외부 repo에 대한 **읽기 권한만** 필요 (쓰기 불필요)
+- `GITHUB_TOKEN`은 Actions에 자동 제공 (별도 secret 설정 불필요)
+- `download_url`은 이 시점에 GitHub API에서 정확한 값을 가져오므로,
+  trilobase 빌드 시점에 URL을 예측할 필요가 없음
 
 ---
 
