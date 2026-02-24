@@ -29,10 +29,12 @@
 | P14: 임의 경로 .scoda 패키지 로딩 | Done | `devlog/20260224_012_arbitrary_scoda_path_loading.md` |
 | Desktop v0.1.1 버전 업 | Done | `scoda_engine/__init__.py`, `pyproject.toml` |
 | P15: SCODA Hub 정적 레지스트리 (scoda-engine 측) | Done | `devlog/20260224_P15_scoda_hub_static_registry.md` |
+| P16: Hub 패키지 자동 체크 및 다운로드 | Done | `devlog/20260224_014_hub_client_and_gui.md` |
+| Desktop v0.1.2 버전 업 | Done | `scoda_engine/__init__.py`, `pyproject.toml` |
 
 ### Test Status
 
-- All 224 tests passing: `pytest tests/` (runtime + MCP)
+- All 249 tests passing: `pytest tests/` (runtime + MCP + hub_client)
 - All fixtures converted to domain-independent generic data
 - MCP subprocess tests support `SCODA_DB_PATH` environment variable
 
@@ -52,6 +54,12 @@
    - `.github/workflows/hub-index.yml` — workflow_dispatch + 주간 cron, Pages 배포
    - `.gitignore`에 `hub/index.json` 추가
    - `--dry-run` 테스트 성공: trilobase v0.2.2 + paleocore v0.1.1 수집 확인
+4. **P16: Hub 패키지 자동 체크 및 다운로드**:
+   - `hub_client.py` (순수 stdlib): fetch, compare, download, resolve_download_order
+   - GUI Hub 섹션: 백그라운드 체크, Download/Download All, 프로그레스 바
+   - Open .scoda File 버튼/D&D 제거 (Hub으로 대체)
+   - 테스트 25개 추가 (전체 249)
+5. **Desktop v0.1.2 버전 업**: `0.1.1` → `0.1.2`
 
 ---
 
@@ -125,7 +133,7 @@ core/scoda_engine_core/     # PyPI: scoda-engine-core v0.1.1 (pure stdlib, zero 
 ├── scoda_package.py        # Core: .scoda ZIP, DB access, PackageRegistry, register_path
 └── validate_manifest.py    # Manifest validator/linter (pure functions)
 
-scoda_engine/               # PyPI: scoda-engine v0.1.1 (desktop/server)
+scoda_engine/               # PyPI: scoda-engine v0.1.2 (desktop/server)
 ├── scoda_package.py        # Backward-compat shim → scoda_engine_core
 ├── app.py                  # FastAPI web server
 ├── mcp_server.py           # MCP server (stdio/SSE)

@@ -7,7 +7,7 @@ and control the web server.
 """
 
 import tkinter as tk
-from tkinter import messagebox, scrolledtext, filedialog, ttk
+from tkinter import messagebox, ttk
 import logging
 import threading
 import webbrowser
@@ -153,9 +153,6 @@ class ScodaDesktopGUI:
         # Handle window close
         self.root.protocol("WM_DELETE_WINDOW", self.quit_app)
 
-        # Enable drag-and-drop if tkinterdnd2 is available
-        self._setup_dnd()
-
         # Fetch Hub index in background
         threading.Thread(target=self._fetch_hub_index, daemon=True).start()
 
@@ -247,12 +244,6 @@ class ScodaDesktopGUI:
                                      relief="raised", bd=2)
         self.browser_btn.pack(pady=3)
 
-        # Open .scoda file button
-        self.open_btn = tk.Button(control_frame, text="Open .scoda File...", width=26,
-                                  command=self._open_scoda_file,
-                                  relief="raised", bd=2)
-        self.open_btn.pack(pady=3)
-
         # Clear log button
         self.clear_log_btn = tk.Button(control_frame, text="Clear Log", width=26,
                                        command=self.clear_log,
@@ -265,7 +256,12 @@ class ScodaDesktopGUI:
                             relief="raised", bd=2)
         quit_btn.pack(pady=3)
 
-        # Hub: Available Packages (initially hidden)
+        # Bottom: Log Viewer
+        log_frame = tk.LabelFrame(self.root, text="Server Log", padx=5, pady=5)
+        log_frame.pack(fill="both", expand=True, padx=10, pady=(0, 10))
+
+        # Hub: Available Packages (initially hidden, inserted BEFORE log_frame)
+        self._hub_log_frame = log_frame  # keep reference for pack(before=)
         self._hub_frame = tk.LabelFrame(self.root, text="Hub - Available Packages",
                                          padx=10, pady=5)
         # Not packed yet — shown only after successful Hub fetch
@@ -289,6 +285,13 @@ class ScodaDesktopGUI:
         )
         self._hub_download_btn.pack(pady=2)
 
+        self._hub_dl_all_btn = tk.Button(
+            hub_btn_frame, text="Download All", width=10,
+            command=self._download_all_hub_packages,
+            bg="#4CAF50", fg="white", relief="raised", bd=2,
+        )
+        self._hub_dl_all_btn.pack(pady=2)
+
         hub_bottom = tk.Frame(self._hub_frame)
         hub_bottom.pack(fill="x", pady=(3, 0))
 
@@ -302,10 +305,6 @@ class ScodaDesktopGUI:
             hub_bottom, mode="determinate", length=200,
         )
         # Progress bar not packed — shown only during download
-
-        # Bottom: Log Viewer
-        log_frame = tk.LabelFrame(self.root, text="Server Log", padx=5, pady=5)
-        log_frame.pack(fill="both", expand=True, padx=10, pady=(0, 10))
 
         # Scrollbar
         scrollbar = tk.Scrollbar(log_frame)
@@ -438,62 +437,6 @@ class ScodaDesktopGUI:
                 info_parts.append("Has dependencies")
             self.pkg_info_label.config(text="\n".join(info_parts))
 
-    def _open_scoda_file(self):
-        """Open a file dialog to select and load a .scoda file."""
-        if self.server_running:
-            self._append_log("Stop server before loading a new package", "WARNING")
-            return
-
-        path = filedialog.askopenfilename(
-            title="Open .scoda Package",
-            filetypes=[("SCODA packages", "*.scoda"), ("All files", "*.*")],
-        )
-        if path:
-            self._load_scoda_from_path(path)
-
-    def _load_scoda_from_path(self, path):
-        """Load a .scoda file from an arbitrary path into the registry."""
-        try:
-            name = self.registry.register_path(path)
-            self._external_scoda_paths[name] = os.path.abspath(path)
-            self.packages = self.registry.list_packages()
-            self._refresh_pkg_listbox()
-
-            # Select the newly loaded package
-            self.selected_package = name
-            for i, pkg in enumerate(self.packages):
-                if pkg['name'] == name:
-                    self.pkg_listbox.selection_clear(0, "end")
-                    self.pkg_listbox.selection_set(i)
-                    break
-            self._update_pkg_info()
-            self._update_status()
-            self._append_log(f"Loaded: {name} from {path}", "SUCCESS")
-        except (FileNotFoundError, ValueError) as e:
-            self._append_log(f"ERROR: Failed to load {path}: {e}", "ERROR")
-            messagebox.showerror("Load Error", f"Could not load package:\n{e}")
-
-    def _setup_dnd(self):
-        """Enable drag-and-drop for .scoda files if tkinterdnd2 is available."""
-        try:
-            import tkinterdnd2
-            self.root.drop_target_register(tkinterdnd2.DND_FILES)
-            self.root.dnd_bind('<<Drop>>', self._on_drop)
-            self._append_log("Drag-and-drop enabled")
-        except (ImportError, Exception):
-            pass  # tkinterdnd2 not installed — silently skip
-
-    def _on_drop(self, event):
-        """Handle drag-and-drop of .scoda files."""
-        path = event.data.strip()
-        # tkinterdnd2 wraps paths with spaces in braces: {/path/with spaces/file.scoda}
-        if path.startswith('{') and path.endswith('}'):
-            path = path[1:-1]
-        if path.lower().endswith('.scoda'):
-            self._load_scoda_from_path(path)
-        else:
-            self._append_log(f"Dropped file is not a .scoda package: {path}", "WARNING")
-
     # ------------------------------------------------------------------
     # Hub methods
     # ------------------------------------------------------------------
@@ -518,8 +461,9 @@ class ScodaDesktopGUI:
             self._append_log("Hub: all packages up to date")
             return
 
-        # Show Hub section
-        self._hub_frame.pack(fill="x", padx=10, pady=(0, 5))
+        # Show Hub section (insert before log frame so it's visible)
+        self._hub_frame.pack(fill="x", padx=10, pady=(0, 5),
+                             before=self._hub_log_frame)
         self._refresh_hub_listbox()
 
         avail_count = len(self._hub_available)
@@ -582,30 +526,37 @@ class ScodaDesktopGUI:
         if i >= len(all_items):
             return
         selected = all_items[i]
+        self._start_hub_download([selected])
 
+    def _download_all_hub_packages(self):
+        """Handle Download All button click."""
+        if self._download_in_progress:
+            return
+        all_items = self._hub_updatable + self._hub_available
+        if not all_items:
+            return
+        self._start_hub_download(all_items)
+
+    def _start_hub_download(self, items):
+        """Start background download for a list of Hub items."""
         self._download_in_progress = True
         self._hub_download_btn.config(state="disabled")
+        self._hub_dl_all_btn.config(state="disabled")
         self._hub_progress.pack(side="right", padx=(5, 0))
         self._hub_progress["value"] = 0
-        self._hub_status_label.config(text=f"Downloading {selected['name']}...", fg="#2196F3")
+
+        names = ", ".join(it["name"] for it in items)
+        self._hub_status_label.config(text=f"Downloading {names}...", fg="#2196F3")
 
         threading.Thread(
-            target=self._do_download,
-            args=(selected,),
+            target=self._do_download_multi,
+            args=(items,),
             daemon=True,
         ).start()
 
-    def _do_download(self, selected):
+    def _do_download_multi(self, items):
         """Background thread: resolve deps and download package(s)."""
         try:
-            pkg_name = selected["name"]
-            order = resolve_download_order(
-                self._hub_index, pkg_name, self.packages)
-
-            if not order:
-                self.root.after(0, self._on_download_complete, pkg_name, [])
-                return
-
             # Determine download directory
             scan_dir = self.registry._scan_dir
             if not scan_dir:
@@ -615,10 +566,26 @@ class ScodaDesktopGUI:
                     scan_dir = self.base_path
             os.makedirs(scan_dir, exist_ok=True)
 
-            downloaded_paths = []
-            total_packages = len(order)
+            # Build full download order (deps first, deduplicated)
+            full_order = []
+            seen = set()
+            for item in items:
+                order = resolve_download_order(
+                    self._hub_index, item["name"], self.packages)
+                for pkg_info in order:
+                    if pkg_info["name"] not in seen:
+                        seen.add(pkg_info["name"])
+                        full_order.append(pkg_info)
 
-            for pkg_idx, pkg_info in enumerate(order):
+            if not full_order:
+                names = ", ".join(it["name"] for it in items)
+                self.root.after(0, self._on_download_complete, names, [])
+                return
+
+            downloaded_paths = []
+            total_packages = len(full_order)
+
+            for pkg_idx, pkg_info in enumerate(full_order):
                 entry = pkg_info["entry"]
                 url = entry.get("download_url", "")
                 sha256 = entry.get("sha256", "") or None
@@ -631,7 +598,8 @@ class ScodaDesktopGUI:
                     self.root.after(0, self._update_download_progress, pct)
 
                 self.root.after(0, self._hub_status_label.config,
-                                {"text": f"Downloading {pkg_info['name']} v{pkg_info['version']}..."})
+                                {"text": f"Downloading {pkg_info['name']} v{pkg_info['version']}"
+                                         f" ({pkg_idx + 1}/{total_packages})..."})
 
                 path = download_package(
                     url, scan_dir,
@@ -640,7 +608,8 @@ class ScodaDesktopGUI:
                 )
                 downloaded_paths.append(path)
 
-            self.root.after(0, self._on_download_complete, pkg_name, downloaded_paths)
+            names = ", ".join(it["name"] for it in items)
+            self.root.after(0, self._on_download_complete, names, downloaded_paths)
 
         except HubError as e:
             self.root.after(0, self._on_download_error, str(e))
@@ -655,6 +624,7 @@ class ScodaDesktopGUI:
         """Main thread callback after download completes."""
         self._download_in_progress = False
         self._hub_download_btn.config(state="normal")
+        self._hub_dl_all_btn.config(state="normal")
         self._hub_progress.pack_forget()
 
         if not downloaded_paths:
@@ -695,6 +665,7 @@ class ScodaDesktopGUI:
         """Main thread callback on download failure."""
         self._download_in_progress = False
         self._hub_download_btn.config(state="normal")
+        self._hub_dl_all_btn.config(state="normal")
         self._hub_progress.pack_forget()
         self._hub_status_label.config(text="Download failed", fg="red")
         self._append_log(f"Hub download error: {error_msg}", "ERROR")
