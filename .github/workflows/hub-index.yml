@@ -3,8 +3,8 @@ name: Hub Index
 on:
   workflow_dispatch:
   schedule:
-    # Weekly on Monday 00:00 UTC
-    - cron: '0 0 * * 1'
+    # Daily at 00:00 UTC
+    - cron: '0 0 * * *'
 
 permissions:
   contents: read
