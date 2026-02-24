@@ -1518,6 +1518,16 @@ async function renderDetailFromManifest(viewKey, entityId) {
         }
         const data = await response.json();
 
+        // Redirect: if a more specific detail view exists based on a data field, use it
+        // redirect: {"key": "field_name", "map": {"value": "target_view"}}
+        if (view.redirect) {
+            const redirectValue = data[view.redirect.key];
+            const redirectView = redirectValue && view.redirect.map[redirectValue];
+            if (redirectView && redirectView !== viewKey && manifest.views[redirectView]) {
+                return renderDetailFromManifest(redirectView, entityId);
+            }
+        }
+
         // Title
         modalTitle.innerHTML = buildDetailTitle(view.title_template, data);
 
