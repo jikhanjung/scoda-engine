@@ -7,7 +7,7 @@ and control the web server.
 """
 
 import tkinter as tk
-from tkinter import messagebox, scrolledtext
+from tkinter import messagebox, scrolledtext, filedialog
 import logging
 import threading
 import webbrowser
@@ -64,7 +64,7 @@ class TkLogHandler(logging.Handler):
 
 
 class ScodaDesktopGUI:
-    def __init__(self):
+    def __init__(self, scoda_path=None):
         self.root = tk.Tk()
         self.root.title(f"SCODA Desktop v{__version__}")
         self.root.geometry("800x600")
@@ -84,6 +84,9 @@ class ScodaDesktopGUI:
         # Selected package
         self.selected_package = None
 
+        # Track externally loaded .scoda paths (name → scoda_path)
+        self._external_scoda_paths = {}
+
         # Determine base path
         if getattr(sys, 'frozen', False):
             self.base_path = sys._MEIPASS
@@ -92,8 +95,20 @@ class ScodaDesktopGUI:
 
         os.chdir(self.base_path)
 
-        # Use PackageRegistry for package discovery
-        self.registry = scoda_package.get_registry()
+        # If a .scoda path was given, register it before scanning
+        if scoda_path:
+            scoda_package._reset_registry()
+            self.registry = scoda_package.get_registry()
+            try:
+                name = self.registry.register_path(scoda_path)
+                self._external_scoda_paths[name] = os.path.abspath(scoda_path)
+            except (FileNotFoundError, ValueError) as e:
+                logging.getLogger(__name__).warning("Failed to load %s: %s", scoda_path, e)
+                self.registry = scoda_package.get_registry()
+        else:
+            # Use PackageRegistry for package discovery
+            self.registry = scoda_package.get_registry()
+
         self.packages = self.registry.list_packages()
 
         # Auto-select if only one package
@@ -127,6 +142,9 @@ class ScodaDesktopGUI:
 
         # Handle window close
         self.root.protocol("WM_DELETE_WINDOW", self.quit_app)
+
+        # Enable drag-and-drop if tkinterdnd2 is available
+        self._setup_dnd()
 
         # Auto-start if single package (same UX as before)
         if len(self.packages) == 1:
@@ -215,6 +233,12 @@ class ScodaDesktopGUI:
                                      command=self.open_browser, state="disabled",
                                      relief="raised", bd=2)
         self.browser_btn.pack(pady=3)
+
+        # Open .scoda file button
+        self.open_btn = tk.Button(control_frame, text="Open .scoda File...", width=26,
+                                  command=self._open_scoda_file,
+                                  relief="raised", bd=2)
+        self.open_btn.pack(pady=3)
 
         # Clear log button
         self.clear_log_btn = tk.Button(control_frame, text="Clear Log", width=26,
@@ -363,6 +387,62 @@ class ScodaDesktopGUI:
                 info_parts.append("Has dependencies")
             self.pkg_info_label.config(text="\n".join(info_parts))
 
+    def _open_scoda_file(self):
+        """Open a file dialog to select and load a .scoda file."""
+        if self.server_running:
+            self._append_log("Stop server before loading a new package", "WARNING")
+            return
+
+        path = filedialog.askopenfilename(
+            title="Open .scoda Package",
+            filetypes=[("SCODA packages", "*.scoda"), ("All files", "*.*")],
+        )
+        if path:
+            self._load_scoda_from_path(path)
+
+    def _load_scoda_from_path(self, path):
+        """Load a .scoda file from an arbitrary path into the registry."""
+        try:
+            name = self.registry.register_path(path)
+            self._external_scoda_paths[name] = os.path.abspath(path)
+            self.packages = self.registry.list_packages()
+            self._refresh_pkg_listbox()
+
+            # Select the newly loaded package
+            self.selected_package = name
+            for i, pkg in enumerate(self.packages):
+                if pkg['name'] == name:
+                    self.pkg_listbox.selection_clear(0, "end")
+                    self.pkg_listbox.selection_set(i)
+                    break
+            self._update_pkg_info()
+            self._update_status()
+            self._append_log(f"Loaded: {name} from {path}", "SUCCESS")
+        except (FileNotFoundError, ValueError) as e:
+            self._append_log(f"ERROR: Failed to load {path}: {e}", "ERROR")
+            messagebox.showerror("Load Error", f"Could not load package:\n{e}")
+
+    def _setup_dnd(self):
+        """Enable drag-and-drop for .scoda files if tkinterdnd2 is available."""
+        try:
+            import tkinterdnd2
+            self.root.drop_target_register(tkinterdnd2.DND_FILES)
+            self.root.dnd_bind('<<Drop>>', self._on_drop)
+            self._append_log("Drag-and-drop enabled")
+        except (ImportError, Exception):
+            pass  # tkinterdnd2 not installed — silently skip
+
+    def _on_drop(self, event):
+        """Handle drag-and-drop of .scoda files."""
+        path = event.data.strip()
+        # tkinterdnd2 wraps paths with spaces in braces: {/path/with spaces/file.scoda}
+        if path.startswith('{') and path.endswith('}'):
+            path = path[1:-1]
+        if path.lower().endswith('.scoda'):
+            self._load_scoda_from_path(path)
+        else:
+            self._append_log(f"Dropped file is not a .scoda package: {path}", "WARNING")
+
     def start_server(self):
         """Start web server for the selected package."""
         if self.server_running:
@@ -429,9 +509,17 @@ class ScodaDesktopGUI:
 
         self._append_log(f"Starting web server (package={self.selected_package})...", "INFO")
 
-        # Start server as subprocess with --package arg (using -m for package import)
+        # Build command: use --scoda-path for externally loaded packages
+        cmd = [python_exe, '-m', 'scoda_engine.app']
+        ext_path = self._external_scoda_paths.get(self.selected_package)
+        if ext_path:
+            cmd.extend(['--scoda-path', ext_path])
+        else:
+            cmd.extend(['--package', self.selected_package])
+
+        # Start server as subprocess (using -m for package import)
         self.server_process = subprocess.Popen(
-            [python_exe, '-m', 'scoda_engine.app', '--package', self.selected_package],
+            cmd,
             stdout=subprocess.PIPE,
             stderr=subprocess.STDOUT,
             universal_newlines=True,
@@ -664,8 +752,14 @@ class ScodaDesktopGUI:
 
 def main():
     """Main entry point."""
+    import argparse
+    parser = argparse.ArgumentParser(description="SCODA Desktop GUI")
+    parser.add_argument('--scoda-path', type=str, default=None,
+                        help='Path to a .scoda file to load')
+    args = parser.parse_args()
+
     try:
-        gui = ScodaDesktopGUI()
+        gui = ScodaDesktopGUI(scoda_path=args.scoda_path)
         gui.run()
     except Exception as e:
         import traceback

@@ -21,12 +21,16 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('--package', type=str, default=None,
                         help='Active package name')
+    parser.add_argument('--scoda-path', type=str, default=None,
+                        help='Path to a .scoda file to load')
     args = parser.parse_args()
 
     print("=" * 60)
     print("SCODA Desktop Viewer")
     print("=" * 60)
-    if args.package:
+    if args.scoda_path:
+        print(f"Loading: {args.scoda_path}")
+    elif args.package:
         print(f"Package: {args.package}")
     print("Server running at: http://localhost:8080")
     print("Press Ctrl+C to stop the server")
@@ -47,7 +51,10 @@ def main():
 
         os.chdir(base_path)
 
-        if args.package:
+        if args.scoda_path:
+            from scoda_engine_core import register_scoda_path
+            register_scoda_path(args.scoda_path)
+        elif args.package:
             from scoda_engine_core import set_active_package
             set_active_package(args.package)
 

@@ -772,6 +772,18 @@ def generic_mcp_tools_data():
 
 
 @pytest.fixture
+def generic_scoda_package(generic_db, tmp_path):
+    """Create a .scoda package from generic_db for register_path testing.
+
+    Returns the path to the .scoda file.
+    """
+    canonical_db_path, overlay_db_path = generic_db
+    output_path = str(tmp_path / "sample-data.scoda")
+    ScodaPackage.create(canonical_db_path, output_path)
+    return output_path
+
+
+@pytest.fixture
 def generic_scoda_with_mcp_tools(generic_db, generic_mcp_tools_data, tmp_path):
     """Create a .scoda package that includes mcp_tools.json (generic version)."""
     canonical_db_path, overlay_db_path = generic_db

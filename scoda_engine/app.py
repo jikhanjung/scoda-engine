@@ -704,8 +704,13 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('--package', type=str, default=None,
                         help='Active package name')
+    parser.add_argument('--scoda-path', type=str, default=None,
+                        help='Path to a .scoda file to load')
     args = parser.parse_args()
-    if args.package:
+    if args.scoda_path:
+        from scoda_engine_core import register_scoda_path
+        register_scoda_path(args.scoda_path)
+    elif args.package:
         from scoda_engine_core import set_active_package
         set_active_package(args.package)
     uvicorn.run(app, host='0.0.0.0', port=8080)

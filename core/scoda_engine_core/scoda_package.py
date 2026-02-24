@@ -448,6 +448,74 @@ class PackageRegistry:
             return pkg.mcp_tools
         return None
 
+    def register_path(self, scoda_path):
+        """Register a .scoda file from an arbitrary filesystem path.
+
+        Opens the .scoda package, registers it in the internal dict, and
+        resolves dependencies from the same directory as the .scoda file.
+        If a package with the same name already exists, it is replaced
+        (the old one is closed first).
+
+        Args:
+            scoda_path: Absolute or relative path to a .scoda file.
+
+        Returns:
+            Package name (str) as declared in the manifest.
+
+        Raises:
+            FileNotFoundError: If scoda_path does not exist.
+            ValueError: If the file is not a valid .scoda package.
+        """
+        scoda_path = os.path.abspath(scoda_path)
+        if not os.path.exists(scoda_path):
+            raise FileNotFoundError(f".scoda file not found: {scoda_path}")
+
+        pkg = ScodaPackage(scoda_path)
+        name = pkg.name
+        scoda_dir = os.path.dirname(scoda_path)
+
+        # Close existing package with same name
+        if name in self._packages:
+            old = self._packages[name]
+            if old['pkg']:
+                old['pkg'].close()
+
+        overlay_path = os.path.join(scoda_dir, f'{name}_overlay.db')
+        deps = pkg.manifest.get('dependencies', [])
+
+        self._packages[name] = {
+            'pkg': pkg,
+            'db_path': pkg.db_path,
+            'overlay_path': overlay_path,
+            'deps': deps,
+        }
+
+        # Scan the same directory for dependency packages
+        for dep in deps:
+            dep_name = dep.get('name')
+            if not dep_name or dep_name in self._packages:
+                continue
+            dep_scoda = os.path.join(scoda_dir, f'{dep_name}.scoda')
+            if not os.path.exists(dep_scoda):
+                candidates = sorted(glob_mod.glob(
+                    os.path.join(scoda_dir, f'{dep_name}-*.scoda')))
+                dep_scoda = candidates[-1] if candidates else dep_scoda
+            if os.path.exists(dep_scoda):
+                try:
+                    dep_pkg = ScodaPackage(dep_scoda)
+                    dep_overlay = os.path.join(scoda_dir, f'{dep_pkg.name}_overlay.db')
+                    self._packages[dep_pkg.name] = {
+                        'pkg': dep_pkg,
+                        'db_path': dep_pkg.db_path,
+                        'overlay_path': dep_overlay,
+                        'deps': dep_pkg.manifest.get('dependencies', []),
+                    }
+                except (ValueError, ScodaChecksumError) as e:
+                    logger.warning("Skipping dependency '%s': %s", dep_name, e)
+
+        logger.info("Registered package '%s' from %s", name, scoda_path)
+        return name
+
     def close_all(self):
         """Close all ScodaPackage instances."""
         for entry in self._packages.values():
@@ -518,16 +586,56 @@ _registry = None
 
 
 def get_registry():
-    """Get the default PackageRegistry (lazy-initialized)."""
+    """Get the default PackageRegistry (lazy-initialized).
+
+    If the SCODA_PACKAGE_PATH environment variable is set, it is treated as
+    a path to a single .scoda file and registered instead of scanning the
+    default directory.
+    """
     global _registry
     if _registry is None:
         _registry = PackageRegistry()
-        if getattr(sys, 'frozen', False):
-            scan_dir = os.path.dirname(sys.executable)
+        env_pkg = os.environ.get('SCODA_PACKAGE_PATH')
+        if env_pkg:
+            try:
+                name = _registry.register_path(env_pkg)
+                logger.info("SCODA_PACKAGE_PATH: registered '%s'", name)
+            except (FileNotFoundError, ValueError) as e:
+                logger.warning("SCODA_PACKAGE_PATH failed: %s", e)
+                # Fall through to normal scan
+                if getattr(sys, 'frozen', False):
+                    scan_dir = os.path.dirname(sys.executable)
+                else:
+                    scan_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+                _registry.scan(scan_dir)
         else:
-            scan_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-        _registry.scan(scan_dir)
+            if getattr(sys, 'frozen', False):
+                scan_dir = os.path.dirname(sys.executable)
+            else:
+                scan_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+            _registry.scan(scan_dir)
     return _registry
+
+
+def register_scoda_path(scoda_path):
+    """Convenience function: register a .scoda file and set it as active.
+
+    Creates the default PackageRegistry if needed (without scanning the
+    default directory), registers the package, and sets it as the active
+    package for get_db().
+
+    Args:
+        scoda_path: Path to a .scoda file.
+
+    Returns:
+        Package name (str).
+    """
+    global _registry
+    if _registry is None:
+        _registry = PackageRegistry()
+    name = _registry.register_path(scoda_path)
+    set_active_package(name)
+    return name
 
 
 def get_mcp_tools():

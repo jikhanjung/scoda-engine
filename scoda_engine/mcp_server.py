@@ -545,8 +545,18 @@ def main():
         default=8081,
         help="Port for SSE server (SSE mode only)"
     )
+    parser.add_argument(
+        "--scoda-path",
+        type=str,
+        default=None,
+        help="Path to a .scoda file to load"
+    )
 
     args = parser.parse_args()
+
+    if args.scoda_path:
+        from scoda_engine_core import register_scoda_path
+        register_scoda_path(args.scoda_path)
 
     if args.mode == "stdio":
         asyncio.run(run_stdio())

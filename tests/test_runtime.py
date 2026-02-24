@@ -1002,6 +1002,71 @@ class TestPackageRegistry:
 
 # ---------------------------------------------------------------------------
 
+class TestRegisterPath:
+    """Tests for PackageRegistry.register_path() — arbitrary .scoda loading."""
+
+    def test_register_path_basic(self, generic_scoda_package):
+        """register_path() loads a .scoda and list_packages() returns it."""
+        registry = PackageRegistry()
+        name = registry.register_path(generic_scoda_package)
+        assert name == 'sample-data'
+        names = [p['name'] for p in registry.list_packages()]
+        assert 'sample-data' in names
+        registry.close_all()
+
+    def test_register_path_get_db(self, generic_scoda_package):
+        """register_path() → get_db() → query works."""
+        registry = PackageRegistry()
+        name = registry.register_path(generic_scoda_package)
+        conn = registry.get_db(name)
+        cursor = conn.cursor()
+        cursor.execute("SELECT COUNT(*) FROM items")
+        count = cursor.fetchone()[0]
+        assert count == 5
+        conn.close()
+        registry.close_all()
+
+    def test_register_path_file_not_found(self):
+        """register_path() raises FileNotFoundError for missing files."""
+        registry = PackageRegistry()
+        with pytest.raises(FileNotFoundError):
+            registry.register_path('/nonexistent/path/test.scoda')
+        registry.close_all()
+
+    def test_register_path_replaces_existing(self, generic_scoda_package):
+        """register_path() replaces an existing package with the same name."""
+        registry = PackageRegistry()
+        name1 = registry.register_path(generic_scoda_package)
+        # Re-register the same path — should replace without error
+        name2 = registry.register_path(generic_scoda_package)
+        assert name1 == name2
+        # Only one entry
+        names = [p['name'] for p in registry.list_packages()]
+        assert names.count('sample-data') == 1
+        registry.close_all()
+
+    def test_register_scoda_path_convenience(self, generic_scoda_package):
+        """register_scoda_path() registers + sets active package."""
+        from scoda_engine_core import register_scoda_path
+        scoda_package._reset_registry()
+        scoda_package._reset_paths()
+        try:
+            name = register_scoda_path(generic_scoda_package)
+            assert name == 'sample-data'
+            assert scoda_package.get_active_package_name() == 'sample-data'
+            # get_db() should work through the registry
+            conn = scoda_package.get_db()
+            cursor = conn.cursor()
+            cursor.execute("SELECT COUNT(*) FROM items")
+            assert cursor.fetchone()[0] == 5
+            conn.close()
+        finally:
+            scoda_package._reset_registry()
+            scoda_package._reset_paths()
+
+
+# ---------------------------------------------------------------------------
+
 class TestGenericDetailEndpoint:
     """Tests for /api/detail/<query_name> generic detail endpoint."""
 
