@@ -1,6 +1,6 @@
 # SCODA Engine — Project Handoff Document
 
-**Last updated:** 2026-02-23
+**Last updated:** 2026-02-24
 
 ---
 
@@ -26,19 +26,21 @@
 | P11: Tree Snapshot Design v1 검토 | Done | `devlog/20260222_P11_tree_snapshot_design_review.md` |
 | P12: GitHub Actions CI 테스트 자동화 | Done | `devlog/20260223_P12_github_actions_ci.md` |
 | P13: Manual Release 워크플로우 | Done | `devlog/20260223_P13_manual_release_workflow.md` |
+| P14: 임의 경로 .scoda 패키지 로딩 | Done | `devlog/20260224_012_arbitrary_scoda_path_loading.md` |
+| Desktop v0.1.1 버전 업 | Done | `scoda_engine/__init__.py`, `pyproject.toml` |
 
 ### Test Status
 
-- All 225 tests passing: `pytest tests/` (runtime + MCP + S-5)
+- All 224 tests passing: `pytest tests/` (runtime + MCP)
 - All fixtures converted to domain-independent generic data
 - MCP subprocess tests support `SCODA_DB_PATH` environment variable
 
-### Recent Session (2026-02-23) Summary
+### Recent Session (2026-02-24) Summary
 
 오늘 세션에서 진행한 작업:
 
-1. **P12: GitHub Actions CI 테스트 자동화**: PR/main push 시 pytest 자동 실행 워크플로우 구축 (OS: ubuntu/windows, Python: 3.10/3.12)
-2. **P13: Manual Release 워크플로우**: workflow_dispatch 기반 수동 릴리스 — PyInstaller 빌드 → ZIP 아티팩트 → GitHub Release 생성 (OS: ubuntu/windows, Python 3.12)
+1. **P14: 임의 경로 .scoda 패키지 로딩**: `PackageRegistry.register_path()`로 파일 시스템 어디에서든 `.scoda` 파일 로딩 지원. Core, CLI(`--scoda-path`), GUI(파일 열기 다이얼로그/D&D) 전체 확장. `SCODA_PACKAGE_PATH` 환경변수도 지원.
+2. **Desktop v0.1.1 버전 업**: `scoda_engine/__init__.py`, `pyproject.toml` 버전 `0.1.0` → `0.1.1`
 
 ---
 
@@ -95,10 +97,10 @@ scoda-engine contains no domain-specific code. All domain logic comes from `.sco
 ```
 core/scoda_engine_core/     # PyPI: scoda-engine-core v0.1.1 (pure stdlib, zero deps)
 ├── __init__.py             # Public API re-exports
-├── scoda_package.py        # Core: .scoda ZIP, DB access, PackageRegistry
+├── scoda_package.py        # Core: .scoda ZIP, DB access, PackageRegistry, register_path
 └── validate_manifest.py    # Manifest validator/linter (pure functions)
 
-scoda_engine/               # PyPI: scoda-engine (desktop/server)
+scoda_engine/               # PyPI: scoda-engine v0.1.1 (desktop/server)
 ├── scoda_package.py        # Backward-compat shim → scoda_engine_core
 ├── app.py                  # FastAPI web server
 ├── mcp_server.py           # MCP server (stdio/SSE)
@@ -132,8 +134,10 @@ pytest tests/
 | Purpose | Command |
 |---------|---------|
 | Web server | `python -m scoda_engine.serve` |
+| Web server (임의 경로) | `python -m scoda_engine.serve --scoda-path /path/to/data.scoda` |
 | MCP server | `python -m scoda_engine.mcp_server` |
 | GUI | `python launcher_gui.py` |
+| GUI (임의 경로) | `python launcher_gui.py --scoda-path /path/to/data.scoda` |
 | PyInstaller build | `python scripts/build.py` |
 | Release packaging | `python scripts/release.py` |
 
@@ -170,3 +174,4 @@ pytest tests/
 | MCP guide | `docs/MCP_GUIDE.md` |
 | CI workflow | `.github/workflows/test.yml` |
 | Release workflow | `.github/workflows/release.yml` |
+| Arbitrary path loading (P14) | `devlog/20260224_P14_arbitrary_scoda_path_loading.md` |
