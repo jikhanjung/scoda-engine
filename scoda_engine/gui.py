@@ -7,7 +7,7 @@ and control the web server.
 """
 
 import tkinter as tk
-from tkinter import messagebox, scrolledtext, filedialog
+from tkinter import messagebox, scrolledtext, filedialog, ttk
 import logging
 import threading
 import webbrowser
@@ -18,6 +18,10 @@ import subprocess
 
 from scoda_engine import __version__
 import scoda_engine_core as scoda_package
+from scoda_engine_core.hub_client import (
+    fetch_hub_index, compare_with_local, download_package,
+    resolve_download_order, HubError, HubConnectionError, HubChecksumError,
+)
 
 
 class LogRedirector:
@@ -87,6 +91,12 @@ class ScodaDesktopGUI:
         # Track externally loaded .scoda paths (name → scoda_path)
         self._external_scoda_paths = {}
 
+        # Hub state
+        self._hub_index = None
+        self._hub_available = []   # available + updatable combined for display
+        self._hub_updatable = []
+        self._download_in_progress = False
+
         # Determine base path
         if getattr(sys, 'frozen', False):
             self.base_path = sys._MEIPASS
@@ -145,6 +155,9 @@ class ScodaDesktopGUI:
 
         # Enable drag-and-drop if tkinterdnd2 is available
         self._setup_dnd()
+
+        # Fetch Hub index in background
+        threading.Thread(target=self._fetch_hub_index, daemon=True).start()
 
         # Auto-start if single package (same UX as before)
         if len(self.packages) == 1:
@@ -251,6 +264,44 @@ class ScodaDesktopGUI:
                             command=self.quit_app, bg="#9E9E9E", fg="white",
                             relief="raised", bd=2)
         quit_btn.pack(pady=3)
+
+        # Hub: Available Packages (initially hidden)
+        self._hub_frame = tk.LabelFrame(self.root, text="Hub - Available Packages",
+                                         padx=10, pady=5)
+        # Not packed yet — shown only after successful Hub fetch
+
+        hub_top = tk.Frame(self._hub_frame)
+        hub_top.pack(fill="x")
+
+        self._hub_listbox = tk.Listbox(
+            hub_top, height=3, selectmode="browse",
+            font=("Courier", 9), exportselection=False,
+        )
+        self._hub_listbox.pack(side="left", fill="both", expand=True)
+
+        hub_btn_frame = tk.Frame(hub_top)
+        hub_btn_frame.pack(side="left", padx=(5, 0))
+
+        self._hub_download_btn = tk.Button(
+            hub_btn_frame, text="Download", width=10,
+            command=self._download_selected_hub_package,
+            bg="#2196F3", fg="white", relief="raised", bd=2,
+        )
+        self._hub_download_btn.pack(pady=2)
+
+        hub_bottom = tk.Frame(self._hub_frame)
+        hub_bottom.pack(fill="x", pady=(3, 0))
+
+        self._hub_status_label = tk.Label(
+            hub_bottom, text="Checking Hub...", anchor="w",
+            font=("Arial", 8), fg="#888",
+        )
+        self._hub_status_label.pack(side="left", fill="x", expand=True)
+
+        self._hub_progress = ttk.Progressbar(
+            hub_bottom, mode="determinate", length=200,
+        )
+        # Progress bar not packed — shown only during download
 
         # Bottom: Log Viewer
         log_frame = tk.LabelFrame(self.root, text="Server Log", padx=5, pady=5)
@@ -442,6 +493,212 @@ class ScodaDesktopGUI:
             self._load_scoda_from_path(path)
         else:
             self._append_log(f"Dropped file is not a .scoda package: {path}", "WARNING")
+
+    # ------------------------------------------------------------------
+    # Hub methods
+    # ------------------------------------------------------------------
+
+    def _fetch_hub_index(self):
+        """Background thread: fetch Hub index and compare with local packages."""
+        try:
+            index = fetch_hub_index()
+            comparison = compare_with_local(index, self.packages)
+            self.root.after(0, self._on_hub_fetch_complete, index, comparison)
+        except HubError as e:
+            self.root.after(0, self._on_hub_fetch_error, str(e))
+
+    def _on_hub_fetch_complete(self, index, comparison):
+        """Main thread callback after successful Hub fetch."""
+        self._hub_index = index
+        self._hub_available = comparison["available"]
+        self._hub_updatable = comparison["updatable"]
+
+        total = len(self._hub_available) + len(self._hub_updatable)
+        if total == 0:
+            self._append_log("Hub: all packages up to date")
+            return
+
+        # Show Hub section
+        self._hub_frame.pack(fill="x", padx=10, pady=(0, 5))
+        self._refresh_hub_listbox()
+
+        avail_count = len(self._hub_available)
+        upd_count = len(self._hub_updatable)
+        parts = []
+        if avail_count:
+            parts.append(f"{avail_count} new")
+        if upd_count:
+            parts.append(f"{upd_count} update(s)")
+        status = f"Hub: {', '.join(parts)} available"
+        self._hub_status_label.config(text=status, fg="#333")
+        self._append_log(status, "INFO")
+
+    def _on_hub_fetch_error(self, error_msg):
+        """Main thread callback on Hub fetch failure."""
+        self._append_log(f"Hub: {error_msg}", "WARNING")
+
+    def _refresh_hub_listbox(self):
+        """Populate Hub listbox with available/updatable packages."""
+        self._hub_listbox.delete(0, "end")
+        for item in self._hub_updatable:
+            entry = item["hub_entry"]
+            size = entry.get("size_bytes", 0)
+            size_str = self._format_size(size)
+            label = (f" [UPD] {item['name']}  "
+                     f"v{item['local_version']} -> v{item['hub_version']}  {size_str}")
+            self._hub_listbox.insert("end", label)
+        for item in self._hub_available:
+            entry = item["hub_entry"]
+            size = entry.get("size_bytes", 0)
+            size_str = self._format_size(size)
+            label = f" [NEW] {item['name']}  v{item['hub_version']}  {size_str}"
+            self._hub_listbox.insert("end", label)
+
+    @staticmethod
+    def _format_size(size_bytes):
+        """Format byte count to human-readable string."""
+        if size_bytes <= 0:
+            return ""
+        if size_bytes < 1024:
+            return f"({size_bytes} B)"
+        elif size_bytes < 1024 * 1024:
+            return f"({size_bytes / 1024:.1f} KB)"
+        else:
+            return f"({size_bytes / (1024 * 1024):.1f} MB)"
+
+    def _download_selected_hub_package(self):
+        """Handle Download button click."""
+        if self._download_in_progress:
+            return
+
+        idx = self._hub_listbox.curselection()
+        if not idx:
+            messagebox.showinfo("No Selection", "Please select a package to download.")
+            return
+
+        i = idx[0]
+        # Updatable items come first, then available
+        all_items = self._hub_updatable + self._hub_available
+        if i >= len(all_items):
+            return
+        selected = all_items[i]
+
+        self._download_in_progress = True
+        self._hub_download_btn.config(state="disabled")
+        self._hub_progress.pack(side="right", padx=(5, 0))
+        self._hub_progress["value"] = 0
+        self._hub_status_label.config(text=f"Downloading {selected['name']}...", fg="#2196F3")
+
+        threading.Thread(
+            target=self._do_download,
+            args=(selected,),
+            daemon=True,
+        ).start()
+
+    def _do_download(self, selected):
+        """Background thread: resolve deps and download package(s)."""
+        try:
+            pkg_name = selected["name"]
+            order = resolve_download_order(
+                self._hub_index, pkg_name, self.packages)
+
+            if not order:
+                self.root.after(0, self._on_download_complete, pkg_name, [])
+                return
+
+            # Determine download directory
+            scan_dir = self.registry._scan_dir
+            if not scan_dir:
+                if getattr(sys, 'frozen', False):
+                    scan_dir = os.path.dirname(sys.executable)
+                else:
+                    scan_dir = self.base_path
+            os.makedirs(scan_dir, exist_ok=True)
+
+            downloaded_paths = []
+            total_packages = len(order)
+
+            for pkg_idx, pkg_info in enumerate(order):
+                entry = pkg_info["entry"]
+                url = entry.get("download_url", "")
+                sha256 = entry.get("sha256", "") or None
+
+                def progress_cb(dl, total, _idx=pkg_idx, _total=total_packages):
+                    if total > 0:
+                        pct = ((dl / total) + _idx) / _total * 100
+                    else:
+                        pct = (_idx / _total) * 100
+                    self.root.after(0, self._update_download_progress, pct)
+
+                self.root.after(0, self._hub_status_label.config,
+                                {"text": f"Downloading {pkg_info['name']} v{pkg_info['version']}..."})
+
+                path = download_package(
+                    url, scan_dir,
+                    expected_sha256=sha256,
+                    progress_callback=progress_cb,
+                )
+                downloaded_paths.append(path)
+
+            self.root.after(0, self._on_download_complete, pkg_name, downloaded_paths)
+
+        except HubError as e:
+            self.root.after(0, self._on_download_error, str(e))
+        except Exception as e:
+            self.root.after(0, self._on_download_error, str(e))
+
+    def _update_download_progress(self, pct):
+        """Main thread: update progress bar."""
+        self._hub_progress["value"] = min(pct, 100)
+
+    def _on_download_complete(self, pkg_name, downloaded_paths):
+        """Main thread callback after download completes."""
+        self._download_in_progress = False
+        self._hub_download_btn.config(state="normal")
+        self._hub_progress.pack_forget()
+
+        if not downloaded_paths:
+            self._hub_status_label.config(text="Package already up to date", fg="#333")
+            self._append_log(f"Hub: {pkg_name} already up to date")
+            return
+
+        # Register downloaded packages
+        for path in downloaded_paths:
+            try:
+                name = self.registry.register_path(path)
+                self._append_log(f"Installed: {name} from Hub", "SUCCESS")
+            except (FileNotFoundError, ValueError) as e:
+                self._append_log(f"ERROR: Failed to register {path}: {e}", "ERROR")
+
+        # Refresh package list
+        self.packages = self.registry.list_packages()
+        self._refresh_pkg_listbox()
+
+        # Re-compare with Hub
+        if self._hub_index:
+            comparison = compare_with_local(self._hub_index, self.packages)
+            self._hub_available = comparison["available"]
+            self._hub_updatable = comparison["updatable"]
+            self._refresh_hub_listbox()
+
+            total = len(self._hub_available) + len(self._hub_updatable)
+            if total == 0:
+                self._hub_frame.pack_forget()
+                self._hub_status_label.config(text="All packages up to date", fg="#333")
+            else:
+                self._hub_status_label.config(
+                    text=f"{total} package(s) available", fg="#333")
+
+        self._append_log(f"Hub: {pkg_name} download complete", "SUCCESS")
+
+    def _on_download_error(self, error_msg):
+        """Main thread callback on download failure."""
+        self._download_in_progress = False
+        self._hub_download_btn.config(state="normal")
+        self._hub_progress.pack_forget()
+        self._hub_status_label.config(text="Download failed", fg="red")
+        self._append_log(f"Hub download error: {error_msg}", "ERROR")
+        messagebox.showerror("Download Error", f"Failed to download package:\n{error_msg}")
 
     def start_server(self):
         """Start web server for the selected package."""

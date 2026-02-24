@@ -37,6 +37,7 @@ a = Analysis(
         'scoda_engine.serve',
         'scoda_engine_core',
         'scoda_engine_core.scoda_package',
+        'scoda_engine_core.hub_client',
         'fastapi',
         'fastapi.responses',
         'fastapi.staticfiles',
