@@ -113,7 +113,7 @@ Hub manifest는 **패키지 배포**를 설명한다. 이 둘은 역할이 다�
 
 ### 3.1 Hub Manifest 스키마 (per-package)
 
-패키지 repo의 릴리스에 함께 업로드하는 파일: `{package_id}.manifest.json`
+패키지 repo의 릴리스에 함께 업로드하는 파일: `{package_id}-{version}.manifest.json`
 
 ```json
 {
@@ -189,9 +189,9 @@ trilobase repo에서 릴리스 시 업로드하는 아티팩트:
 
 ```
 trilobase-0.2.2.scoda
-trilobase.manifest.json
+trilobase-0.2.2.manifest.json
 paleocore-0.1.3.scoda
-paleocore.manifest.json
+paleocore-0.1.3.manifest.json
 ```
 
 - 두 패키지의 버전은 독립적 (항상 같이 올릴 필요 없음)
@@ -407,7 +407,7 @@ hub_manifest = {
     "sha256": _sha256_file(result),
     "size_bytes": os.path.getsize(result),
 }
-manifest_path = os.path.join(DEFAULT_OUTPUT_DIR, f"{pkg.name}.manifest.json")
+manifest_path = os.path.join(DEFAULT_OUTPUT_DIR, f"{pkg.name}-{pkg.version}.manifest.json")
 with open(manifest_path, 'w') as f:
     json.dump(hub_manifest, f, indent=2)
 ```

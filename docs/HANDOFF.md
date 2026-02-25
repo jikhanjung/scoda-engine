@@ -209,4 +209,5 @@ pytest tests/
 | Release workflow | `.github/workflows/release.yml` |
 | Arbitrary path loading (P14) | `devlog/20260224_P14_arbitrary_scoda_path_loading.md` |
 | Hub static registry (P15) | `devlog/20260224_P15_scoda_hub_static_registry.md` |
+| Hub Manifest spec | `docs/HUB_MANIFEST_SPEC.md` |
 | Hub index workflow | `.github/workflows/hub-index.yml` |
