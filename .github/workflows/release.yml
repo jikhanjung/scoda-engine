@@ -27,9 +27,9 @@ jobs:
         os: [ubuntu-latest, windows-latest]
         include:
           - os: ubuntu-latest
-            artifact_name: ScodaDesktop-linux
+            platform: linux
           - os: windows-latest
-            artifact_name: ScodaDesktop-windows
+            platform: windows
 
     steps:
       - uses: actions/checkout@v4
@@ -53,20 +53,20 @@ jobs:
         if: runner.os == 'Linux'
         run: |
           cd dist
-          zip -j ../ScodaDesktop-linux.zip ScodaDesktop ScodaMCP
+          zip -j ../ScodaDesktop-${{ inputs.version_tag }}-linux.zip ScodaDesktop ScodaMCP
           cd ..
 
       - name: Package artifacts (Windows)
         if: runner.os == 'Windows'
         run: |
-          Compress-Archive -Path dist\ScodaDesktop.exe, dist\ScodaMCP.exe -DestinationPath ScodaDesktop-windows.zip
+          Compress-Archive -Path dist\ScodaDesktop.exe, dist\ScodaMCP.exe -DestinationPath ScodaDesktop-${{ inputs.version_tag }}-windows.zip
         shell: pwsh
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
-          name: ${{ matrix.artifact_name }}
-          path: ${{ matrix.artifact_name }}.zip
+          name: ScodaDesktop-${{ inputs.version_tag }}-${{ matrix.platform }}
+          path: ScodaDesktop-${{ inputs.version_tag }}-${{ matrix.platform }}.zip
           retention-days: 5
 
   release:
@@ -100,8 +100,8 @@ jobs:
             ${{ inputs.release_notes }}
 
             ### Artifacts
-            - **ScodaDesktop-windows.zip** — Windows x64 (ScodaDesktop.exe + ScodaMCP.exe)
-            - **ScodaDesktop-linux.zip** — Linux x64 (ScodaDesktop + ScodaMCP)
+            - **ScodaDesktop-${{ inputs.version_tag }}-windows.zip** — Windows x64 (ScodaDesktop.exe + ScodaMCP.exe)
+            - **ScodaDesktop-${{ inputs.version_tag }}-linux.zip** — Linux x64 (ScodaDesktop + ScodaMCP)
 
             ---
             Build: `${{ github.run_number }}` | Commit: `${{ github.sha }}`
