@@ -14,6 +14,7 @@ import threading
 import webbrowser
 import os
 import sys
+from pathlib import Path
 import time
 import subprocess
 
@@ -107,6 +108,9 @@ class ScodaDesktopGUI:
         self.root.resizable(True, True)
         self.root.minsize(600, 400)
 
+        # Window / taskbar icon
+        self._set_window_icon()
+
         # Web server state
         self.server_process = None  # For subprocess mode
         self.server_thread = None   # For threaded mode (frozen)
@@ -198,6 +202,19 @@ class ScodaDesktopGUI:
         # Auto-start if single package (same UX as before)
         if len(self.packages) == 1:
             self.root.after(500, self.start_server)
+
+    def _set_window_icon(self):
+        """Set window and taskbar icon from ScodaDesktop.ico."""
+        try:
+            if getattr(sys, 'frozen', False):
+                base = Path(getattr(sys, '_MEIPASS', sys.executable))
+            else:
+                base = Path(__file__).resolve().parent.parent
+            ico_path = base / 'ScodaDesktop.ico'
+            if ico_path.exists():
+                self.root.iconbitmap(str(ico_path))
+        except Exception:
+            pass  # Icon is cosmetic; don't crash
 
     def _create_widgets(self):
         """Create all GUI widgets."""

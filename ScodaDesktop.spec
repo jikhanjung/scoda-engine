@@ -27,6 +27,7 @@ a = Analysis(
     binaries=[] + _uvi_binaries,
     datas=[
         ('scoda_engine', 'scoda_engine'),
+        ('ScodaDesktop.ico', '.'),
     ] + _uvi_datas,
     hiddenimports=[
         'scoda_engine',
@@ -81,7 +82,7 @@ exe = EXE(
     target_arch=None,
     codesign_identity=None,
     entitlements_file=None,
-    icon=None,
+    icon='ScodaDesktop.ico',
 )
 
 # ---------------------------------------------------------------------------
@@ -145,5 +146,5 @@ mcp_exe = EXE(
     target_arch=None,
     codesign_identity=None,
     entitlements_file=None,
-    icon=None,
+    icon='ScodaDesktop.ico',
 )
