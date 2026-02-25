@@ -488,14 +488,18 @@ class ScodaDesktopGUI:
             entry = item["hub_entry"]
             size = entry.get("size_bytes", 0)
             size_str = self._format_size(size)
+            deps = list(entry.get("dependencies", {}).keys())
+            dep_suffix = f"  [requires: {', '.join(deps)}]" if deps else ""
             label = (f" [UPD] {item['name']}  "
-                     f"v{item['local_version']} -> v{item['hub_version']}  {size_str}")
+                     f"v{item['local_version']} -> v{item['hub_version']}  {size_str}{dep_suffix}")
             self._hub_listbox.insert("end", label)
         for item in self._hub_available:
             entry = item["hub_entry"]
             size = entry.get("size_bytes", 0)
             size_str = self._format_size(size)
-            label = f" [NEW] {item['name']}  v{item['hub_version']}  {size_str}"
+            deps = list(entry.get("dependencies", {}).keys())
+            dep_suffix = f"  [requires: {', '.join(deps)}]" if deps else ""
+            label = f" [NEW] {item['name']}  v{item['hub_version']}  {size_str}{dep_suffix}"
             self._hub_listbox.insert("end", label)
 
     @staticmethod
@@ -538,7 +542,45 @@ class ScodaDesktopGUI:
         self._start_hub_download(all_items)
 
     def _start_hub_download(self, items):
-        """Start background download for a list of Hub items."""
+        """Start background download for a list of Hub items (with confirmation)."""
+        # Resolve full download order (deps included) — no network, instant
+        full_order = []
+        seen = set()
+        requested_names = {it["name"] for it in items}
+        for item in items:
+            order = resolve_download_order(
+                self._hub_index, item["name"], self.packages)
+            for pkg_info in order:
+                if pkg_info["name"] not in seen:
+                    seen.add(pkg_info["name"])
+                    full_order.append(pkg_info)
+
+        if not full_order:
+            self._append_log("Hub: nothing to download (already up to date)")
+            return
+
+        # Build confirmation message
+        lines = []
+        total_size = 0
+        for pkg_info in full_order:
+            entry = pkg_info["entry"]
+            size = entry.get("size_bytes", 0)
+            total_size += size
+            size_str = self._format_size(size)
+            is_dep = pkg_info["name"] not in requested_names
+            dep_tag = "  [dependency]" if is_dep else ""
+            prefix = "+ " if is_dep else ""
+            lines.append(f"{prefix}{pkg_info['name']} v{pkg_info['version']} {size_str}{dep_tag}")
+
+        total_str = self._format_size(total_size)
+        summary = f"\n총 {len(full_order)}개 패키지, {total_str.strip('()')}"
+
+        confirm_msg = "\n".join(lines) + "\n\n" + summary + "\n\n다운로드하시겠습니까?"
+
+        if not messagebox.askyesno("다운로드 확인", confirm_msg):
+            self._append_log("Hub: download cancelled by user")
+            return
+
         self._download_in_progress = True
         self._hub_download_btn.config(state="disabled")
         self._hub_dl_all_btn.config(state="disabled")
