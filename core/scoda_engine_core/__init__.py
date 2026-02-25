@@ -16,5 +16,5 @@ from .validate_manifest import validate_manifest, validate_db
 from .hub_client import (
     fetch_hub_index, compare_with_local, download_package,
     resolve_download_order,
-    HubError, HubConnectionError, HubChecksumError,
+    HubError, HubConnectionError, HubSSLError, HubChecksumError,
 )

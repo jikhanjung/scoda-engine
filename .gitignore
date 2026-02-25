@@ -22,6 +22,9 @@ hub/index.json
 # Claude Code local settings
 .claude/settings.local.json
 
+# Desktop settings (user-specific)
+ScodaDesktop.cfg
+
 # Database files (test artifacts)
 *.db
 

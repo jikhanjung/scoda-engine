@@ -12,6 +12,8 @@ import hashlib
 import json
 import logging
 import os
+import ssl
+import sys
 import tempfile
 import urllib.error
 import urllib.request
@@ -21,6 +23,115 @@ from .scoda_package import _parse_semver
 logger = logging.getLogger(__name__)
 
 DEFAULT_HUB_URL = "https://jikhanjung.github.io/scoda-engine/index.json"
+
+
+def _load_windows_store_certs(ctx):
+    """Load certificates from the Windows system certificate store.
+
+    Browsers (Chrome, Edge) use the Windows certificate store which
+    includes corporate/proxy CA certificates installed by IT.
+    Python's bundled CA certificates do NOT include these, causing
+    HTTPS failures even when the same URLs work fine in browsers.
+
+    This function bridges that gap by loading Windows store certs
+    into the given SSL context via ssl.enum_certificates().
+
+    Returns:
+        Number of certificates loaded.
+    """
+    certs_loaded = 0
+    for store_name in ("ROOT", "CA"):
+        try:
+            for cert, encoding, trust in ssl.enum_certificates(store_name):
+                if encoding == "x509_asn":
+                    try:
+                        pem = ssl.DER_cert_to_PEM_cert(cert)
+                        ctx.load_verify_locations(cadata=pem)
+                        certs_loaded += 1
+                    except ssl.SSLError:
+                        pass
+        except OSError:
+            pass
+    return certs_loaded
+
+
+def _create_ssl_context():
+    """Create an SSL context for Hub HTTPS requests.
+
+    Supports the following environment variables:
+      - SCODA_HUB_SSL_CERT: Path to a custom CA certificate bundle (PEM).
+            Useful when behind a corporate SSL inspection proxy.
+      - SCODA_HUB_SSL_VERIFY: Set to "0" to disable SSL certificate
+            verification entirely (NOT recommended for production).
+
+    On Windows, automatically loads the Windows system certificate store
+    so that corporate/proxy CA certificates are available to Python,
+    matching browser behavior.
+
+    Returns:
+        ssl.SSLContext or None (None = use urllib defaults).
+    """
+    ssl_verify = os.environ.get("SCODA_HUB_SSL_VERIFY", "1").strip()
+    ssl_cert = os.environ.get("SCODA_HUB_SSL_CERT", "").strip()
+
+    if ssl_verify == "0":
+        logger.warning(
+            "SSL certificate verification disabled (SCODA_HUB_SSL_VERIFY=0). "
+            "This is insecure and should only be used for troubleshooting."
+        )
+        ctx = ssl.create_default_context()
+        ctx.check_hostname = False
+        ctx.verify_mode = ssl.CERT_NONE
+        return ctx
+
+    if ssl_cert:
+        if not os.path.isfile(ssl_cert):
+            logger.warning("SCODA_HUB_SSL_CERT file not found: %s", ssl_cert)
+            return None
+        logger.info("Using custom CA bundle: %s", ssl_cert)
+        ctx = ssl.create_default_context(cafile=ssl_cert)
+        return ctx
+
+    # On Windows, explicitly load the Windows certificate store.
+    # Python's urllib uses its own bundled CA certs which do NOT include
+    # corporate/proxy CA certificates that browsers (Chrome, Edge) trust
+    # via the Windows store.  This is especially problematic with
+    # PyInstaller builds where the cert bundle may be incomplete.
+    if sys.platform == "win32":
+        ctx = ssl.create_default_context()
+        loaded = _load_windows_store_certs(ctx)
+        if loaded:
+            logger.debug(
+                "Loaded %d certificate(s) from Windows system store", loaded
+            )
+        return ctx
+
+    return None
+
+
+def _create_noverify_ssl_context():
+    """Create an SSL context that skips certificate verification.
+
+    Package integrity is still guaranteed by SHA-256 checksum
+    verification after download.
+    """
+    ctx = ssl.create_default_context()
+    ctx.check_hostname = False
+    ctx.verify_mode = ssl.CERT_NONE
+    return ctx
+
+
+def _is_ssl_error(exc):
+    """Check whether an exception is caused by SSL certificate verification."""
+    if isinstance(exc, ssl.SSLCertVerificationError):
+        return True
+    if isinstance(exc, ssl.SSLError):
+        return True
+    # urllib wraps SSL errors in URLError
+    if isinstance(exc, urllib.error.URLError):
+        return isinstance(getattr(exc, "reason", None),
+                          (ssl.SSLError, ssl.SSLCertVerificationError))
+    return False
 
 
 # ---------------------------------------------------------------------------
@@ -35,6 +146,14 @@ class HubConnectionError(HubError):
     """Raised when the Hub index cannot be fetched."""
 
 
+class HubSSLError(HubConnectionError):
+    """Raised when an SSL certificate verification error occurs.
+
+    The GUI layer can catch this specifically to offer the user
+    the option to retry without SSL verification.
+    """
+
+
 class HubChecksumError(HubError):
     """Raised when a downloaded file's SHA-256 does not match."""
 
@@ -43,19 +162,21 @@ class HubChecksumError(HubError):
 # Public API
 # ---------------------------------------------------------------------------
 
-def fetch_hub_index(hub_url=None, timeout=10):
+def fetch_hub_index(hub_url=None, timeout=10, ssl_noverify=False):
     """Fetch and parse the Hub index.json.
 
     Args:
         hub_url: URL to index.json. Defaults to SCODA_HUB_URL env var
                  or the hardcoded default.
         timeout: HTTP request timeout in seconds.
+        ssl_noverify: If True, skip SSL certificate verification.
 
     Returns:
         Parsed index dict.
 
     Raises:
-        HubConnectionError: On network or parse failure.
+        HubSSLError: On SSL certificate verification failure.
+        HubConnectionError: On other network or parse failure.
     """
     url = hub_url or os.environ.get("SCODA_HUB_URL") or DEFAULT_HUB_URL
     logger.info("Fetching Hub index from %s", url)
@@ -64,14 +185,22 @@ def fetch_hub_index(hub_url=None, timeout=10):
         "User-Agent": "ScodaDesktop",
         "Accept": "application/json",
     })
+    if ssl_noverify:
+        ssl_ctx = _create_noverify_ssl_context()
+        logger.debug("SSL verification disabled for Hub index fetch")
+    else:
+        ssl_ctx = _create_ssl_context()
     try:
-        with urllib.request.urlopen(req, timeout=timeout) as resp:
+        with urllib.request.urlopen(req, timeout=timeout,
+                                    context=ssl_ctx) as resp:
             data = resp.read().decode("utf-8")
         index = json.loads(data)
         pkg_count = len(index.get("packages", {}))
         logger.info("Hub index fetched: %d package(s)", pkg_count)
         return index
     except (urllib.error.URLError, urllib.error.HTTPError, OSError) as e:
+        if _is_ssl_error(e):
+            raise HubSSLError(f"SSL certificate verification failed: {e}") from e
         raise HubConnectionError(f"Failed to fetch Hub index: {e}") from e
     except (json.JSONDecodeError, ValueError) as e:
         raise HubConnectionError(f"Invalid Hub index JSON: {e}") from e
@@ -146,7 +275,7 @@ def compare_with_local(hub_index, local_packages):
 
 
 def download_package(download_url, dest_dir, expected_sha256=None,
-                     progress_callback=None, timeout=60):
+                     progress_callback=None, timeout=60, ssl_noverify=False):
     """Download a .scoda package file.
 
     Downloads to a .tmp file first, verifies SHA-256 if provided,
@@ -159,12 +288,14 @@ def download_package(download_url, dest_dir, expected_sha256=None,
         progress_callback: Optional callable(bytes_downloaded, total_bytes).
                            total_bytes may be 0 if Content-Length is absent.
         timeout: HTTP request timeout in seconds.
+        ssl_noverify: If True, skip SSL certificate verification.
 
     Returns:
         Path to the downloaded .scoda file.
 
     Raises:
-        HubConnectionError: On network failure.
+        HubSSLError: On SSL certificate verification failure.
+        HubConnectionError: On other network failure.
         HubChecksumError: On SHA-256 mismatch.
     """
     filename = download_url.rsplit("/", 1)[-1]
@@ -177,11 +308,17 @@ def download_package(download_url, dest_dir, expected_sha256=None,
     req = urllib.request.Request(download_url, headers={
         "User-Agent": "ScodaDesktop",
     })
+    if ssl_noverify:
+        ssl_ctx = _create_noverify_ssl_context()
+        logger.debug("SSL verification disabled for download")
+    else:
+        ssl_ctx = _create_ssl_context()
 
     # Use a named temp file in the same directory for atomic rename
     tmp_fd, tmp_path = tempfile.mkstemp(suffix=".tmp", dir=dest_dir)
     try:
-        with urllib.request.urlopen(req, timeout=timeout) as resp:
+        with urllib.request.urlopen(req, timeout=timeout,
+                                    context=ssl_ctx) as resp:
             total = int(resp.headers.get("Content-Length", 0))
             sha256 = hashlib.sha256()
             downloaded = 0
@@ -223,6 +360,9 @@ def download_package(download_url, dest_dir, expected_sha256=None,
             os.unlink(tmp_path)
         if isinstance(e, HubChecksumError):
             raise
+        if _is_ssl_error(e):
+            raise HubSSLError(
+                f"SSL certificate verification failed: {e}") from e
         raise HubConnectionError(f"Download failed: {e}") from e
     except HubChecksumError:
         raise

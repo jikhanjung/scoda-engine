@@ -8,6 +8,7 @@ and control the web server.
 
 import tkinter as tk
 from tkinter import messagebox, ttk
+import json
 import logging
 import threading
 import webbrowser
@@ -20,8 +21,39 @@ from scoda_engine import __version__
 import scoda_engine_core as scoda_package
 from scoda_engine_core.hub_client import (
     fetch_hub_index, compare_with_local, download_package,
-    resolve_download_order, HubError, HubConnectionError, HubChecksumError,
+    resolve_download_order,
+    HubError, HubConnectionError, HubSSLError, HubChecksumError,
 )
+
+def _get_settings_path():
+    """Return the path to ScodaDesktop.cfg.
+
+    Stored next to the executable (frozen) or next to the project root (dev),
+    so the user can see and edit it alongside the .scoda packages.
+    """
+    if getattr(sys, 'frozen', False):
+        base = os.path.dirname(sys.executable)
+    else:
+        base = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    return os.path.join(base, "ScodaDesktop.cfg")
+
+
+def _load_settings():
+    """Load persistent settings from disk."""
+    try:
+        with open(_get_settings_path(), "r", encoding="utf-8") as f:
+            return json.load(f)
+    except (FileNotFoundError, json.JSONDecodeError, OSError):
+        return {}
+
+
+def _save_settings(settings):
+    """Save persistent settings to disk."""
+    try:
+        with open(_get_settings_path(), "w", encoding="utf-8") as f:
+            json.dump(settings, f, indent=2)
+    except OSError:
+        pass
 
 
 class LogRedirector:
@@ -97,6 +129,10 @@ class ScodaDesktopGUI:
         self._hub_updatable = []
         self._download_in_progress = False
 
+        # SSL settings (persisted)
+        self._settings = _load_settings()
+        self._ssl_noverify = self._settings.get("ssl_noverify", False)
+
         # Determine base path
         if getattr(sys, 'frozen', False):
             self.base_path = sys._MEIPASS
@@ -149,6 +185,9 @@ class ScodaDesktopGUI:
 
         if self.selected_package:
             self._append_log(f"Selected: {self.selected_package}")
+
+        if self._ssl_noverify:
+            self._append_log("SSL verification: disabled (saved setting)", "WARNING")
 
         # Handle window close
         self.root.protocol("WM_DELETE_WINDOW", self.quit_app)
@@ -438,23 +477,126 @@ class ScodaDesktopGUI:
             self.pkg_info_label.config(text="\n".join(info_parts))
 
     # ------------------------------------------------------------------
+    # Settings persistence
+    # ------------------------------------------------------------------
+
+    def _set_ssl_noverify(self, value):
+        """Update and persist the SSL noverify setting."""
+        self._ssl_noverify = value
+        self._settings["ssl_noverify"] = value
+        _save_settings(self._settings)
+
+    # ------------------------------------------------------------------
+    # SSL fallback dialog
+    # ------------------------------------------------------------------
+
+    def _ask_ssl_fallback(self):
+        """Show a dialog asking the user to allow SSL fallback.
+
+        Called on the main thread.  Returns True if the user agrees.
+        If the "remember" checkbox is checked, persists the choice.
+        """
+        dlg = tk.Toplevel(self.root)
+        dlg.title("SSL Certificate Error")
+        dlg.resizable(False, False)
+        dlg.grab_set()
+
+        # Center on parent
+        dlg.update_idletasks()
+        x = self.root.winfo_x() + (self.root.winfo_width() - 420) // 2
+        y = self.root.winfo_y() + (self.root.winfo_height() - 220) // 2
+        dlg.geometry(f"420x220+{x}+{y}")
+
+        msg = (
+            "SSL certificate verification failed.\n\n"
+            "This commonly happens on networks with SSL inspection\n"
+            "proxies (e.g. corporate/institutional firewalls).\n\n"
+            "Would you like to continue without SSL verification?\n"
+            "(Package integrity is verified via SHA-256 checksum.)"
+        )
+        tk.Label(dlg, text=msg, justify="left", padx=15, pady=10,
+                 wraplength=390).pack(fill="x")
+
+        remember_var = tk.BooleanVar(value=False)
+        tk.Checkbutton(dlg, text="Remember this choice",
+                       variable=remember_var).pack(anchor="w", padx=20)
+
+        result = {"accepted": False}
+
+        def on_yes():
+            result["accepted"] = True
+            if remember_var.get():
+                self._set_ssl_noverify(True)
+                self._append_log(
+                    "SSL verification disabled (saved to settings)",
+                    "WARNING")
+            dlg.destroy()
+
+        def on_no():
+            dlg.destroy()
+
+        btn_frame = tk.Frame(dlg)
+        btn_frame.pack(pady=10)
+        tk.Button(btn_frame, text="Yes, continue", width=14,
+                  command=on_yes, bg="#2196F3", fg="white").pack(
+                      side="left", padx=5)
+        tk.Button(btn_frame, text="No, cancel", width=14,
+                  command=on_no).pack(side="left", padx=5)
+
+        dlg.protocol("WM_DELETE_WINDOW", on_no)
+        self.root.wait_window(dlg)
+        return result["accepted"]
+
+    # ------------------------------------------------------------------
     # Hub methods
     # ------------------------------------------------------------------
 
     def _fetch_hub_index(self):
         """Background thread: fetch Hub index and compare with local packages."""
+        self.root.after(0, self._set_wait_cursor, True)
+        self.root.after(0, self._hub_status_label.config,
+                        {"text": "Checking Hub...", "fg": "#888"})
         try:
-            index = fetch_hub_index()
+            index = fetch_hub_index(ssl_noverify=self._ssl_noverify)
             comparison = compare_with_local(index, self.packages)
+            self.root.after(0, self._set_wait_cursor, False)
             self.root.after(0, self._on_hub_fetch_complete, index, comparison)
+        except HubSSLError as e:
+            self.root.after(0, self._set_wait_cursor, False)
+            self.root.after(0, self._on_hub_ssl_error, str(e), "fetch")
         except HubError as e:
+            self.root.after(0, self._set_wait_cursor, False)
             self.root.after(0, self._on_hub_fetch_error, str(e))
+
+    def _on_hub_ssl_error(self, error_msg, phase, download_items=None):
+        """Main thread: handle SSL error by showing dialog and retrying."""
+        self._append_log(f"Hub: {error_msg}", "WARNING")
+
+        accepted = self._ask_ssl_fallback()
+        if not accepted:
+            self._append_log("Hub: SSL fallback declined by user", "WARNING")
+            if phase == "download":
+                self._on_download_error("Download cancelled (SSL error)")
+            return
+
+        # Retry the operation with SSL verification disabled
+        self._ssl_noverify = True
+        self._append_log("Hub: retrying without SSL verification...", "INFO")
+
+        if phase == "fetch":
+            threading.Thread(target=self._fetch_hub_index, daemon=True).start()
+        elif phase == "download" and download_items:
+            self._do_download_start(download_items)
 
     def _on_hub_fetch_complete(self, index, comparison):
         """Main thread callback after successful Hub fetch."""
         self._hub_index = index
         self._hub_available = comparison["available"]
         self._hub_updatable = comparison["updatable"]
+
+        if self._ssl_noverify:
+            self._append_log(
+                "Hub: connected (SSL verification disabled)", "WARNING")
 
         total = len(self._hub_available) + len(self._hub_updatable)
         if total == 0:
@@ -573,14 +715,18 @@ class ScodaDesktopGUI:
             lines.append(f"{prefix}{pkg_info['name']} v{pkg_info['version']} {size_str}{dep_tag}")
 
         total_str = self._format_size(total_size)
-        summary = f"\n총 {len(full_order)}개 패키지, {total_str.strip('()')}"
+        summary = f"\n{len(full_order)} package(s), {total_str.strip('()')}"
 
-        confirm_msg = "\n".join(lines) + "\n\n" + summary + "\n\n다운로드하시겠습니까?"
+        confirm_msg = "\n".join(lines) + "\n\n" + summary + "\n\nProceed with download?"
 
-        if not messagebox.askyesno("다운로드 확인", confirm_msg):
+        if not messagebox.askyesno("Confirm Download", confirm_msg):
             self._append_log("Hub: download cancelled by user")
             return
 
+        self._do_download_start(items)
+
+    def _do_download_start(self, items):
+        """Begin the download process (shared by initial and SSL retry)."""
         self._download_in_progress = True
         self._hub_download_btn.config(state="disabled")
         self._hub_dl_all_btn.config(state="disabled")
@@ -589,6 +735,7 @@ class ScodaDesktopGUI:
 
         names = ", ".join(it["name"] for it in items)
         self._hub_status_label.config(text=f"Downloading {names}...", fg="#2196F3")
+        self._set_wait_cursor(True)
 
         threading.Thread(
             target=self._do_download_multi,
@@ -621,6 +768,7 @@ class ScodaDesktopGUI:
 
             if not full_order:
                 names = ", ".join(it["name"] for it in items)
+                self.root.after(0, self._set_wait_cursor, False)
                 self.root.after(0, self._on_download_complete, names, [])
                 return
 
@@ -647,15 +795,24 @@ class ScodaDesktopGUI:
                     url, scan_dir,
                     expected_sha256=sha256,
                     progress_callback=progress_cb,
+                    ssl_noverify=self._ssl_noverify,
                 )
                 downloaded_paths.append(path)
 
             names = ", ".join(it["name"] for it in items)
-            self.root.after(0, self._on_download_complete, names, downloaded_paths)
+            self.root.after(0, self._set_wait_cursor, False)
+            self.root.after(0, self._on_download_complete,
+                            names, downloaded_paths)
 
+        except HubSSLError as e:
+            self.root.after(0, self._set_wait_cursor, False)
+            self.root.after(0, self._on_hub_ssl_error,
+                            str(e), "download", items)
         except HubError as e:
+            self.root.after(0, self._set_wait_cursor, False)
             self.root.after(0, self._on_download_error, str(e))
         except Exception as e:
+            self.root.after(0, self._set_wait_cursor, False)
             self.root.after(0, self._on_download_error, str(e))
 
     def _update_download_progress(self, pct):
@@ -712,6 +869,11 @@ class ScodaDesktopGUI:
         self._hub_status_label.config(text="Download failed", fg="red")
         self._append_log(f"Hub download error: {error_msg}", "ERROR")
         messagebox.showerror("Download Error", f"Failed to download package:\n{error_msg}")
+
+    def _set_wait_cursor(self, waiting):
+        """Set or clear the wait cursor on the root window."""
+        self.root.config(cursor="wait" if waiting else "")
+        self.root.update_idletasks()
 
     def start_server(self):
         """Start web server for the selected package."""

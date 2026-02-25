@@ -7,6 +7,8 @@ Uses unittest.mock to avoid real network calls.
 import hashlib
 import json
 import os
+import ssl
+import sys
 import urllib.error
 import urllib.request
 from unittest import mock
@@ -17,6 +19,10 @@ from scoda_engine_core.hub_client import (
     HubChecksumError,
     HubConnectionError,
     HubError,
+    HubSSLError,
+    _create_ssl_context,
+    _is_ssl_error,
+    _load_windows_store_certs,
     compare_with_local,
     download_package,
     fetch_hub_index,
@@ -295,6 +301,40 @@ class TestFetchHubIndex:
             with pytest.raises(HubConnectionError, match="Failed to fetch"):
                 fetch_hub_index(hub_url="https://example.com/index.json")
 
+    def test_fetch_ssl_error_raises_hub_ssl_error(self):
+        """SSL error raises HubSSLError (subclass of HubConnectionError)."""
+        ssl_exc = urllib.error.URLError(
+            ssl.SSLCertVerificationError("CERTIFICATE_VERIFY_FAILED"))
+        with mock.patch("scoda_engine_core.hub_client.urllib.request.urlopen",
+                        side_effect=ssl_exc):
+            with pytest.raises(HubSSLError, match="SSL certificate"):
+                fetch_hub_index(hub_url="https://example.com/index.json")
+
+    def test_fetch_ssl_noverify_skips_verification(self):
+        """ssl_noverify=True uses noverify context."""
+        index_data = _make_hub_index({})
+        body = json.dumps(index_data).encode("utf-8")
+
+        mock_resp = mock.MagicMock()
+        mock_resp.read.return_value = body
+        mock_resp.__enter__ = mock.MagicMock(return_value=mock_resp)
+        mock_resp.__exit__ = mock.MagicMock(return_value=False)
+
+        captured = []
+        def capture_urlopen(req, **kwargs):
+            captured.append(kwargs.get("context"))
+            return mock_resp
+
+        with mock.patch("scoda_engine_core.hub_client.urllib.request.urlopen",
+                        side_effect=capture_urlopen):
+            fetch_hub_index(hub_url="https://example.com/index.json",
+                            ssl_noverify=True)
+
+        ctx = captured[0]
+        assert ctx is not None
+        assert ctx.check_hostname is False
+        assert ctx.verify_mode == ssl.CERT_NONE
+
     def test_fetch_invalid_json(self):
         """Invalid JSON raises HubConnectionError."""
         mock_resp = mock.MagicMock()
@@ -397,6 +437,48 @@ class TestDownloadPackage:
         remaining = [f for f in os.listdir(str(tmp_path)) if f.endswith(".tmp")]
         assert remaining == []
 
+    def test_download_ssl_error_raises_hub_ssl_error(self, tmp_path):
+        """SSL error during download raises HubSSLError."""
+        ssl_exc = urllib.error.URLError(
+            ssl.SSLCertVerificationError("CERTIFICATE_VERIFY_FAILED"))
+        with mock.patch("scoda_engine_core.hub_client.urllib.request.urlopen",
+                        side_effect=ssl_exc):
+            with pytest.raises(HubSSLError, match="SSL certificate"):
+                download_package(
+                    "https://example.com/ssl-fail-1.0.0.scoda",
+                    str(tmp_path),
+                )
+
+    def test_download_ssl_noverify(self, tmp_path):
+        """ssl_noverify=True downloads without SSL verification."""
+        content = b"noverify content"
+        sha256 = hashlib.sha256(content).hexdigest()
+
+        mock_resp = mock.MagicMock()
+        mock_resp.read = mock.MagicMock(side_effect=[content, b""])
+        mock_resp.headers = {"Content-Length": str(len(content))}
+        mock_resp.__enter__ = mock.MagicMock(return_value=mock_resp)
+        mock_resp.__exit__ = mock.MagicMock(return_value=False)
+
+        captured = []
+        def capture_urlopen(req, **kwargs):
+            captured.append(kwargs.get("context"))
+            return mock_resp
+
+        with mock.patch("scoda_engine_core.hub_client.urllib.request.urlopen",
+                        side_effect=capture_urlopen):
+            path = download_package(
+                "https://example.com/nv-1.0.0.scoda",
+                str(tmp_path),
+                expected_sha256=sha256,
+                ssl_noverify=True,
+            )
+
+        assert os.path.exists(path)
+        ctx = captured[0]
+        assert ctx.check_hostname is False
+        assert ctx.verify_mode == ssl.CERT_NONE
+
     def test_download_progress_callback(self, tmp_path):
         """Progress callback is called during download."""
         content = b"x" * 100
@@ -442,11 +524,188 @@ class TestDownloadPackage:
 
 
 # ---------------------------------------------------------------------------
+# _create_ssl_context tests
+# ---------------------------------------------------------------------------
+
+class TestCreateSslContext:
+    def test_default_non_windows(self):
+        """Default (no env vars, non-Windows) returns None."""
+        with mock.patch.dict(os.environ, {}, clear=True):
+            with mock.patch("scoda_engine_core.hub_client.sys") as mock_sys:
+                mock_sys.platform = "linux"
+                ctx = _create_ssl_context()
+        assert ctx is None
+
+    def test_default_windows_loads_store(self):
+        """Default on Windows returns context with system certs loaded."""
+        mock_ctx = mock.MagicMock(spec=ssl.SSLContext)
+        with mock.patch.dict(os.environ, {}, clear=True):
+            with mock.patch("scoda_engine_core.hub_client.sys") as mock_sys:
+                mock_sys.platform = "win32"
+                with mock.patch("scoda_engine_core.hub_client.ssl.create_default_context",
+                                return_value=mock_ctx):
+                    with mock.patch("scoda_engine_core.hub_client._load_windows_store_certs",
+                                    return_value=5) as mock_load:
+                        ctx = _create_ssl_context()
+        assert ctx is mock_ctx
+        mock_load.assert_called_once_with(mock_ctx)
+
+    def test_ssl_verify_disabled(self):
+        """SCODA_HUB_SSL_VERIFY=0 returns a context with verification off."""
+        with mock.patch.dict(os.environ, {"SCODA_HUB_SSL_VERIFY": "0"}):
+            ctx = _create_ssl_context()
+        assert isinstance(ctx, ssl.SSLContext)
+        assert ctx.check_hostname is False
+        assert ctx.verify_mode == ssl.CERT_NONE
+
+    def test_ssl_verify_enabled_explicitly(self):
+        """SCODA_HUB_SSL_VERIFY=1 on non-Windows returns None."""
+        with mock.patch.dict(os.environ, {"SCODA_HUB_SSL_VERIFY": "1"}):
+            with mock.patch("scoda_engine_core.hub_client.sys") as mock_sys:
+                mock_sys.platform = "linux"
+                ctx = _create_ssl_context()
+        assert ctx is None
+
+    def test_ssl_cert_valid_file(self, tmp_path):
+        """SCODA_HUB_SSL_CERT with valid file returns context with custom CA."""
+        ca_file = tmp_path / "ca.pem"
+        ca_file.write_text("-----BEGIN CERTIFICATE-----\nMIIB...\n-----END CERTIFICATE-----\n")
+
+        with mock.patch.dict(os.environ, {"SCODA_HUB_SSL_CERT": str(ca_file)}):
+            with mock.patch("scoda_engine_core.hub_client.ssl.create_default_context") as mock_ctx:
+                mock_ctx.return_value = mock.MagicMock(spec=ssl.SSLContext)
+                ctx = _create_ssl_context()
+
+        mock_ctx.assert_called_once_with(cafile=str(ca_file))
+        assert ctx is not None
+
+    def test_ssl_cert_missing_file(self, tmp_path):
+        """SCODA_HUB_SSL_CERT with non-existent file returns None."""
+        with mock.patch.dict(os.environ,
+                             {"SCODA_HUB_SSL_CERT": str(tmp_path / "nope.pem")}):
+            ctx = _create_ssl_context()
+        assert ctx is None
+
+    def test_ssl_verify_takes_precedence(self, tmp_path):
+        """SCODA_HUB_SSL_VERIFY=0 takes precedence over SCODA_HUB_SSL_CERT."""
+        ca_file = tmp_path / "ca.pem"
+        ca_file.write_text("dummy")
+        with mock.patch.dict(os.environ, {
+            "SCODA_HUB_SSL_VERIFY": "0",
+            "SCODA_HUB_SSL_CERT": str(ca_file),
+        }):
+            ctx = _create_ssl_context()
+        assert isinstance(ctx, ssl.SSLContext)
+        assert ctx.verify_mode == ssl.CERT_NONE
+
+
+class TestLoadWindowsStoreCerts:
+    """Tests for _load_windows_store_certs.
+
+    ssl.enum_certificates is Windows-only, so we use create=True
+    to allow mocking it on Linux CI environments.
+    """
+
+    def test_loads_certs_from_root_and_ca_stores(self):
+        """Loads DER certs from ROOT and CA stores, converts to PEM."""
+        fake_der = b"\x30\x82\x01\x00"
+        fake_pem = "-----BEGIN CERTIFICATE-----\nfake\n-----END CERTIFICATE-----\n"
+
+        mock_ctx = mock.MagicMock(spec=ssl.SSLContext)
+
+        def fake_enum(store_name):
+            return [(fake_der, "x509_asn", True)]
+
+        with mock.patch("scoda_engine_core.hub_client.ssl.enum_certificates",
+                        side_effect=fake_enum, create=True):
+            with mock.patch("scoda_engine_core.hub_client.ssl.DER_cert_to_PEM_cert",
+                            return_value=fake_pem):
+                loaded = _load_windows_store_certs(mock_ctx)
+
+        assert loaded == 2  # one from ROOT + one from CA
+        assert mock_ctx.load_verify_locations.call_count == 2
+
+    def test_skips_non_x509_encodings(self):
+        """Non-x509_asn encodings are skipped."""
+        mock_ctx = mock.MagicMock(spec=ssl.SSLContext)
+
+        def fake_enum(store_name):
+            return [(b"data", "pkcs_7_asn", True)]
+
+        with mock.patch("scoda_engine_core.hub_client.ssl.enum_certificates",
+                        side_effect=fake_enum, create=True):
+            loaded = _load_windows_store_certs(mock_ctx)
+
+        assert loaded == 0
+        mock_ctx.load_verify_locations.assert_not_called()
+
+    def test_handles_ssl_error_gracefully(self):
+        """SSLError on individual cert load is skipped, others continue."""
+        fake_pem = "-----BEGIN CERTIFICATE-----\nfake\n-----END CERTIFICATE-----\n"
+        mock_ctx = mock.MagicMock(spec=ssl.SSLContext)
+        mock_ctx.load_verify_locations.side_effect = ssl.SSLError("bad cert")
+
+        def fake_enum(store_name):
+            return [(b"\x30", "x509_asn", True)]
+
+        with mock.patch("scoda_engine_core.hub_client.ssl.enum_certificates",
+                        side_effect=fake_enum, create=True):
+            with mock.patch("scoda_engine_core.hub_client.ssl.DER_cert_to_PEM_cert",
+                            return_value=fake_pem):
+                loaded = _load_windows_store_certs(mock_ctx)
+
+        assert loaded == 0  # all failed
+
+    def test_handles_os_error_on_store_access(self):
+        """OSError when accessing a store is handled gracefully."""
+        mock_ctx = mock.MagicMock(spec=ssl.SSLContext)
+
+        with mock.patch("scoda_engine_core.hub_client.ssl.enum_certificates",
+                        side_effect=OSError("access denied"), create=True):
+            loaded = _load_windows_store_certs(mock_ctx)
+
+        assert loaded == 0
+
+
+# ---------------------------------------------------------------------------
+# _is_ssl_error tests
+# ---------------------------------------------------------------------------
+
+class TestIsSslError:
+    def test_ssl_cert_verification_error(self):
+        exc = ssl.SSLCertVerificationError("cert verify failed")
+        assert _is_ssl_error(exc) is True
+
+    def test_ssl_error(self):
+        exc = ssl.SSLError("ssl handshake failed")
+        assert _is_ssl_error(exc) is True
+
+    def test_url_error_wrapping_ssl(self):
+        reason = ssl.SSLCertVerificationError("cert verify failed")
+        exc = urllib.error.URLError(reason)
+        assert _is_ssl_error(exc) is True
+
+    def test_url_error_non_ssl(self):
+        exc = urllib.error.URLError("connection refused")
+        assert _is_ssl_error(exc) is False
+
+    def test_non_ssl_exception(self):
+        exc = OSError("disk full")
+        assert _is_ssl_error(exc) is False
+
+
+# ---------------------------------------------------------------------------
 # Exception hierarchy
 # ---------------------------------------------------------------------------
 
 class TestExceptions:
     def test_hub_error_hierarchy(self):
         assert issubclass(HubConnectionError, HubError)
+        assert issubclass(HubSSLError, HubConnectionError)
         assert issubclass(HubChecksumError, HubError)
         assert issubclass(HubError, Exception)
+
+    def test_hub_ssl_error_caught_as_connection_error(self):
+        """HubSSLError can be caught as HubConnectionError."""
+        with pytest.raises(HubConnectionError):
+            raise HubSSLError("ssl failed")
