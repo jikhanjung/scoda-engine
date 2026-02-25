@@ -18,6 +18,7 @@ import sqlite3
 logger = logging.getLogger(__name__)
 
 from scoda_engine_core import get_db
+from scoda_engine import __version__ as ENGINE_VERSION
 
 app = FastAPI(title="SCODA Desktop")
 
@@ -82,6 +83,7 @@ class ManifestResponse(BaseModel):
     manifest: dict[str, Any]
     created_at: str
     package: PackageInfo
+    engine_version: str = ""
 
 class AnnotationItem(BaseModel):
     id: int
@@ -206,7 +208,8 @@ def _fetch_manifest(conn):
                     'artifact_id': meta.get('artifact_id', ''),
                     'version': meta.get('version', ''),
                     'description': meta.get('description', ''),
-                }
+                },
+                'engine_version': ENGINE_VERSION,
             }
 
     # Fallback: auto-generate manifest from DB schema
@@ -231,7 +234,8 @@ def _fetch_manifest(conn):
             'artifact_id': meta.get('artifact_id', ''),
             'version': meta.get('version', ''),
             'description': meta.get('description', ''),
-        }
+        },
+        'engine_version': ENGINE_VERSION,
     }
 
 
