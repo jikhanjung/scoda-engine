@@ -19,6 +19,9 @@ dist/
 # Hub index (auto-generated, deployed to gh-pages)
 hub/index.json
 
+# MkDocs build output
+site/
+
 # Claude Code local settings
 .claude/settings.local.json
 
