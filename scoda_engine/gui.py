@@ -17,6 +17,7 @@ import sys
 from pathlib import Path
 import time
 import subprocess
+import socket
 
 from scoda_engine import __version__
 import scoda_engine_core as scoda_package
@@ -119,7 +120,6 @@ class ScodaDesktopGUI:
         self.original_stderr = None # For restoring stderr after redirect
         self.log_reader_thread = None
         self.server_running = False
-        self.port = 8080
 
         # Selected package
         self.selected_package = None
@@ -133,9 +133,10 @@ class ScodaDesktopGUI:
         self._hub_updatable = []
         self._download_in_progress = False
 
-        # SSL settings (persisted)
+        # Persistent settings
         self._settings = _load_settings()
         self._ssl_noverify = self._settings.get("ssl_noverify", False)
+        self.port = self._settings.get("port", 8080)
 
         # Determine base path
         if getattr(sys, 'frozen', False):
@@ -280,7 +281,16 @@ class ScodaDesktopGUI:
         control_frame = tk.LabelFrame(top_frame, text="Controls", padx=10, pady=10)
         control_frame.grid(row=0, column=1, sticky="nsew", padx=(5, 0))
 
-        # Flask Start/Stop row
+        # Port input row
+        port_row = tk.Frame(control_frame)
+        port_row.pack(pady=3)
+
+        tk.Label(port_row, text="Port:", font=("Arial", 9)).pack(side="left", padx=(0, 5))
+        self.port_entry = tk.Entry(port_row, width=7, font=("Arial", 9), justify="center")
+        self.port_entry.insert(0, str(self.port))
+        self.port_entry.pack(side="left")
+
+        # Start/Stop row
         server_row = tk.Frame(control_frame)
         server_row.pack(pady=3)
 
@@ -502,6 +512,33 @@ class ScodaDesktopGUI:
         self._ssl_noverify = value
         self._settings["ssl_noverify"] = value
         _save_settings(self._settings)
+
+    def _save_port(self, port):
+        """Persist the port setting."""
+        self._settings["port"] = port
+        _save_settings(self._settings)
+
+    # ------------------------------------------------------------------
+    # Port availability
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    def _check_port_available(port):
+        """Return True if the port can be bound on 127.0.0.1."""
+        try:
+            with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+                s.bind(('127.0.0.1', port))
+            return True
+        except OSError:
+            return False
+
+    @classmethod
+    def _find_available_port(cls, start=8000, end=65535):
+        """Find the first available port in [start, end). Returns port or None."""
+        for port in range(start, end):
+            if cls._check_port_available(port):
+                return port
+        return None
 
     # ------------------------------------------------------------------
     # SSL fallback dialog
@@ -903,6 +940,43 @@ class ScodaDesktopGUI:
                                "Please select a package before starting the server.")
             return
 
+        # Validate port number from entry
+        try:
+            port = int(self.port_entry.get())
+            if not (1024 <= port <= 65535):
+                raise ValueError
+        except ValueError:
+            self._append_log("ERROR: Invalid port number (1024-65535)", "ERROR")
+            messagebox.showerror("Invalid Port",
+                               "Please enter a valid port number (1024-65535).")
+            return
+
+        self.port = port
+
+        # Check port availability before starting
+        if not self._check_port_available(self.port):
+            self._append_log(f"Port {self.port} is not available", "WARNING")
+            result = messagebox.askyesno(
+                "Port Unavailable",
+                f"Port {self.port} is not available.\n"
+                "(Another process may be using it, or the OS has reserved it.)\n\n"
+                "Would you like to find an available port automatically?")
+            if result:
+                new_port = self._find_available_port(self.port + 1)
+                if new_port:
+                    self.port = new_port
+                    self.port_entry.delete(0, tk.END)
+                    self.port_entry.insert(0, str(new_port))
+                    self._save_port(new_port)
+                    self._append_log(f"Found available port: {new_port}", "INFO")
+                else:
+                    self._append_log("ERROR: No available port found", "ERROR")
+                    messagebox.showerror("No Port Available",
+                                       "Could not find an available port (1024-65535).")
+                    return
+            else:
+                return
+
         # Verify the package exists in registry
         try:
             self.registry.get_package(self.selected_package)
@@ -959,7 +1033,7 @@ class ScodaDesktopGUI:
         self._append_log(f"Starting web server (package={self.selected_package})...", "INFO")
 
         # Build command: use --scoda-path for externally loaded packages
-        cmd = [python_exe, '-m', 'scoda_engine.app']
+        cmd = [python_exe, '-m', 'scoda_engine.app', '--port', str(self.port)]
         ext_path = self._external_scoda_paths.get(self.selected_package)
         if ext_path:
             cmd.extend(['--scoda-path', ext_path])
@@ -1176,6 +1250,7 @@ class ScodaDesktopGUI:
             self.browser_btn.config(state="normal")
             self.start_btn.config(state="disabled", relief="sunken")
             self.stop_btn.config(state="normal", relief="raised")
+            self.port_entry.config(state="disabled")
             # Show running package in header
             pkg = self._get_selected_pkg()
             if pkg:
@@ -1188,6 +1263,7 @@ class ScodaDesktopGUI:
             self.start_btn.config(state="normal" if can_start else "disabled",
                                  relief="raised")
             self.stop_btn.config(state="disabled", relief="sunken")
+            self.port_entry.config(state="normal")
             # Clear header package indicator
             self.header_pkg_label.config(text="", fg="#BBDEFB")
 

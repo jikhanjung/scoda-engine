@@ -11,9 +11,9 @@ import sys
 import os
 
 
-def open_browser():
+def open_browser(port):
     """Open default browser after a short delay."""
-    webbrowser.open('http://localhost:8080')
+    webbrowser.open(f'http://localhost:{port}')
 
 
 def main():
@@ -23,7 +23,11 @@ def main():
                         help='Active package name')
     parser.add_argument('--scoda-path', type=str, default=None,
                         help='Path to a .scoda file to load')
+    parser.add_argument('--port', type=int, default=8080,
+                        help='Server port (default: 8080)')
     args = parser.parse_args()
+
+    port = args.port
 
     print("=" * 60)
     print("SCODA Desktop Viewer")
@@ -32,13 +36,13 @@ def main():
         print(f"Loading: {args.scoda_path}")
     elif args.package:
         print(f"Package: {args.package}")
-    print("Server running at: http://localhost:8080")
+    print(f"Server running at: http://localhost:{port}")
     print("Press Ctrl+C to stop the server")
     print("=" * 60)
     print()
 
     # Open browser after 1.5 seconds
-    Timer(1.5, open_browser).start()
+    Timer(1.5, lambda: open_browser(port)).start()
 
     # Import and run FastAPI app
     try:
@@ -59,7 +63,7 @@ def main():
             set_active_package(args.package)
 
         from .app import app
-        uvicorn.run(app, host='127.0.0.1', port=8080, log_level='info')
+        uvicorn.run(app, host='127.0.0.1', port=port, log_level='info')
     except ImportError as e:
         print(f"Error: Could not import app: {e}", file=sys.stderr)
         print("Make sure app.py is in the same directory.", file=sys.stderr)
@@ -67,7 +71,7 @@ def main():
         sys.exit(1)
     except OSError as e:
         print(f"Error: Could not start server: {e}", file=sys.stderr)
-        print("Port 8080 might already be in use.", file=sys.stderr)
+        print(f"Port {port} might already be in use.", file=sys.stderr)
         input("\nPress Enter to exit...")
         sys.exit(1)
 
