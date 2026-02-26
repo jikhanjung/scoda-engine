@@ -41,10 +41,10 @@ jobs:
       - name: Build MkDocs site
         run: mkdocs build
 
-      - name: Generate Hub index.json
+      - name: Generate Hub scoda-hub-index.json
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: python scripts/generate_hub_index.py --output site/index.json
+        run: python scripts/generate_hub_index.py --output site/scoda-hub-index.json
 
       - name: Upload Pages artifact
         uses: actions/upload-pages-artifact@v3

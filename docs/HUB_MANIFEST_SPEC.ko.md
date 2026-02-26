@@ -97,11 +97,11 @@ Hub Manifest에는 `download_url`을 포함하지 **않는다**.
 
 ---
 
-## 3. Hub Index (`index.json`)
+## 3. Hub Index (`scoda-hub-index.json`)
 
 scoda-engine GitHub Pages에 호스팅되는 자동 생성 카탈로그.
 
-**URL:** `https://{user}.github.io/scoda-engine/index.json`
+**URL:** `https://{user}.github.io/scoda-engine/scoda-hub-index.json`
 
 ```json
 {
@@ -237,7 +237,7 @@ Fallback 모드에서는 다음 기능이 **동작하지 않는다**:
 │  GitHub Release          │  read-only  │  hub/sources.json         │
 │  ├── *.scoda             │◄────────────│  scripts/generate_hub_   │
 │  └── *.manifest.json     │  GitHub API │    index.py               │
-└──────────────────────────┘             │  → hub/index.json         │
+└──────────────────────────┘             │  → hub/scoda-hub-index.json│
                                          │  → GitHub Pages 배포      │
                                          └───────────────────────────┘
 ```
@@ -249,7 +249,7 @@ Fallback 모드에서는 다음 기능이 **동작하지 않는다**:
 3. `*.manifest.json` asset이 있으면 파싱 (Strategy 1)
 4. 없으면 `.scoda` 파일명에서 추론 (Strategy 2 — Fallback)
 5. `download_url`은 GitHub API의 `browser_download_url`에서 수집
-6. 버전별로 병합하여 `index.json` 생성
+6. 버전별로 병합하여 `scoda-hub-index.json` 생성
 7. `gh-pages` 브랜치에 배포
 
 ### 트리거

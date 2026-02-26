@@ -22,7 +22,7 @@ from .scoda_package import _parse_semver
 
 logger = logging.getLogger(__name__)
 
-DEFAULT_HUB_URL = "https://jikhanjung.github.io/scoda-engine/index.json"
+DEFAULT_HUB_URL = "https://jikhanjung.github.io/scoda-engine/scoda-hub-index.json"
 
 
 def _load_windows_store_certs(ctx):

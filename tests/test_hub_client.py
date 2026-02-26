@@ -289,7 +289,7 @@ class TestFetchHubIndex:
 
         with mock.patch("scoda_engine_core.hub_client.urllib.request.urlopen",
                         return_value=mock_resp):
-            result = fetch_hub_index(hub_url="https://example.com/index.json")
+            result = fetch_hub_index(hub_url="https://example.com/scoda-hub-index.json")
 
         assert result["hub_version"] == "1.0"
         assert "test" in result["packages"]
@@ -299,7 +299,7 @@ class TestFetchHubIndex:
         with mock.patch("scoda_engine_core.hub_client.urllib.request.urlopen",
                         side_effect=urllib.error.URLError("timeout")):
             with pytest.raises(HubConnectionError, match="Failed to fetch"):
-                fetch_hub_index(hub_url="https://example.com/index.json")
+                fetch_hub_index(hub_url="https://example.com/scoda-hub-index.json")
 
     def test_fetch_ssl_error_raises_hub_ssl_error(self):
         """SSL error raises HubSSLError (subclass of HubConnectionError)."""
@@ -308,7 +308,7 @@ class TestFetchHubIndex:
         with mock.patch("scoda_engine_core.hub_client.urllib.request.urlopen",
                         side_effect=ssl_exc):
             with pytest.raises(HubSSLError, match="SSL certificate"):
-                fetch_hub_index(hub_url="https://example.com/index.json")
+                fetch_hub_index(hub_url="https://example.com/scoda-hub-index.json")
 
     def test_fetch_ssl_noverify_skips_verification(self):
         """ssl_noverify=True uses noverify context."""
@@ -327,7 +327,7 @@ class TestFetchHubIndex:
 
         with mock.patch("scoda_engine_core.hub_client.urllib.request.urlopen",
                         side_effect=capture_urlopen):
-            fetch_hub_index(hub_url="https://example.com/index.json",
+            fetch_hub_index(hub_url="https://example.com/scoda-hub-index.json",
                             ssl_noverify=True)
 
         ctx = captured[0]
@@ -345,7 +345,7 @@ class TestFetchHubIndex:
         with mock.patch("scoda_engine_core.hub_client.urllib.request.urlopen",
                         return_value=mock_resp):
             with pytest.raises(HubConnectionError, match="Invalid Hub index"):
-                fetch_hub_index(hub_url="https://example.com/index.json")
+                fetch_hub_index(hub_url="https://example.com/scoda-hub-index.json")
 
     def test_fetch_uses_env_var(self):
         """SCODA_HUB_URL environment variable is used when no URL provided."""
@@ -363,12 +363,12 @@ class TestFetchHubIndex:
             captured_req.append(req)
             return mock_resp
 
-        with mock.patch.dict(os.environ, {"SCODA_HUB_URL": "https://custom.hub/index.json"}):
+        with mock.patch.dict(os.environ, {"SCODA_HUB_URL": "https://custom.hub/scoda-hub-index.json"}):
             with mock.patch("scoda_engine_core.hub_client.urllib.request.urlopen",
                             side_effect=capture_urlopen):
                 fetch_hub_index()
 
-        assert captured_req[0].full_url == "https://custom.hub/index.json"
+        assert captured_req[0].full_url == "https://custom.hub/scoda-hub-index.json"
 
 
 # ---------------------------------------------------------------------------

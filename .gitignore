@@ -17,7 +17,7 @@ dist/
 *.scoda
 
 # Hub index (auto-generated, deployed to gh-pages)
-hub/index.json
+hub/scoda-hub-index.json
 
 # MkDocs build output
 site/

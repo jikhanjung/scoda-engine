@@ -1,14 +1,14 @@
 #!/usr/bin/env python3
 """
-Generate hub/index.json from package repo releases.
+Generate hub/scoda-hub-index.json from package repo releases.
 
 Reads hub/sources.json for the list of source repositories,
 queries GitHub REST API for their latest releases, collects package
 metadata (from *.manifest.json assets or fallback from release info),
-and writes hub/index.json.
+and writes hub/scoda-hub-index.json.
 
 Usage:
-  python scripts/generate_hub_index.py              # generate index.json
+  python scripts/generate_hub_index.py              # generate scoda-hub-index.json
   python scripts/generate_hub_index.py --dry-run    # preview without writing
   python scripts/generate_hub_index.py --all        # include all versions, not just latest
 
@@ -28,7 +28,7 @@ from datetime import datetime, timezone
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 PROJECT_ROOT = os.path.dirname(SCRIPT_DIR)
 SOURCES_PATH = os.path.join(PROJECT_ROOT, 'hub', 'sources.json')
-INDEX_PATH = os.path.join(PROJECT_ROOT, 'hub', 'index.json')
+INDEX_PATH = os.path.join(PROJECT_ROOT, 'hub', 'scoda-hub-index.json')
 
 # Pattern for versioned .scoda filenames: name-version.scoda
 SCODA_FILENAME_RE = re.compile(r'^(.+?)-(\d+\.\d+\.\d+)\.scoda$')
@@ -251,13 +251,13 @@ def _semver_key(version_str):
 
 def main():
     parser = argparse.ArgumentParser(
-        description='Generate hub/index.json from package repo releases')
+        description='Generate hub/scoda-hub-index.json from package repo releases')
     parser.add_argument(
         '--sources', default=SOURCES_PATH,
         help=f'Path to sources.json (default: hub/sources.json)')
     parser.add_argument(
         '--output', default=INDEX_PATH,
-        help=f'Output index.json path (default: hub/index.json)')
+        help=f'Output path (default: hub/scoda-hub-index.json)')
     parser.add_argument(
         '--all', action='store_true',
         help='Include all release versions (default: latest only)')
@@ -288,7 +288,7 @@ def main():
     print(f"\nGenerated: {pkg_count} package(s), {version_count} version(s)")
 
     if args.dry_run:
-        print("\n--- index.json (dry-run) ---")
+        print("\n--- scoda-hub-index.json (dry-run) ---")
         print(json.dumps(index, indent=2, ensure_ascii=False))
     else:
         os.makedirs(os.path.dirname(args.output), exist_ok=True)

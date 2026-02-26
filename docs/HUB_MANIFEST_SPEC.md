@@ -97,11 +97,11 @@ The `download_url` is collected from the GitHub API by scoda-engine when generat
 
 ---
 
-## 3. Hub Index (`index.json`)
+## 3. Hub Index (`scoda-hub-index.json`)
 
 An auto-generated catalog hosted on scoda-engine GitHub Pages.
 
-**URL:** `https://{user}.github.io/scoda-engine/index.json`
+**URL:** `https://{user}.github.io/scoda-engine/scoda-hub-index.json`
 
 ```json
 {
@@ -235,7 +235,7 @@ Package repo (trilobase)                 scoda-engine repo
 │  GitHub Release          │  read-only  │  hub/sources.json         │
 │  ├── *.scoda             │◄────────────│  scripts/generate_hub_   │
 │  └── *.manifest.json     │  GitHub API │    index.py               │
-└──────────────────────────┘             │  → hub/index.json         │
+└──────────────────────────┘             │  → hub/scoda-hub-index.json│
                                          │  → Deploy to GitHub Pages │
                                          └───────────────────────────┘
 ```
@@ -247,7 +247,7 @@ Package repo (trilobase)                 scoda-engine repo
 3. If a `*.manifest.json` asset exists, parse it (Strategy 1)
 4. Otherwise, infer from the `.scoda` filename (Strategy 2 -- Fallback)
 5. Collect `download_url` from the GitHub API's `browser_download_url`
-6. Merge by version to generate `index.json`
+6. Merge by version to generate `scoda-hub-index.json`
 7. Deploy to the `gh-pages` branch
 
 ### Triggers
