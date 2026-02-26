@@ -1,0 +1,69 @@
+site_name: SCODA Engine
+site_description: Runtime for Self-Contained Data Artifacts
+site_url: https://jikhanjung.github.io/scoda-engine/
+repo_url: https://github.com/jikhanjung/scoda-engine
+repo_name: jikhanjung/scoda-engine
+
+theme:
+  name: material
+  language: en
+  features:
+    - navigation.tabs
+    - navigation.sections
+    - navigation.top
+    - search.suggest
+    - content.code.copy
+  palette:
+    - scheme: default
+      primary: indigo
+      accent: indigo
+      toggle:
+        icon: material/brightness-7
+        name: Switch to dark mode
+    - scheme: slate
+      primary: indigo
+      accent: indigo
+      toggle:
+        icon: material/brightness-4
+        name: Switch to light mode
+
+plugins:
+  - search
+  - i18n:
+      docs_structure: suffix
+      languages:
+        - locale: en
+          name: English
+          default: true
+          build: true
+        - locale: ko
+          name: 한국어
+          build: true
+
+nav:
+  - Home: index.md
+  - Concepts:
+      - SCODA Concept: SCODA_CONCEPT.md
+      - Architecture Summary: SCODA_Concept_and_Architecture_Summary.md
+      - Whitepaper: SCODA_WHITEPAPER.md
+      - Stable UID Schema: SCODA_Stable_UID_Schema_v0.2.md
+  - Guides:
+      - API Reference: API_REFERENCE.md
+      - MCP Guide: MCP_GUIDE.md
+      - Hub Manifest Spec: HUB_MANIFEST_SPEC.md
+      - Release Guide: RELEASE_GUIDE.md
+
+exclude_docs: ""
+
+markdown_extensions:
+  - tables
+  - admonition
+  - pymdownx.details
+  - pymdownx.superfences
+  - pymdownx.highlight:
+      anchor_linenums: true
+  - pymdownx.inlinehilite
+  - pymdownx.tabbed:
+      alternate_style: true
+  - toc:
+      permalink: true

@@ -1,0 +1,1 @@
+../design/SCODA_Stable_UID_Schema_v0.2.ko.md

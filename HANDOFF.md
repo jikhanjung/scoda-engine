@@ -1,6 +1,6 @@
 # SCODA Engine — Project Handoff Document
 
-**Last updated:** 2026-02-25
+**Last updated:** 2026-02-26
 
 ---
 
@@ -39,6 +39,8 @@
 | Navbar subtitle 엔진 버전 동적 표시 | Done | `devlog/20260225_018_navbar_powered_by.md` |
 | Release ZIP 파일명에 버전 태그 포함 | Done | `1aedc79` |
 | Hub SSL fallback (기관 네트워크 대응) | Done | `devlog/20260225_019_hub_ssl_fallback.md` |
+| P18: GUI 서버 포트 설정 및 자동 탐색 | Done | `devlog/20260226_P18_configurable_server_port.md` |
+| P19: MkDocs + GitHub Pages 다국어 문서 사이트 | Done | `devlog/20260226_P19_mkdocs_github_pages.md` |
 
 ### Test Status
 
@@ -50,16 +52,9 @@
 
 - 없음
 
-### Recent Session (2026-02-25) Summary
+### Recent Session (2026-02-26) Summary
 
-1. **Fix: Hub 업데이트 다운로드 버그**: `resolve_download_order()`에서 이름만 비교하던 것을 버전 비교로 수정
-2. **Hub Manifest Spec 문서**: P15 설계 문서에 흩어진 스키마 정보를 `docs/HUB_MANIFEST_SPEC.md`로 정리, manifest 파일명에 버전 포함 규칙으로 변경
-3. **Detail view redirect**: 데이터 필드 값에 따라 다른 detail view로 분기하는 기능 추가
-4. **P17: Hub Dependency UI**: 패키지 목록에 `[requires: ...]` 표시, 다운로드 전 확인 다이얼로그 (dependency 포함 목록 + 총 크기)
-5. **Navbar subtitle**: "Powered by SCODA Desktop v{version}" 동적 표시
-6. **Release ZIP 파일명**: 버전 태그 포함하도록 변경
-7. **Hub SSL fallback**: 기관 네트워크의 SSL 인증서 검증 실패 대응. Windows 인증서 저장소 통합, `HubSSLError` 예외, GUI fallback 다이얼로그 + 설정 저장 (`ScodaDesktop.cfg`)
-8. **P15 후속 (trilobase 측) 완료**: Hub manifest 자동 생성 + release.yml 업로드 연동
+1. **P19: MkDocs + GitHub Pages 다국어 문서 사이트**: MkDocs Material 테마 + mkdocs-static-i18n으로 EN/KO 문서 사이트 구축. 기존 8개 문서를 영문/한국어 쌍으로 분리 정리. Hub index.json과 MkDocs가 같은 GitHub Pages에서 공존하도록 통합 워크플로우(`pages.yml`) 구성. `hub-index.yml` 삭제.
 
 ---
 
@@ -67,7 +62,7 @@
 
 ### Tree Snapshot 설계 심화 (P11 후속)
 
-`docs/Trilobase_Tree_Snapshot_Design_v1.md`의 설계를 구체화.
+`design/Trilobase_Tree_Snapshot_Design_v1.md`의 설계를 구체화.
 검토 결과 tree opinion 패턴은 SCODA 범용 메커니즘으로 설계 가능.
 후속 검토 항목: `devlog/20260222_P11_tree_snapshot_design_review.md` Section 7 참조.
 
@@ -187,9 +182,9 @@ pytest tests/
 | Distribution strategy | `devlog/20260220_P05_SCODA_Distribution_and_Architecture_Strategy.md` |
 | Core separation plan | `devlog/20260221_P06_core_separation_plan.md` |
 | Version management strategy | `devlog/20260221_P07_version_management_strategy.md` |
-| Tree Snapshot design | `docs/Trilobase_Tree_Snapshot_Design_v1.md` |
+| Tree Snapshot design | `design/Trilobase_Tree_Snapshot_Design_v1.md` |
 | Tree Snapshot review | `devlog/20260222_P11_tree_snapshot_design_review.md` |
-| SCODA concepts | `docs/SCODA_CONCEPT.md` |
+| SCODA concepts | `design/SCODA_CONCEPT.md` |
 | API reference | `docs/API_REFERENCE.md` |
 | MCP guide | `docs/MCP_GUIDE.md` |
 | CI workflow | `.github/workflows/test.yml` |
@@ -197,6 +192,6 @@ pytest tests/
 | Arbitrary path loading (P14) | `devlog/20260224_P14_arbitrary_scoda_path_loading.md` |
 | Hub static registry (P15) | `devlog/20260224_P15_scoda_hub_static_registry.md` |
 | Hub Manifest spec | `docs/HUB_MANIFEST_SPEC.md` |
-| Hub index workflow | `.github/workflows/hub-index.yml` |
+| Docs + Hub Pages workflow | `.github/workflows/pages.yml` |
 | Hub Dependency UI (P17) | `devlog/20260225_P17_hub_dependency_ui.md` |
 | Hub SSL fallback | `devlog/20260225_019_hub_ssl_fallback.md` |

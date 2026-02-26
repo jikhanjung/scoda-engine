@@ -1,0 +1,1 @@
+../design/SCODA_Concept_and_Architecture_Summary.ko.md

@@ -1,0 +1,1 @@
+../design/SCODA_WHITEPAPER.ko.md

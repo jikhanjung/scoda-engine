@@ -2,7 +2,7 @@
 
 ## Session Start
 
-At the beginning of each session, read `docs/HANDOFF.md` first to understand the current
+At the beginning of each session, read `HANDOFF.md` first to understand the current
 project status, in-progress work, and next steps. Key architecture and dev setup are also
 documented there.
 
@@ -27,6 +27,7 @@ scoda-engine/
 ├── pyproject.toml              # Desktop package metadata + dependencies
 ├── README.md
 ├── CLAUDE.md
+├── HANDOFF.md                  # Project handoff document
 ├── pytest.ini                  # pytest config (testpaths=tests)
 ├── ScodaDesktop.spec           # PyInstaller build spec
 ├── launcher_gui.py             # GUI entry point
@@ -46,6 +47,7 @@ scoda-engine/
 │   ├── serve.py                # uvicorn launcher
 │   ├── templates/index.html    # Generic viewer template
 │   └── static/{css,js}/        # Generic viewer assets
+├── design/                     # Design & concept documents (originals)
 ├── scripts/
 │   ├── build.py                # PyInstaller EXE builder
 │   ├── validate_manifest.py    # Manifest validator CLI (thin wrapper → core)
@@ -57,7 +59,7 @@ scoda-engine/
 │   ├── test_runtime.py         # Runtime tests
 │   ├── test_mcp.py             # MCP integration tests
 │   └── test_mcp_basic.py       # MCP basic test
-└── docs/                       # SCODA documentation
+└── docs/                       # Guides & operational docs (+ symlinks to design/)
 ```
 
 ## Key Architecture
