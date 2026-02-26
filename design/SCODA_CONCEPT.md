@@ -139,45 +139,45 @@ In short:
 
 ## SCODA Engine: The Runtime Ecosystem
 
-.scoda 패키지는 데이터 아티팩트이다. 이 아티팩트를 **열고, 탐색하고, 서빙하는** 소프트웨어가 **SCODA Engine**이다.
+A .scoda package is a data artifact. The software that **opens, explores, and serves** this artifact is the **SCODA Engine**.
 
-### 정의
+### Definition
 
-> **SCODA Engine은 .scoda 패키지를 로드하여 Web UI, REST API, MCP 엔드포인트를 통해 데이터를 제공하는 런타임이다.**
+> **SCODA Engine is a runtime that loads .scoda packages and provides data through a Web UI, REST API, and MCP endpoints.**
 
-Engine은 데이터를 생성하지 않는다. 패키지 안의 데이터를 **읽고, 쿼리하고, 시각화**하는 것이 역할이다.
+The Engine does not create data. Its role is to **read, query, and visualize** the data inside a package.
 
-### 제품 구조
+### Product Structure
 
-| 제품 | 대상 | 설명 |
-|------|------|------|
-| **SCODA Desktop** | 개인 사용자 | 로컬 실행, tkinter GUI, 단일 패키지, overlay 지원 |
-| **SCODA Server** | 기관/공개 서비스 | 멀티 유저, 인증, 스케일링 (미래) |
+| Product | Audience | Description |
+|---------|----------|-------------|
+| **SCODA Desktop** | Individual users | Local execution, tkinter GUI, single package, overlay support |
+| **SCODA Server** | Institutions / public services | Multi-user, authentication, scaling (future) |
 
-두 제품은 같은 Engine 코어를 공유한다:
+Both products share the same Engine core:
 
-- .scoda 패키지 로더 (`scoda_package.py`)
-- Generic Viewer (manifest 기반 자동 렌더링)
+- .scoda package loader (`scoda_package.py`)
+- Generic Viewer (automatic rendering based on manifest)
 - REST API (`/api/query/`, `/api/composite/`)
-- MCP 서버 (stdio/SSE)
+- MCP server (stdio/SSE)
 
-Desktop과 Server의 차이는 **배포 형태와 접근 제어**이며, 데이터 처리 로직은 동일하다.
+The difference between Desktop and Server is **deployment form and access control**; the data processing logic is identical.
 
-### 관련 개념
+### Related Concepts
 
-| 이름 | 역할 |
+| Name | Role |
 |------|------|
-| **.scoda** | 패키지 포맷 (SQLite DB + manifest + overlay) |
-| **SCODA Engine** | .scoda를 서빙하는 런타임 (Desktop / Server) |
-| **SCODA Hub** | 패키지 레지스트리/저장소 (미래 구상) |
+| **.scoda** | Package format (SQLite DB + manifest + overlay) |
+| **SCODA Engine** | Runtime that serves .scoda packages (Desktop / Server) |
+| **SCODA Hub** | Package registry / repository (future concept) |
 
-### SCODA는 아티팩트이고 Engine은 도구이다
+### SCODA Is an Artifact; Engine Is a Tool
 
-SCODA 개념의 핵심은 **데이터와 소프트웨어의 분리**이다:
+The core principle of the SCODA concept is the **separation of data and software**:
 
-- .scoda 패키지는 Engine 없이도 SQLite 파일로서 독립적으로 존재한다
-- Engine은 패키지를 편리하게 탐색하는 **도구**일 뿐, 데이터의 일부가 아니다
-- 같은 .scoda 패키지를 Desktop에서 열든 Server에서 서빙하든 데이터는 동일하다
+- A .scoda package exists independently as a SQLite file, even without the Engine
+- The Engine is merely a **tool** for conveniently exploring packages — it is not part of the data
+- The same .scoda package yields identical data whether opened in Desktop or served via Server
 
 ---
 

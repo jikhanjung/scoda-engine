@@ -1,60 +1,60 @@
 # SCODA Desktop Release Guide
 
-이 문서는 SCODA Desktop의 **데이터 수정 → .scoda 패키지 생성 → 릴리스 → 배포** 전체 프로세스를 설명합니다.
+This document describes the full process of **data modification → .scoda package creation → release → distribution** for SCODA Desktop.
 
-SCODA(Self-Contained Data Artifact) 원칙에 따라 각 릴리스는 **불변(immutable)**이며, 버전 번호로 식별됩니다.
-
----
-
-## 목차
-
-1. [버전 번호 규칙](#버전-번호-규칙)
-2. [릴리스 절차](#릴리스-절차)
-3. [배포 절차](#배포-절차)
-4. [Overlay DB 호환성](#overlay-db-호환성)
-5. [검증 및 테스트](#검증-및-테스트)
-6. [주의사항](#주의사항)
+Following the SCODA (Self-Contained Data Artifact) principle, each release is **immutable** and identified by a version number.
 
 ---
 
-## 버전 번호 규칙
+## Table of Contents
 
-**Semantic Versioning** 방식: `MAJOR.MINOR.PATCH`
-
-| 유형 | 버전 예시 | 변경 내용 | 하위 호환성 |
-|------|----------|---------|----------|
-| **PATCH** | 1.0.0 → 1.0.1 | 데이터 오류 수정, 타이포 수정 | 유지 |
-| **MINOR** | 1.0.0 → 1.1.0 | 데이터 추가, 새 named query 추가 | 유지 |
-| **MAJOR** | 1.0.0 → 2.0.0 | 스키마 변경, 테이블 삭제, manifest 구조 변경 | 깨짐 |
+1. [Version Number Rules](#version-number-rules)
+2. [Release Procedure](#release-procedure)
+3. [Distribution Procedure](#distribution-procedure)
+4. [Overlay DB Compatibility](#overlay-db-compatibility)
+5. [Verification and Testing](#verification-and-testing)
+6. [Cautions](#cautions)
 
 ---
 
-## 릴리스 절차
+## Version Number Rules
 
-### Step 1: 데이터 수정
+**Semantic Versioning** format: `MAJOR.MINOR.PATCH`
+
+| Type | Version Example | Changes | Backward Compatibility |
+|------|----------------|---------|----------------------|
+| **PATCH** | 1.0.0 → 1.0.1 | Data error fixes, typo corrections | Maintained |
+| **MINOR** | 1.0.0 → 1.1.0 | Data additions, new named queries | Maintained |
+| **MAJOR** | 1.0.0 → 2.0.0 | Schema changes, table deletions, manifest structure changes | Broken |
+
+---
+
+## Release Procedure
+
+### Step 1: Modify Data
 
 ```bash
-# 예: 새 데이터 추가 또는 오류 수정
+# Example: add new data or fix errors
 python3 -c "
 import sqlite3
 conn = sqlite3.connect('trilobase.db')
 cursor = conn.cursor()
-# ... SQL 실행 ...
+# ... execute SQL ...
 conn.commit()
 conn.close()
 "
 ```
 
-### Step 2: 테스트 실행
+### Step 2: Run Tests
 
 ```bash
-# 모든 테스트 통과 확인
+# Confirm all tests pass
 pytest tests/ -v
 
-# 결과: 196 passed
+# Result: 196 passed
 ```
 
-### Step 3: 버전 번호 업데이트
+### Step 3: Update Version Number
 
 ```bash
 python3 -c "
@@ -70,80 +70,80 @@ print('Version updated to 1.1.0')
 "
 ```
 
-### Step 4: .scoda 패키지 생성
+### Step 4: Create .scoda Package
 
 ```bash
-# Trilobase .scoda 패키지 (MCP 도구 정의 포함)
+# Trilobase .scoda package (includes MCP tool definitions)
 python scripts/create_scoda.py --mcp-tools data/mcp_tools_trilobase.json
 
-# PaleoCore .scoda 패키지 (dependency)
+# PaleoCore .scoda package (dependency)
 python scripts/create_paleocore_scoda.py
 ```
 
-### Step 5: 릴리스 패키징
+### Step 5: Release Packaging
 
 ```bash
-# 1. Dry-run으로 사전 확인
+# 1. Pre-check with dry-run
 python scripts/release.py --dry-run
 
-# 2. 실제 릴리스 생성
+# 2. Create the actual release
 python scripts/release.py
 ```
 
-**생성되는 파일:**
+**Generated files:**
 ```
 releases/trilobase-v1.1.0/
-├── trilobase.db         # Read-only 복사본 (0444 권한)
-├── metadata.json        # 메타데이터 + 출처 + 통계
-├── checksums.sha256     # SHA-256 해시
-└── README.md            # 사용 안내
+├── trilobase.db         # Read-only copy (0444 permissions)
+├── metadata.json        # Metadata + provenance + statistics
+├── checksums.sha256     # SHA-256 hashes
+└── README.md            # Usage instructions
 ```
 
-### Step 6: Git 커밋 및 태깅
+### Step 6: Git Commit and Tagging
 
 ```bash
 git add trilobase.db
-git commit -m "chore: Release v1.1.0 — [수정 내용 요약]"
+git commit -m "chore: Release v1.1.0 — [summary of changes]"
 git tag -a v1.1.0 -m "Release v1.1.0"
 git push origin main v1.1.0
 ```
 
 ---
 
-## 배포 절차
+## Distribution Procedure
 
-### Step 1: PyInstaller 빌드
+### Step 1: PyInstaller Build
 
 ```bash
 python scripts/build.py
 ```
 
-**생성 결과:**
+**Build output:**
 ```
 dist/
-├── ScodaDesktop.exe          # GUI 뷰어 (Windows)
-├── ScodaDesktop_mcp.exe      # MCP stdio 서버 (Claude Desktop 전용)
-├── trilobase.scoda            # 데이터 패키지
-└── paleocore.scoda            # 의존성 패키지
+├── ScodaDesktop.exe          # GUI viewer (Windows)
+├── ScodaDesktop_mcp.exe      # MCP stdio server (Claude Desktop only)
+├── trilobase.scoda            # Data package
+└── paleocore.scoda            # Dependency package
 ```
 
-**번들링되는 파일:**
+**Bundled files:**
 - `scoda_engine/` (app.py, mcp_server.py, gui.py, serve.py, scoda_package.py)
 - `scoda_engine/templates/`, `scoda_engine/static/`
 - `spa/` (Reference Implementation SPA)
-- Flask 및 의존성
+- Flask and dependencies
 
-### Step 2: 배포 파일 준비
+### Step 2: Prepare Distribution Files
 
 ```bash
-# ZIP 압축
+# ZIP compression
 cd dist
 zip -r ScodaDesktop-v1.1.0-windows.zip \
   ScodaDesktop.exe ScodaDesktop_mcp.exe \
   trilobase.scoda paleocore.scoda
 ```
 
-### Step 3: GitHub Release 생성 (선택)
+### Step 3: Create GitHub Release (Optional)
 
 ```bash
 gh release create v1.1.0 \
@@ -154,40 +154,40 @@ gh release create v1.1.0 \
 
 ---
 
-## Overlay DB 호환성
+## Overlay DB Compatibility
 
-Overlay DB는 사용자의 주석(annotations)을 저장하며, canonical DB 버전과 연동됩니다.
+The Overlay DB stores user annotations and is linked to the canonical DB version.
 
-### 호환성 매트릭스
+### Compatibility Matrix
 
-| Canonical 버전 변경 | Overlay DB 처리 | 사용자 주석 보존 |
-|------------------|--------------|--------------|
-| PATCH (1.0.0 → 1.0.1) | 버전만 업데이트 | 전체 보존 |
-| MINOR (1.0.0 → 1.1.0) | 버전만 업데이트 | 전체 보존 |
-| MAJOR (1.0.0 → 2.0.0) | 재생성 + 마이그레이션 | entity_name 기반 매칭 |
+| Canonical Version Change | Overlay DB Handling | User Annotation Preservation |
+|------------------------|-------------------|---------------------------|
+| PATCH (1.0.0 → 1.0.1) | Version update only | Fully preserved |
+| MINOR (1.0.0 → 1.1.0) | Version update only | Fully preserved |
+| MAJOR (1.0.0 → 2.0.0) | Regenerate + migrate | Matched by entity_name |
 
-### entity_name의 역할
+### Role of entity_name
 
 ```sql
 CREATE TABLE user_annotations (
     id INTEGER PRIMARY KEY,
     entity_type TEXT,        -- 'genus', 'family', etc.
-    entity_id INTEGER,       -- canonical DB의 ID (버전별로 변경 가능)
-    entity_name TEXT,        -- 'Paradoxides' 등 (불변, 릴리스 간 매칭용)
+    entity_id INTEGER,       -- ID in the canonical DB (may change between versions)
+    entity_name TEXT,        -- 'Paradoxides', etc. (immutable, used for cross-release matching)
     annotation_type TEXT,
     content TEXT,
     created_at TEXT
 );
 ```
 
-- `entity_id`는 canonical DB 버전마다 달라질 수 있음
-- `entity_name`은 불변이므로 Major 버전 업그레이드 시 매칭 가능
+- `entity_id` may differ across canonical DB versions
+- `entity_name` is immutable and can be used for matching during major version upgrades
 
 ---
 
-## 검증 및 테스트
+## Verification and Testing
 
-### 릴리스 무결성 검증
+### Release Integrity Verification
 
 ```bash
 cd releases/trilobase-v1.1.0
@@ -195,26 +195,26 @@ sha256sum --check checksums.sha256
 cat metadata.json | jq '.version, .sha256'
 ```
 
-### 실행 파일 테스트
+### Executable Testing
 
 ```bash
-# GUI 실행
+# Launch GUI
 ./dist/ScodaDesktop.exe
 
-# 확인 사항:
-# - GUI 로그에 "Loaded: trilobase.scoda" 표시
-# - "Start Server" 클릭 → 브라우저 자동 오픈
-# - http://localhost:8080 접속 확인
-# - Manifest 기반 뷰 정상 렌더링
+# Checklist:
+# - GUI log shows "Loaded: trilobase.scoda"
+# - Click "Start Server" → browser opens automatically
+# - Confirm access to http://localhost:8080
+# - Manifest-driven views render correctly
 ```
 
-### API 테스트
+### API Testing
 
 ```bash
-# Manifest 확인
+# Check manifest
 curl http://localhost:8080/api/manifest | jq '.name'
 
-# Named query 실행
+# Execute named query
 curl 'http://localhost:8080/api/queries/genera_list/execute' | jq '.row_count'
 
 # Composite detail
@@ -223,80 +223,80 @@ curl 'http://localhost:8080/api/composite/genus_detail?id=100' | jq '.name'
 
 ---
 
-## 주의사항
+## Cautions
 
-### 불변성 원칙
+### Immutability Principle
 
-- **같은 버전 번호로 릴리스 재생성 불가**
+- **Cannot regenerate a release with the same version number**
   ```
   python scripts/release.py
   # Error: Release directory already exists
   # SCODA immutability principle: cannot overwrite an existing release.
   ```
-- 실수로 잘못된 릴리스 생성 시: 디렉토리 삭제 → 버전 증가 → 재릴리스
+- If a release was created by mistake: delete the directory → increment version → re-release
 
-### 소스 DB 변경
+### Source DB Changes
 
-- `scripts/release.py`는 소스 DB에 `sha256` 키를 자동 추가합니다
-- 릴리스 후 소스 DB를 커밋하는 것을 잊지 마세요
+- `scripts/release.py` automatically adds a `sha256` key to the source DB
+- Do not forget to commit the source DB after releasing
 
-### .scoda 패키지 구조
+### .scoda Package Structure
 
 ```
 trilobase.scoda (ZIP)
-├── manifest.json          # 패키지 메타데이터
+├── manifest.json          # Package metadata
 ├── data.db                # Canonical SQLite DB
-└── mcp_tools.json         # MCP 도구 정의 (선택)
+└── mcp_tools.json         # MCP tool definitions (optional)
 ```
 
-### PyInstaller 캐시
+### PyInstaller Cache
 
 ```bash
-# 빌드 에러 발생 시 캐시 삭제
+# Clear cache if build errors occur
 rm -rf build/ dist/ __pycache__
 python scripts/build.py
 ```
 
 ---
 
-## 빠른 참조 (Quick Reference)
+## Quick Reference
 
 ```bash
-# 1. 데이터 수정 + 테스트
+# 1. Modify data + test
 pytest tests/
 
-# 2. 버전 업데이트
+# 2. Update version
 python3 -c "
 import sqlite3; conn = sqlite3.connect('trilobase.db')
 conn.execute(\"UPDATE artifact_metadata SET value = '1.1.0' WHERE key = 'version'\")
 conn.commit()
 "
 
-# 3. .scoda 패키지 생성
+# 3. Create .scoda package
 python scripts/create_scoda.py --mcp-tools data/mcp_tools_trilobase.json
 
-# 4. 릴리스 생성
+# 4. Create release
 python scripts/release.py
 
-# 5. Git 커밋 + 태그
+# 5. Git commit + tag
 git add trilobase.db
 git commit -m "chore: Release v1.1.0"
 git tag -a v1.1.0 -m "Release v1.1.0"
 git push origin main v1.1.0
 
-# 6. 실행 파일 빌드
+# 6. Build executable
 python scripts/build.py
 ```
 
 ---
 
-## 관련 문서
+## Related Documents
 
-- [API_REFERENCE.md](./API_REFERENCE.md) — REST API 레퍼런스
-- [MCP_GUIDE.md](./MCP_GUIDE.md) — MCP 서버 사용 가이드
-- [HANDOFF.md](./HANDOFF.md) — 프로젝트 현황 및 인수인계
-- [SCODA_CONCEPT.md](./SCODA_CONCEPT.md) — SCODA 개념 설명
+- [API_REFERENCE.md](./API_REFERENCE.md) — REST API Reference
+- [MCP_GUIDE.md](./MCP_GUIDE.md) — MCP Server Usage Guide
+- [HANDOFF.md](./HANDOFF.md) — Project Status and Handoff
+- [SCODA_CONCEPT.md](./SCODA_CONCEPT.md) — SCODA Concept Overview
 
 ---
 
-**마지막 업데이트:** 2026-02-14
+**Last updated:** 2026-02-14

@@ -1,47 +1,47 @@
 # SCODA Desktop MCP Server Guide
 
-**Model Context Protocol (MCP) 서버 사용 가이드**
+**Model Context Protocol (MCP) Server Usage Guide**
 
-**버전:** 2.0.0
-
----
-
-## 목차
-
-- [개요](#개요)
-- [설치 및 설정](#설치-및-설정)
-- [MCP 도구 구조](#mcp-도구-구조)
-- [Builtin 도구 (7개)](#builtin-도구-7개)
-- [Dynamic 도구](#dynamic-도구)
-- [사용 예시](#사용-예시)
-- [SCODA 원칙](#scoda-원칙)
-- [트러블슈팅](#트러블슈팅)
+**Version:** 2.0.0
 
 ---
 
-## 개요
+## Table of Contents
 
-SCODA Desktop MCP 서버는 **Model Context Protocol**을 통해 LLM이 `.scoda` 패키지의 데이터를 쿼리할 수 있게 합니다.
+- [Overview](#overview)
+- [Installation and Setup](#installation-and-setup)
+- [MCP Tool Structure](#mcp-tool-structure)
+- [Builtin Tools (7)](#builtin-tools-7)
+- [Dynamic Tools](#dynamic-tools)
+- [Usage Examples](#usage-examples)
+- [SCODA Principles](#scoda-principles)
+- [Troubleshooting](#troubleshooting)
 
-### 주요 특징
+---
 
-- **7개 Builtin 도구**: 모든 `.scoda` 패키지에서 공통으로 사용 가능 (metadata, provenance, queries, annotations)
-- **Dynamic 도구**: `.scoda` 패키지의 `mcp_tools.json`에서 도메인별 도구를 동적 로드
-- **도메인 무관(Domain-Agnostic)**: 런타임 코드에 도메인 전용 로직 없음
-- **SCODA 원칙 준수**: DB is truth, MCP is access, LLM is narration
+## Overview
 
-### 아키텍처
+The SCODA Desktop MCP server enables LLMs to query data from `.scoda` packages through the **Model Context Protocol**.
+
+### Key Features
+
+- **7 Builtin Tools**: Available across all `.scoda` packages (metadata, provenance, queries, annotations)
+- **Dynamic Tools**: Dynamically loaded from `mcp_tools.json` within `.scoda` packages for domain-specific tools
+- **Domain-Agnostic**: No domain-specific logic in runtime code
+- **SCODA Principles**: DB is truth, MCP is access, LLM is narration
+
+### Architecture
 
 ```
 ┌─────────────────┐
-│   Claude/LLM    │ (자연어 쿼리)
+│   Claude/LLM    │ (natural language queries)
 └────────┬────────┘
          │ JSON-RPC (stdio)
          ▼
 ┌───────────────────────────────────┐
 │  ScodaDesktop_mcp.exe             │
-│  - 7 builtin tools (항상 제공)    │
-│  - N dynamic tools (패키지별)     │
+│  - 7 builtin tools (always)      │
+│  - N dynamic tools (per package) │
 │  - SQL validation layer          │
 └────────┬──────────────────────────┘
          │ Direct DB access
@@ -56,34 +56,34 @@ SCODA Desktop MCP 서버는 **Model Context Protocol**을 통해 LLM이 `.scoda`
 └───────────────────────────────────┘
 ```
 
-### 두 개의 실행 파일
+### Two Executables
 
-| 파일 | 용도 | 실행 방법 |
-|------|------|----------|
-| `ScodaDesktop.exe` | GUI 뷰어 (Flask 웹 서버 + 브라우저) | 더블클릭 또는 CLI |
-| `ScodaDesktop_mcp.exe` | MCP stdio 서버 (Claude Desktop 전용) | Claude Desktop이 자동 spawn |
+| File | Purpose | How to Run |
+|------|---------|------------|
+| `ScodaDesktop.exe` | GUI viewer (Flask web server + browser) | Double-click or CLI |
+| `ScodaDesktop_mcp.exe` | MCP stdio server (for Claude Desktop) | Auto-spawned by Claude Desktop |
 
 ---
 
-## 설치 및 설정
+## Installation and Setup
 
-### 의존성 설치
+### Installing Dependencies
 
-**기본 (stdio 모드):**
+**Basic (stdio mode):**
 ```bash
 pip install mcp>=1.0.0
 ```
 
-**SSE 모드 추가:**
+**Additional for SSE mode:**
 ```bash
 pip install mcp>=1.0.0 starlette uvicorn
 ```
 
-### Claude Desktop 설정
+### Claude Desktop Configuration
 
-#### 방법 1: ScodaDesktop_mcp.exe 사용 (권장)
+#### Method 1: Using ScodaDesktop_mcp.exe (Recommended)
 
-**파일:** `%APPDATA%\Claude\claude_desktop_config.json` (Windows)
+**File:** `%APPDATA%\Claude\claude_desktop_config.json` (Windows)
 
 ```json
 {
@@ -95,7 +95,7 @@ pip install mcp>=1.0.0 starlette uvicorn
 }
 ```
 
-#### 방법 2: Python source 사용 (개발자용)
+#### Method 2: Using Python Source (For Developers)
 
 **macOS/Linux:** `~/.config/claude/claude_desktop_config.json`
 
@@ -111,15 +111,15 @@ pip install mcp>=1.0.0 starlette uvicorn
 }
 ```
 
-**설정 후 Claude Desktop을 재시작하세요.**
+**Restart Claude Desktop after updating the configuration.**
 
-### MCP 서버 수동 실행
+### Running the MCP Server Manually
 
 ```bash
-# stdio 모드 (기본)
+# stdio mode (default)
 python -m scoda_engine.mcp_server
 
-# SSE 모드
+# SSE mode
 python -m scoda_engine.mcp_server --mode sse --port 8081
 
 # Health check
@@ -128,30 +128,30 @@ curl http://localhost:8081/health
 
 ---
 
-## MCP 도구 구조
+## MCP Tool Structure
 
-SCODA Desktop MCP 서버의 도구는 두 계층으로 나뉩니다:
+The tools in the SCODA Desktop MCP server are divided into two layers:
 
-| 계층 | 도구 수 | 출처 | 설명 |
-|------|---------|------|------|
-| **Builtin** | 7개 (고정) | 런타임 코드 | 모든 `.scoda` 패키지에 공통 |
-| **Dynamic** | 패키지별 | `mcp_tools.json` | 도메인 전용 도구 |
+| Layer | Tool Count | Source | Description |
+|-------|-----------|--------|-------------|
+| **Builtin** | 7 (fixed) | Runtime code | Common to all `.scoda` packages |
+| **Dynamic** | Per package | `mcp_tools.json` | Domain-specific tools |
 
-**`list_tools` 호출 시**: Builtin 7개 + Dynamic N개가 합쳐져 반환됩니다.
+**When `list_tools` is called**: The 7 builtin tools and N dynamic tools are combined and returned together.
 
 ---
 
-## Builtin 도구 (7개)
+## Builtin Tools (7)
 
-모든 `.scoda` 패키지에서 항상 사용 가능한 범용 도구입니다.
+General-purpose tools that are always available across all `.scoda` packages.
 
 ### 1. `get_metadata`
 
-SCODA artifact 메타데이터를 조회합니다.
+Retrieves SCODA artifact metadata.
 
-**Parameters:** 없음
+**Parameters:** None
 
-**응답:**
+**Response:**
 ```json
 {
   "artifact_id": "trilobase",
@@ -167,11 +167,11 @@ SCODA artifact 메타데이터를 조회합니다.
 
 ### 2. `get_provenance`
 
-데이터 출처 정보를 조회합니다.
+Retrieves data provenance information.
 
-**Parameters:** 없음
+**Parameters:** None
 
-**응답:**
+**Response:**
 ```json
 [
   {
@@ -189,11 +189,11 @@ SCODA artifact 메타데이터를 조회합니다.
 
 ### 3. `list_available_queries`
 
-사용 가능한 Named Query 목록을 조회합니다.
+Retrieves the list of available Named Queries.
 
-**Parameters:** 없음
+**Parameters:** None
 
-**응답:**
+**Response:**
 ```json
 [
   {
@@ -210,13 +210,13 @@ SCODA artifact 메타데이터를 조회합니다.
 
 ### 4. `execute_named_query`
 
-사전 정의된 Named Query를 실행합니다.
+Executes a predefined Named Query.
 
 **Parameters:**
-- `query_name` (string, required): 쿼리 이름
-- `params` (object, optional): 쿼리 파라미터 (기본값: {})
+- `query_name` (string, required): Query name
+- `params` (object, optional): Query parameters (default: {})
 
-**응답:**
+**Response:**
 ```json
 {
   "query": "taxonomy_tree",
@@ -230,13 +230,13 @@ SCODA artifact 메타데이터를 조회합니다.
 
 ### 5. `get_annotations`
 
-특정 Entity의 사용자 주석을 조회합니다.
+Retrieves user annotations for a specific entity.
 
 **Parameters:**
 - `entity_type` (string, required): `genus`, `family`, `order`, `suborder`, `superfamily`, `class`
 - `entity_id` (integer, required): Entity ID
 
-**응답:**
+**Response:**
 ```json
 [
   {
@@ -256,28 +256,28 @@ SCODA artifact 메타데이터를 조회합니다.
 
 ### 6. `add_annotation`
 
-새로운 주석을 추가합니다 (Overlay DB에 쓰기).
+Adds a new annotation (writes to Overlay DB).
 
 **Parameters:**
-- `entity_type` (string, required): Entity 타입
+- `entity_type` (string, required): Entity type
 - `entity_id` (integer, required): Entity ID
-- `entity_name` (string, required): Entity 이름 (릴리스 간 매칭용)
+- `entity_name` (string, required): Entity name (used for matching across releases)
 - `annotation_type` (string, required): `note`, `correction`, `alternative`, `link`
-- `content` (string, required): 주석 내용
-- `author` (string, optional): 작성자
+- `content` (string, required): Annotation content
+- `author` (string, optional): Author
 
-**응답:** 생성된 annotation 객체
+**Response:** The created annotation object
 
 ---
 
 ### 7. `delete_annotation`
 
-주석을 삭제합니다.
+Deletes an annotation.
 
 **Parameters:**
-- `annotation_id` (integer, required): annotation ID
+- `annotation_id` (integer, required): Annotation ID
 
-**응답:**
+**Response:**
 ```json
 {
   "message": "Annotation with ID 1 deleted."
@@ -286,13 +286,13 @@ SCODA artifact 메타데이터를 조회합니다.
 
 ---
 
-## Dynamic 도구
+## Dynamic Tools
 
-### 개요
+### Overview
 
-`.scoda` 패키지에 `mcp_tools.json` 파일이 포함되어 있으면, 해당 도구들이 자동으로 MCP 서버에 등록됩니다. 이를 통해 **도메인 전용 MCP 도구를 런타임 코드 수정 없이** 패키지만으로 제공할 수 있습니다.
+If a `.scoda` package contains an `mcp_tools.json` file, the tools defined within it are automatically registered with the MCP server. This allows **domain-specific MCP tools to be provided through the package alone, without modifying runtime code**.
 
-### mcp_tools.json 구조
+### mcp_tools.json Structure
 
 ```json
 {
@@ -317,15 +317,15 @@ SCODA artifact 메타데이터를 조회합니다.
 }
 ```
 
-### 3가지 Query Type
+### Three Query Types
 
-| query_type | 설명 | 필수 필드 |
-|-----------|------|----------|
-| `single` | SQL을 직접 실행 | `sql` |
-| `named_query` | `ui_queries` 테이블의 named query 실행 | `named_query`, `param_mapping` |
-| `composite` | Manifest detail view의 복합 쿼리 실행 | `view_name`, `param_mapping` |
+| query_type | Description | Required Fields |
+|-----------|-------------|-----------------|
+| `single` | Executes SQL directly | `sql` |
+| `named_query` | Executes a named query from the `ui_queries` table | `named_query`, `param_mapping` |
+| `composite` | Executes a composite query from a manifest detail view | `view_name`, `param_mapping` |
 
-#### single 예시
+#### single Example
 
 ```json
 {
@@ -336,7 +336,7 @@ SCODA artifact 메타데이터를 조회합니다.
 }
 ```
 
-#### named_query 예시
+#### named_query Example
 
 ```json
 {
@@ -348,7 +348,7 @@ SCODA artifact 메타데이터를 조회합니다.
 }
 ```
 
-#### composite 예시
+#### composite Example
 
 ```json
 {
@@ -359,230 +359,230 @@ SCODA artifact 메타데이터를 조회합니다.
 }
 ```
 
-### SQL 보안
+### SQL Security
 
-Dynamic 도구의 `single` 쿼리는 `_validate_sql()`로 검증됩니다:
-- `SELECT`와 `WITH` 문만 허용
-- `INSERT`, `UPDATE`, `DELETE`, `DROP`, `ALTER`, `CREATE` 등은 거부
-- 파라미터는 `:param` 바인딩으로 SQL injection 방지
+`single` queries from dynamic tools are validated by `_validate_sql()`:
+- Only `SELECT` and `WITH` statements are allowed
+- `INSERT`, `UPDATE`, `DELETE`, `DROP`, `ALTER`, `CREATE`, etc. are rejected
+- Parameters use `:param` binding to prevent SQL injection
 
-### Trilobase mcp_tools.json 예시
+### Trilobase mcp_tools.json Example
 
-Trilobase 패키지는 7개의 도메인 전용 도구를 `mcp_tools.json`으로 제공합니다:
+The Trilobase package provides 7 domain-specific tools via `mcp_tools.json`:
 
-| 도구 | query_type | 설명 |
-|------|-----------|------|
-| `get_taxonomy_tree` | single | 분류 계층 트리 |
-| `search_genera` | single | 이름 패턴 검색 |
-| `get_genus_detail` | composite | Genus 상세 (복합) |
-| `get_rank_detail` | composite | Rank 상세 (복합) |
-| `get_family_genera` | named_query | Family의 Genus 목록 |
-| `get_genera_by_country` | named_query | 국가별 Genus |
-| `get_genera_by_formation` | named_query | 지층별 Genus |
-
----
-
-## 사용 예시
-
-### Claude Desktop에서 자연어 쿼리
-
-MCP 서버가 연결되면 Claude Desktop에서 자연어로 쿼리할 수 있습니다.
-
-#### 1. 메타데이터 조회
-
-**질문:** "이 데이터베이스에 대해 알려줘"
-
-**Claude의 동작:**
-1. `get_metadata` 도구 호출
-2. 패키지 정보 분석 및 요약
+| Tool | query_type | Description |
+|------|-----------|-------------|
+| `get_taxonomy_tree` | single | Taxonomic hierarchy tree |
+| `search_genera` | single | Search by name pattern |
+| `get_genus_detail` | composite | Genus detail (composite) |
+| `get_rank_detail` | composite | Rank detail (composite) |
+| `get_family_genera` | named_query | List of genera in a family |
+| `get_genera_by_country` | named_query | Genera by country |
+| `get_genera_by_formation` | named_query | Genera by formation |
 
 ---
 
-#### 2. Named Query 활용
+## Usage Examples
 
-**질문:** "사용 가능한 쿼리 목록을 보여줘"
+### Natural Language Queries in Claude Desktop
 
-**Claude의 동작:**
-1. `list_available_queries` 도구 호출
-2. 쿼리 목록 정리
+Once the MCP server is connected, you can query using natural language in Claude Desktop.
 
-**후속 질문:** "taxonomy_tree 쿼리를 실행해줘"
+#### 1. Metadata Lookup
 
-**Claude의 동작:**
-1. `execute_named_query` 도구로 쿼리 실행
-2. 결과 요약
+**Question:** "Tell me about this database"
 
----
-
-#### 3. Dynamic 도구 사용 (Trilobase 패키지)
-
-**질문:** "Paradoxides에 대해 자세히 알려줘"
-
-**Claude의 동작:**
-1. `search_genera` (dynamic) 도구로 검색
-2. `get_genus_detail` (dynamic) 도구로 복합 상세 조회
-3. 출처 인용하여 서술
+**Claude's behavior:**
+1. Calls the `get_metadata` tool
+2. Analyzes and summarizes the package information
 
 ---
 
-#### 4. 주석 워크플로우
+#### 2. Using Named Queries
+
+**Question:** "Show me the list of available queries"
+
+**Claude's behavior:**
+1. Calls the `list_available_queries` tool
+2. Organizes the query list
+
+**Follow-up question:** "Run the taxonomy_tree query"
+
+**Claude's behavior:**
+1. Executes the query using the `execute_named_query` tool
+2. Summarizes the results
+
+---
+
+#### 3. Using Dynamic Tools (Trilobase Package)
+
+**Question:** "Tell me about Paradoxides in detail"
+
+**Claude's behavior:**
+1. Searches using the `search_genera` (dynamic) tool
+2. Retrieves composite detail using the `get_genus_detail` (dynamic) tool
+3. Narrates with source citations
+
+---
+
+#### 4. Annotation Workflow
 
 ```
-1. "Agnostus의 Formation 정보를 보여줘"
-   → execute_named_query 또는 dynamic 도구
+1. "Show me the formation information for Agnostus"
+   -> execute_named_query or dynamic tool
 
-2. "Agnostus에 correction 주석 추가: 'Formation name needs verification'"
-   → add_annotation
+2. "Add a correction annotation to Agnostus: 'Formation name needs verification'"
+   -> add_annotation
 
-3. "Agnostus에 대한 내 주석을 보여줘"
-   → get_annotations
+3. "Show me my annotations for Agnostus"
+   -> get_annotations
 
-4. "주석 5번을 삭제해줘"
-   → delete_annotation
+4. "Delete annotation #5"
+   -> delete_annotation
 ```
 
 ---
 
-## SCODA 원칙
+## SCODA Principles
 
-### 핵심 원칙
+### Core Principles
 
 #### 1. DB is truth
-- 데이터베이스가 유일한 진실의 원천
-- LLM은 DB 데이터만 사용
+- The database is the single source of truth
+- The LLM uses only data from the DB
 
 #### 2. MCP is access
-- MCP는 접근 수단일 뿐
-- 데이터를 변경하지 않음 (Annotation 제외)
+- MCP is merely a means of access
+- It does not modify data (except annotations)
 
 #### 3. LLM is narration
-- LLM은 증거 기반 서술만 수행
-- 판단이나 정의를 내리지 않음
-- 항상 출처를 인용
+- The LLM only performs evidence-based narration
+- It does not make judgments or definitions
+- It always cites sources
 
-### 올바른 사용 패턴
+### Correct Usage Patterns
 
-**출처 인용:**
+**Citing sources:**
 > According to Jell & Adrain (2002), Paradoxides...
 
-**불확실성 명시:**
+**Stating uncertainty:**
 > The database lists this as Middle Cambrian, though the exact age is not specified.
 
-**데이터 기반 서술:**
+**Data-based narration:**
 > Based on the formation data, this genus has been found in Czech Republic and Morocco.
 
-### Non-Goals (LLM이 해서는 안 되는 것)
+### Non-Goals (What the LLM Should Not Do)
 
-- 분류학적 판단이나 정의 (DB에 없는 정보)
-- 자율적 의사결정이나 계획
-- 데이터베이스 쓰기 (주석 제외)
-
----
-
-## 트러블슈팅
-
-### 문제 1: MCP 서버가 연결되지 않음
-
-**증상:** Claude Desktop에서 도구가 보이지 않음
-
-**확인 사항:**
-1. 설정 파일 경로: `%APPDATA%\Claude\claude_desktop_config.json` (Windows)
-2. 절대 경로 사용 (상대 경로 불가)
-3. `.scoda` 또는 `.db` 파일이 실행 파일과 같은 디렉토리에 있는지 확인
-4. Claude Desktop 재시작
+- Taxonomic judgments or definitions (information not in the DB)
+- Autonomous decision-making or planning
+- Writing to the database (except annotations)
 
 ---
 
-### 문제 2: "Database not found" 오류
+## Troubleshooting
 
-**원인:** MCP 서버가 데이터 파일을 찾지 못함
+### Issue 1: MCP Server Does Not Connect
 
-**해결:**
-1. `.scoda` 패키지 또는 `.db` 파일이 작업 디렉토리에 있는지 확인
-2. Python source 사용 시 `cwd` 설정 확인
+**Symptom:** Tools are not visible in Claude Desktop
+
+**Checklist:**
+1. Configuration file path: `%APPDATA%\Claude\claude_desktop_config.json` (Windows)
+2. Use absolute paths (relative paths are not supported)
+3. Verify that `.scoda` or `.db` files are in the same directory as the executable
+4. Restart Claude Desktop
 
 ---
 
-### 문제 3: Dynamic 도구가 로드되지 않음
+### Issue 2: "Database not found" Error
 
-**원인:** `.scoda` 패키지에 `mcp_tools.json`이 없음
+**Cause:** The MCP server cannot find the data file
 
-**확인:**
+**Solution:**
+1. Verify that the `.scoda` package or `.db` file is in the working directory
+2. When using Python source, check the `cwd` setting
+
+---
+
+### Issue 3: Dynamic Tools Not Loading
+
+**Cause:** The `.scoda` package does not contain `mcp_tools.json`
+
+**Check:**
 ```bash
-# .scoda 파일 내용 확인
+# Inspect the contents of the .scoda file
 python -c "
 import zipfile
 with zipfile.ZipFile('trilobase.scoda') as z:
     print(z.namelist())
 "
-# mcp_tools.json이 목록에 있어야 함
+# mcp_tools.json should be in the list
 ```
 
-**해결:**
+**Solution:**
 ```bash
-# mcp_tools.json 포함하여 .scoda 재생성
+# Rebuild .scoda with mcp_tools.json included
 python scripts/create_scoda.py --mcp-tools data/mcp_tools_trilobase.json
 ```
 
 ---
 
-### 문제 4: Overlay DB 쓰기 오류
+### Issue 4: Overlay DB Write Error
 
-**증상:** 주석 추가 시 "read-only database" 오류
+**Symptom:** "read-only database" error when adding annotations
 
-**해결:**
-1. Overlay DB 파일 권한 확인: `chmod 644 trilobase_overlay.db`
-2. Overlay DB가 자동 생성되지 않으면 서버 재시작
-
----
-
-### 문제 5: SQL validation 오류
-
-**증상:** Dynamic 도구 실행 시 "SQL validation failed" 오류
-
-**원인:** `mcp_tools.json`의 SQL이 SELECT/WITH가 아닌 문 포함
-
-**해결:** `mcp_tools.json`의 SQL을 수정하여 읽기 전용 쿼리만 사용
+**Solution:**
+1. Check overlay DB file permissions: `chmod 644 trilobase_overlay.db`
+2. Restart the server if the overlay DB was not auto-created
 
 ---
 
-## 참고 자료
+### Issue 5: SQL Validation Error
 
-### 공식 문서
+**Symptom:** "SQL validation failed" error when executing a dynamic tool
 
-- **MCP 프로토콜**: https://modelcontextprotocol.io/
+**Cause:** The SQL in `mcp_tools.json` contains statements other than SELECT/WITH
+
+**Solution:** Edit the SQL in `mcp_tools.json` to use read-only queries only
+
+---
+
+## References
+
+### Official Documentation
+
+- **MCP Protocol**: https://modelcontextprotocol.io/
 - **MCP Python SDK**: https://github.com/modelcontextprotocol/python-sdk
-- **Claude Desktop 설정**: https://modelcontextprotocol.io/clients/claude-desktop
+- **Claude Desktop Setup**: https://modelcontextprotocol.io/clients/claude-desktop
 
-### SCODA Desktop 문서
+### SCODA Desktop Documentation
 
-- [API Reference](API_REFERENCE.md) — REST API 레퍼런스
-- [SCODA Concept](SCODA_CONCEPT.md) — SCODA 개념 설명
-- [Handoff](HANDOFF.md) — 프로젝트 현황
+- [API Reference](API_REFERENCE.md) — REST API Reference
+- [SCODA Concept](SCODA_CONCEPT.md) — SCODA Concept Overview
+- [Handoff](HANDOFF.md) — Project Status
 
 ---
 
-## 버전 히스토리
+## Version History
 
 - **v2.0.0** (2026-02-14): Domain-agnostic MCP Server (Phase 46)
-  - Legacy 도메인 함수 7개 제거
-  - Builtin 7개 + Dynamic N개 2계층 구조
-  - Dynamic 도구: `.scoda` 내 `mcp_tools.json`에서 자동 로드
-  - 3가지 query_type: `single`, `named_query`, `composite`
-  - SQL validation layer (SELECT/WITH만 허용)
+  - Removed 7 legacy domain functions
+  - Two-layer structure: 7 builtin + N dynamic tools
+  - Dynamic tools: Auto-loaded from `mcp_tools.json` within `.scoda` packages
+  - Three query_type options: `single`, `named_query`, `composite`
+  - SQL validation layer (only SELECT/WITH allowed)
   - Server name: `"scoda-desktop"`
 
-- **v1.3.0** (2026-02-10): EXE 분리
+- **v1.3.0** (2026-02-10): EXE Separation
   - `ScodaDesktop.exe` (GUI) + `ScodaDesktop_mcp.exe` (MCP stdio)
-  - Claude Desktop 설정 단순화
+  - Simplified Claude Desktop configuration
 
-- **v1.1.0** (2026-02-10): SSE 모드 추가
-  - SSE 전송 모드 지원 + Health check 엔드포인트
+- **v1.1.0** (2026-02-10): SSE Mode Added
+  - SSE transport mode support + Health check endpoint
 
 - **v1.0.0** (2026-02-09): Initial release
   - 14 hardcoded tools (legacy)
   - Evidence Pack pattern
-  - stdio 모드
+  - stdio mode
 
 ---
 

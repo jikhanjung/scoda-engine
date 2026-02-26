@@ -7,35 +7,35 @@
 
 ## 1. Overview
 
-SCODA Hub는 `.scoda` 패키지의 검색, 다운로드, 의존성 해결을 위한 정적 레지스트리이다.
-Hub는 세 가지 JSON 스키마로 구성된다:
+SCODA Hub is a static registry for searching, downloading, and resolving dependencies of `.scoda` packages.
+The Hub is composed of three JSON schemas:
 
-| 파일 | 위치 | 역할 |
-|------|------|------|
-| **Hub Manifest** | 패키지 repo Release asset | 개별 패키지의 배포 메타데이터 |
-| **Hub Index** | scoda-engine GitHub Pages | 전체 패키지 카탈로그 (자동 생성) |
-| **Sources** | `hub/sources.json` | 수집 대상 repo 목록 (수동 관리) |
+| File | Location | Role |
+|------|----------|------|
+| **Hub Manifest** | Package repo Release asset | Distribution metadata for individual packages |
+| **Hub Index** | scoda-engine GitHub Pages | Full package catalog (auto-generated) |
+| **Sources** | `hub/sources.json` | List of repos to collect from (manually maintained) |
 
-### .scoda 내부 manifest와의 관계
+### Relationship with the internal .scoda manifest
 
-`.scoda` 내부 `manifest.json`은 **패키지 내용**(데이터 구조, 레코드 수, data.db 무결성)을 기술한다.
-Hub Manifest는 **패키지 배포**(다운로드 URL, .scoda 파일 무결성, 크기)를 기술한다.
-이 둘은 역할이 다르며, `.scoda`를 열지 않고도 패키지 정보를 알 수 있게 하는 것이 Hub Manifest의 핵심 목적이다.
+The `manifest.json` inside a `.scoda` file describes the **package contents** (data structure, record count, data.db integrity).
+The Hub Manifest describes the **package distribution** (download URL, .scoda file integrity, size).
+These two serve different purposes. The core goal of the Hub Manifest is to provide package information without needing to open the `.scoda` file.
 
-### SHA-256 이중 구조
+### Dual SHA-256 Structure
 
-| 체크섬 | 대상 | 위치 | 용도 |
-|--------|------|------|------|
-| `data_checksum_sha256` | `data.db` 파일 | .scoda 내부 manifest | 패키지 데이터 무결성 |
-| `sha256` | `.scoda` 파일 전체 | Hub Manifest | 다운로드 무결성 |
+| Checksum | Target | Location | Purpose |
+|----------|--------|----------|---------|
+| `data_checksum_sha256` | `data.db` file | Internal .scoda manifest | Package data integrity |
+| `sha256` | Entire `.scoda` file | Hub Manifest | Download integrity |
 
 ---
 
 ## 2. Hub Manifest (per-package)
 
-패키지 repo의 GitHub Release에 업로드하는 파일.
+A file uploaded to the GitHub Release of the package repo.
 
-**파일명 규칙:** `{package_id}-{version}.manifest.json`
+**Filename convention:** `{package_id}-{version}.manifest.json`
 
 ```json
 {
@@ -58,28 +58,28 @@ Hub Manifest는 **패키지 배포**(다운로드 URL, .scoda 파일 무결성, 
 }
 ```
 
-### 필드 정의
+### Field Definitions
 
-| 필드 | 타입 | 필수 | 설명 |
-|------|------|:----:|------|
-| `hub_manifest_version` | string | O | Hub Manifest 스키마 버전. 현재 `"1.0"` |
-| `package_id` | string | O | 패키지 고유 식별자. .scoda 내부 `name`과 동일 |
-| `version` | string | O | 패키지 버전. SemVer (`MAJOR.MINOR.PATCH`) |
-| `title` | string | O | 사람이 읽을 수 있는 패키지 제목 |
-| `description` | string | O | 패키지 설명 |
-| `license` | string | - | 라이선스 식별자 (SPDX). 예: `"CC-BY-4.0"` |
-| `created_at` | string | - | 패키지 생성 시각. ISO 8601 형식 |
-| `provenance` | string[] | - | 데이터 출처 목록 (참고문헌 등) |
-| `dependencies` | object | - | 의존 패키지. `{name: version_spec}` 형식 |
-| `filename` | string | - | `.scoda` 파일명. 기본값: `{package_id}-{version}.scoda`. Hub Manifest 파일명과 대응 |
-| `sha256` | string | O | `.scoda` 파일의 SHA-256 해시 (hex digest) |
-| `size_bytes` | integer | - | `.scoda` 파일 크기 (바이트) |
-| `scoda_format_version` | string | - | SCODA 포맷 버전. 기본값: `"1.0"` |
-| `engine_compat` | string | - | 호환 Engine 버전 범위. 예: `">=0.1.0"` |
+| Field | Type | Required | Description |
+|-------|------|:--------:|-------------|
+| `hub_manifest_version` | string | Y | Hub Manifest schema version. Currently `"1.0"` |
+| `package_id` | string | Y | Unique package identifier. Same as `name` inside the .scoda |
+| `version` | string | Y | Package version. SemVer (`MAJOR.MINOR.PATCH`) |
+| `title` | string | Y | Human-readable package title |
+| `description` | string | Y | Package description |
+| `license` | string | - | License identifier (SPDX). E.g., `"CC-BY-4.0"` |
+| `created_at` | string | - | Package creation time. ISO 8601 format |
+| `provenance` | string[] | - | List of data sources (references, etc.) |
+| `dependencies` | object | - | Dependent packages. `{name: version_spec}` format |
+| `filename` | string | - | `.scoda` filename. Default: `{package_id}-{version}.scoda`. Corresponds to the Hub Manifest filename |
+| `sha256` | string | Y | SHA-256 hash of the `.scoda` file (hex digest) |
+| `size_bytes` | integer | - | `.scoda` file size (bytes) |
+| `scoda_format_version` | string | - | SCODA format version. Default: `"1.0"` |
+| `engine_compat` | string | - | Compatible Engine version range. E.g., `">=0.1.0"` |
 
-### dependencies 형식
+### dependencies Format
 
-키는 패키지 이름, 값은 SemVer 버전 범위 문자열:
+Keys are package names, values are SemVer version range strings:
 
 ```json
 {
@@ -87,19 +87,19 @@ Hub Manifest는 **패키지 배포**(다운로드 URL, .scoda 파일 무결성, 
 }
 ```
 
-의존성이 없으면 빈 객체 `{}` 또는 필드 생략.
+If there are no dependencies, use an empty object `{}` or omit the field.
 
-### download_url 처리
+### download_url Handling
 
-Hub Manifest에는 `download_url`을 포함하지 **않는다**.
-빌드 시점에는 GitHub Release URL이 확정되지 않기 때문이다.
-`download_url`은 Hub Index 생성 시 scoda-engine이 GitHub API에서 수집하여 채운다.
+The Hub Manifest does **not** include `download_url`.
+This is because the GitHub Release URL is not finalized at build time.
+The `download_url` is collected from the GitHub API by scoda-engine when generating the Hub Index.
 
 ---
 
 ## 3. Hub Index (`index.json`)
 
-scoda-engine GitHub Pages에 호스팅되는 자동 생성 카탈로그.
+An auto-generated catalog hosted on scoda-engine GitHub Pages.
 
 **URL:** `https://{user}.github.io/scoda-engine/index.json`
 
@@ -133,85 +133,83 @@ scoda-engine GitHub Pages에 호스팅되는 자동 생성 카탈로그.
 }
 ```
 
-### 루트 필드
+### Root Fields
 
-| 필드 | 타입 | 설명 |
-|------|------|------|
-| `hub_version` | string | Hub Index 스키마 버전. 현재 `"1.0"` |
-| `generated_at` | string | 인덱스 생성 시각. ISO 8601 형식 |
-| `sources` | object[] | 수집 대상 repo 목록 |
-| `packages` | object | 패키지 카탈로그. 키: package_id |
+| Field | Type | Description |
+|-------|------|-------------|
+| `hub_version` | string | Hub Index schema version. Currently `"1.0"` |
+| `generated_at` | string | Index generation time. ISO 8601 format |
+| `sources` | object[] | List of repos to collect from |
+| `packages` | object | Package catalog. Key: package_id |
 
 ### packages.{package_id}
 
-| 필드 | 타입 | 설명 |
-|------|------|------|
-| `latest` | string | 최신 버전 문자열 (SemVer 기준 정렬) |
-| `versions` | object | 버전별 엔트리. 키: 버전 문자열 |
+| Field | Type | Description |
+|-------|------|-------------|
+| `latest` | string | Latest version string (sorted by SemVer) |
+| `versions` | object | Per-version entries. Key: version string |
 
 ### packages.{package_id}.versions.{version} (Version Entry)
 
-| 필드 | 타입 | 설명 |
-|------|------|------|
-| `title` | string | 패키지 제목 |
-| `description` | string | 패키지 설명 |
-| `download_url` | string | `.scoda` 파일 다운로드 URL |
-| `sha256` | string | `.scoda` 파일 SHA-256 해시 |
-| `size_bytes` | integer | `.scoda` 파일 크기 (바이트) |
-| `dependencies` | object | 의존 패키지 `{name: version_spec}` |
-| `engine_compat` | string | 호환 Engine 버전 범위 |
-| `scoda_format_version` | string | SCODA 포맷 버전 |
-| `license` | string | 라이선스 식별자 |
-| `created_at` | string | 패키지 생성 시각 |
-| `source_release` | string | GitHub Release 페이지 URL |
+| Field | Type | Description |
+|-------|------|-------------|
+| `title` | string | Package title |
+| `description` | string | Package description |
+| `download_url` | string | `.scoda` file download URL |
+| `sha256` | string | `.scoda` file SHA-256 hash |
+| `size_bytes` | integer | `.scoda` file size (bytes) |
+| `dependencies` | object | Dependent packages `{name: version_spec}` |
+| `engine_compat` | string | Compatible Engine version range |
+| `scoda_format_version` | string | SCODA format version |
+| `license` | string | License identifier |
+| `created_at` | string | Package creation time |
+| `source_release` | string | GitHub Release page URL |
 
-### 수집 전략과 Hub Manifest의 역할
+### Collection Strategy and the Role of Hub Manifest
 
-Index 생성 스크립트(`generate_hub_index.py`)는 두 가지 전략으로 동작한다.
-Hub Manifest는 **선택 사항**이며, 없어도 기본적인 패키지 검색과 다운로드는 가능하다.
+The index generation script (`generate_hub_index.py`) operates with two strategies.
+Hub Manifest is **optional** -- basic package discovery and download work even without it.
 
-#### Strategy 1: Hub Manifest 파싱 (manifest 있는 경우)
+#### Strategy 1: Hub Manifest Parsing (when manifest is present)
 
-릴리스에 `*.manifest.json` asset이 있으면, 이를 다운로드하여 파싱한다.
-모든 메타데이터 필드가 채워지며, SHA-256 검증과 의존성 해결이 완전히 동작한다.
+If a release has a `*.manifest.json` asset, it is downloaded and parsed.
+All metadata fields are populated, and SHA-256 verification and dependency resolution work fully.
 
-#### Strategy 2: Fallback (manifest 없는 경우)
+#### Strategy 2: Fallback (when manifest is absent)
 
-릴리스에 `*.manifest.json`이 없으면, `.scoda` 파일명에서 메타데이터를 추론한다.
-파일명 패턴 `{package_id}-{version}.scoda` (예: `trilobase-0.2.2.scoda`)에서
-package_id와 version을 추출하고, `download_url`과 `size_bytes`는 GitHub API에서 수집한다.
+If a release has no `*.manifest.json`, metadata is inferred from the `.scoda` filename.
+The package_id and version are extracted from the filename pattern `{package_id}-{version}.scoda` (e.g., `trilobase-0.2.2.scoda`),
+and `download_url` and `size_bytes` are collected from the GitHub API.
 
-#### 전략별 데이터 비교
+#### Data Comparison by Strategy
 
-| 필드 | Strategy 1 (manifest) | Strategy 2 (fallback) |
-|------|:---------------------:|:---------------------:|
-| `download_url` | O | O |
-| `size_bytes` | O | O |
-| `title` | 실제 제목 | package_id 그대로 |
-| `description` | O | 빈 문자열 |
-| `sha256` | O | 빈 문자열 |
-| `dependencies` | O | `{}` |
-| `license` | O | 빈 문자열 |
-| `engine_compat` | O | 빈 문자열 |
-| `created_at` | manifest 값 | release published_at |
+| Field | Strategy 1 (manifest) | Strategy 2 (fallback) |
+|-------|:---------------------:|:---------------------:|
+| `download_url` | Y | Y |
+| `size_bytes` | Y | Y |
+| `title` | Actual title | package_id as-is |
+| `description` | Y | Empty string |
+| `sha256` | Y | Empty string |
+| `dependencies` | Y | `{}` |
+| `license` | Y | Empty string |
+| `engine_compat` | Y | Empty string |
+| `created_at` | Manifest value | Release published_at |
 
-#### Fallback의 제약
+#### Limitations of Fallback
 
-Fallback 모드에서는 다음 기능이 **동작하지 않는다**:
+The following features **do not work** in fallback mode:
 
-- **SHA-256 검증**: `sha256`이 빈 문자열이므로 다운로드 무결성 검증 불가
-- **의존성 자동 해결**: `dependencies`가 빈 객체이므로 `resolve_download_order()`가
-  의존 패키지를 인식하지 못함. 예를 들어 trilobase→paleocore 의존성이 있어도
-  trilobase만 다운로드되고 paleocore는 자동으로 함께 받아지지 않음
-- **메타데이터 표시**: 제목, 설명, 라이선스 등이 표시되지 않아 사용자 경험이 저하됨
+- **SHA-256 verification**: Since `sha256` is an empty string, download integrity verification is not possible
+- **Automatic dependency resolution**: Since `dependencies` is an empty object, `resolve_download_order()` cannot recognize dependent packages. For example, even if trilobase depends on paleocore, only trilobase is downloaded and paleocore is not automatically fetched
+- **Metadata display**: Title, description, license, etc. are not displayed, resulting in a degraded user experience
 
-따라서 Fallback은 **빠른 시작용**이며, 프로덕션 릴리스에서는 Hub Manifest를 함께 업로드하는 것을 권장한다.
+Therefore, fallback is intended for **quick-start purposes only**, and it is recommended to upload the Hub Manifest alongside production releases.
 
 ---
 
 ## 4. Sources (`hub/sources.json`)
 
-수집 대상 repo 목록. 수동으로 관리하며 git에 커밋된다.
+List of repos to collect from. Manually maintained and committed to git.
 
 ```json
 [
@@ -222,86 +220,86 @@ Fallback 모드에서는 다음 기능이 **동작하지 않는다**:
 ]
 ```
 
-| 필드 | 타입 | 설명 |
-|------|------|------|
-| `repo` | string | GitHub repo (`owner/repo` 형식) |
-| `type` | string | 소스 유형. 현재 `"github_releases"`만 지원 |
+| Field | Type | Description |
+|-------|------|-------------|
+| `repo` | string | GitHub repo (`owner/repo` format) |
+| `type` | string | Source type. Currently only `"github_releases"` is supported |
 
 ---
 
-## 5. 수집 워크플로우
+## 5. Collection Workflow
 
 ```
-패키지 repo (trilobase)                  scoda-engine repo
+Package repo (trilobase)                 scoda-engine repo
 ┌──────────────────────────┐             ┌───────────────────────────┐
 │  GitHub Release          │  read-only  │  hub/sources.json         │
 │  ├── *.scoda             │◄────────────│  scripts/generate_hub_   │
 │  └── *.manifest.json     │  GitHub API │    index.py               │
 └──────────────────────────┘             │  → hub/index.json         │
-                                         │  → GitHub Pages 배포      │
+                                         │  → Deploy to GitHub Pages │
                                          └───────────────────────────┘
 ```
 
-### 처리 순서
+### Processing Order
 
-1. `hub/sources.json`에서 수집 대상 repo 목록 읽기
-2. 각 repo의 릴리스를 GitHub REST API로 조회
-3. `*.manifest.json` asset이 있으면 파싱 (Strategy 1)
-4. 없으면 `.scoda` 파일명에서 추론 (Strategy 2 — Fallback)
-5. `download_url`은 GitHub API의 `browser_download_url`에서 수집
-6. 버전별로 병합하여 `index.json` 생성
-7. `gh-pages` 브랜치에 배포
+1. Read the list of target repos from `hub/sources.json`
+2. Query each repo's releases via the GitHub REST API
+3. If a `*.manifest.json` asset exists, parse it (Strategy 1)
+4. Otherwise, infer from the `.scoda` filename (Strategy 2 -- Fallback)
+5. Collect `download_url` from the GitHub API's `browser_download_url`
+6. Merge by version to generate `index.json`
+7. Deploy to the `gh-pages` branch
 
-### 트리거
+### Triggers
 
-- `workflow_dispatch` (수동 실행)
-- `schedule` (일간 cron)
+- `workflow_dispatch` (manual execution)
+- `schedule` (daily cron)
 
-### 스크립트
+### Scripts
 
 ```bash
-# 생성
+# Generate
 python scripts/generate_hub_index.py
 
-# dry-run (stdout 출력, 파일 미생성)
+# dry-run (output to stdout, no file created)
 python scripts/generate_hub_index.py --dry-run
 
-# 전체 버전 포함 (기본은 최신만)
+# Include all versions (default is latest only)
 python scripts/generate_hub_index.py --all
 ```
 
 ---
 
-## 6. 클라이언트 동작
+## 6. Client Behavior
 
-Hub 클라이언트 (`scoda_engine_core.hub_client`)가 수행하는 동작:
+Actions performed by the Hub client (`scoda_engine_core.hub_client`):
 
-### 인덱스 조회
+### Index Retrieval
 
 ```python
 from scoda_engine_core.hub_client import fetch_hub_index
 
-index = fetch_hub_index()  # SCODA_HUB_URL 환경변수 또는 기본 URL 사용
+index = fetch_hub_index()  # Uses SCODA_HUB_URL environment variable or default URL
 ```
 
-### 로컬 비교
+### Local Comparison
 
 ```python
 from scoda_engine_core.hub_client import compare_with_local
 
 result = compare_with_local(index, local_packages)
-# result["available"]   — 미설치 패키지
-# result["updatable"]   — 업데이트 가능 패키지
-# result["up_to_date"]  — 최신 상태 패키지
+# result["available"]   — packages not installed locally
+# result["updatable"]   — packages with available updates
+# result["up_to_date"]  — packages already at the latest version
 ```
 
-### 의존성 해결 및 다운로드
+### Dependency Resolution and Download
 
 ```python
 from scoda_engine_core.hub_client import resolve_download_order, download_package
 
 order = resolve_download_order(index, "trilobase", local_packages)
-# → [{"name": "paleocore", ...}, {"name": "trilobase", ...}]  (의존성 우선)
+# → [{"name": "paleocore", ...}, {"name": "trilobase", ...}]  (dependencies first)
 
 for pkg in order:
     path = download_package(
@@ -311,16 +309,16 @@ for pkg in order:
     )
 ```
 
-### SHA-256 검증
+### SHA-256 Verification
 
-다운로드 시 `expected_sha256`이 제공되면 자동 검증한다.
-불일치 시 `HubChecksumError` 발생, 임시 파일 자동 삭제.
+If `expected_sha256` is provided during download, it is automatically verified.
+On mismatch, a `HubChecksumError` is raised and the temporary file is automatically deleted.
 
 ---
 
-## 7. Hub Manifest 생성 가이드 (패키지 빌더용)
+## 7. Hub Manifest Generation Guide (for Package Builders)
 
-패키지 빌드 스크립트에서 `.scoda` 생성 직후에 Hub Manifest를 함께 생성한다.
+Generate the Hub Manifest alongside the `.scoda` file immediately after building the package.
 
 ```python
 import hashlib, json, os
@@ -361,7 +359,7 @@ def generate_hub_manifest(scoda_path, package_id, version, title,
     return manifest_path
 ```
 
-### GitHub Release 업로드
+### GitHub Release Upload
 
 ```yaml
 # release.yml
@@ -374,23 +372,23 @@ def generate_hub_manifest(scoda_path, package_id, version, title,
 
 ---
 
-## 8. 향후 확장 (예약 필드)
+## 8. Future Extensions (Reserved Fields)
 
-현재 사용하지 않지만 향후 버전에서 추가될 수 있는 필드:
+Fields not currently used but may be added in future versions:
 
-| 필드 | 설명 |
-|------|------|
-| `deprecated` | boolean — 패키지 폐기 여부 |
-| `replaced_by` | string — 대체 패키지 ID |
-| `signature` | string — 패키지 서명 (코드 서명) |
-| `tags` | string[] — 검색용 태그 |
-| `homepage` | string — 프로젝트 홈페이지 URL |
+| Field | Description |
+|-------|-------------|
+| `deprecated` | boolean -- Whether the package is deprecated |
+| `replaced_by` | string -- Replacement package ID |
+| `signature` | string -- Package signature (code signing) |
+| `tags` | string[] -- Tags for search |
+| `homepage` | string -- Project homepage URL |
 
 ---
 
-## 9. 참고
+## 9. References
 
-- 설계 문서: `devlog/20260224_P15_scoda_hub_static_registry.md`
-- Index 생성 스크립트: `scripts/generate_hub_index.py`
-- Hub 클라이언트: `core/scoda_engine_core/hub_client.py`
-- .scoda 내부 manifest 스펙: `docs/SCODA_WHITEPAPER.md` Section 2.2
+- Design document: `devlog/20260224_P15_scoda_hub_static_registry.md`
+- Index generation script: `scripts/generate_hub_index.py`
+- Hub client: `core/scoda_engine_core/hub_client.py`
+- Internal .scoda manifest spec: `docs/SCODA_WHITEPAPER.md` Section 2.2

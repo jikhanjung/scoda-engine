@@ -1,48 +1,48 @@
 # SCODA Desktop REST API Reference
 
-**Version:** 2.0.0
+**버전:** 2.0.0
 **Base URL:** `http://localhost:8080`
 
 ---
 
-## Table of Contents
+## 목차
 
-- [Overview](#overview)
+- [개요](#개요)
 - [Core API](#core-api)
 - [Query API](#query-api)
 - [Composite Detail API](#composite-detail-api)
 - [Metadata API](#metadata-api)
 - [Annotations API](#annotations-api)
-- [Error Codes](#error-codes)
-- [Example Code](#example-code)
+- [에러 코드](#에러-코드)
+- [예제 코드](#예제-코드)
 
 ---
 
-## Overview
+## 개요
 
-The SCODA Desktop REST API provides programmatic access to data contained in `.scoda` packages. All responses are in JSON format, and HTTP status codes indicate success or failure.
+SCODA Desktop REST API는 `.scoda` 패키지에 포함된 데이터에 대한 프로그래매틱 접근을 제공합니다. 모든 응답은 JSON 형식이며, HTTP 상태 코드로 성공/실패를 나타냅니다.
 
-### Core Principles
+### 기본 원칙
 
-- **Domain-Agnostic**: All endpoints are generic; data structure is defined by the `.scoda` package's manifest and named queries
-- **Read-Only (Canonical DB)**: Package data is read-only
-- **Read/Write (Overlay DB)**: Only user annotations are writable
-- **CORS**: All origins allowed (external SPA support)
+- **도메인 무관(Domain-Agnostic)**: 모든 엔드포인트는 범용이며, 데이터 구조는 `.scoda` 패키지의 manifest와 named queries로 정의
+- **Read-Only (Canonical DB)**: 패키지 데이터는 읽기 전용
+- **Read/Write (Overlay DB)**: 사용자 주석만 쓰기 가능
+- **CORS**: 모든 origin 허용 (외부 SPA 지원)
 
-### Endpoint Summary
+### 엔드포인트 요약
 
-| Endpoint | Method | Description |
-|----------|--------|-------------|
-| `/api/manifest` | GET | UI Manifest (view definitions) |
-| `/api/provenance` | GET | Data provenance |
-| `/api/display-intent` | GET | Display Intent hints |
-| `/api/queries` | GET | Named Query list |
-| `/api/queries/<name>/execute` | GET | Execute Named Query |
-| `/api/detail/<query_name>` | GET | Single record lookup (first row) |
-| `/api/composite/<view_name>` | GET | Composite Detail lookup |
-| `/api/annotations/<type>/<id>` | GET | Retrieve annotations |
-| `/api/annotations` | POST | Create annotation |
-| `/api/annotations/<id>` | DELETE | Delete annotation |
+| 엔드포인트 | 메서드 | 설명 |
+|-----------|--------|------|
+| `/api/manifest` | GET | UI Manifest (뷰 정의) |
+| `/api/provenance` | GET | 데이터 출처 |
+| `/api/display-intent` | GET | Display Intent 힌트 |
+| `/api/queries` | GET | Named Query 목록 |
+| `/api/queries/<name>/execute` | GET | Named Query 실행 |
+| `/api/detail/<query_name>` | GET | 단일 레코드 조회 (첫 행) |
+| `/api/composite/<view_name>` | GET | 복합 Detail 조회 |
+| `/api/annotations/<type>/<id>` | GET | 주석 조회 |
+| `/api/annotations` | POST | 주석 생성 |
+| `/api/annotations/<id>` | DELETE | 주석 삭제 |
 
 ---
 
@@ -50,9 +50,9 @@ The SCODA Desktop REST API provides programmatic access to data contained in `.s
 
 ### GET /api/manifest
 
-Retrieves the UI Manifest (declarative view definitions). Used by the frontend to compose the interface.
+UI Manifest (선언적 뷰 정의)를 조회합니다. 프론트엔드가 화면을 구성하는 데 사용합니다.
 
-**Parameters:** None
+**Parameters:** 없음
 
 **Response:**
 ```json
@@ -93,18 +93,18 @@ Retrieves the UI Manifest (declarative view definitions). Used by the frontend t
 ```
 
 **View Types:**
-- `tree`: Hierarchical tree view (includes tree_options)
-- `table`: Table view (includes columns, on_row_click)
-- `chart`: Chart view (includes chart_options)
-- `detail`: Detail view (includes sections, source_query, sub_queries)
+- `tree`: 계층 트리 뷰 (tree_options 포함)
+- `table`: 테이블 뷰 (columns, on_row_click 포함)
+- `chart`: 차트 뷰 (chart_options 포함)
+- `detail`: 상세 뷰 (sections, source_query, sub_queries 포함)
 
 ---
 
 ### GET /api/provenance
 
-Retrieves data provenance information.
+데이터 출처 정보를 조회합니다.
 
-**Parameters:** None
+**Parameters:** 없음
 
 **Response:**
 ```json
@@ -124,9 +124,9 @@ Retrieves data provenance information.
 
 ### GET /api/display-intent
 
-Retrieves SCODA Display Intent hints.
+SCODA Display Intent 힌트를 조회합니다.
 
-**Parameters:** None
+**Parameters:** 없음
 
 **Response:**
 ```json
@@ -148,9 +148,9 @@ Retrieves SCODA Display Intent hints.
 
 ### GET /api/queries
 
-Retrieves the list of available Named Queries.
+사용 가능한 Named Query 목록을 조회합니다.
 
-**Parameters:** None
+**Parameters:** 없음
 
 **Response:**
 ```json
@@ -176,13 +176,13 @@ Retrieves the list of available Named Queries.
 
 ### GET /api/queries/:name/execute
 
-Executes a Named Query.
+Named Query를 실행합니다.
 
 **Parameters:**
-- `name` (path, required): Query name
-- Query-specific parameters (query string)
+- `name` (path, required): Query 이름
+- Query별 파라미터 (query string)
 
-**Example:**
+**예시:**
 ```
 GET /api/queries/family_genera/execute?family_id=42
 ```
@@ -207,13 +207,13 @@ GET /api/queries/family_genera/execute?family_id=42
 
 ### GET /api/detail/:query_name
 
-Executes a Named Query and returns the **first row** as flat JSON. Suitable for single record lookups.
+Named Query를 실행하고 **첫 번째 행**을 flat JSON으로 반환합니다. 단일 레코드 조회에 적합합니다.
 
 **Parameters:**
-- `query_name` (path, required): Query name
-- Query-specific parameters (query string)
+- `query_name` (path, required): Query 이름
+- Query별 파라미터 (query string)
 
-**Example:**
+**예시:**
 ```
 GET /api/detail/genus_detail_main?id=100
 ```
@@ -239,13 +239,13 @@ GET /api/detail/genus_detail_main?id=100
 
 ### GET /api/composite/:view_name
 
-Executes a **composite query** based on a detail view defined in the Manifest. Merges the main query (source_query) with sub-queries (sub_queries) and returns the combined result.
+Manifest에 정의된 detail view를 기반으로 **복합 쿼리**를 실행합니다. 메인 쿼리(source_query)와 하위 쿼리(sub_queries)를 병합하여 반환합니다.
 
 **Parameters:**
-- `view_name` (path, required): ID of the Manifest detail view
+- `view_name` (path, required): Manifest detail view의 ID
 - `id` (query, required): Entity ID
 
-**Example:**
+**예시:**
 ```
 GET /api/composite/genus_detail?id=100
 ```
@@ -276,23 +276,23 @@ GET /api/composite/genus_detail?id=100
 }
 ```
 
-**How It Works:**
-1. Finds the detail view matching `view_name` in the Manifest
-2. Executes `source_query` with the `id` parameter (main data)
-3. Executes `sub_queries` sequentially and merges results into the main data
-4. Sub-query parameters are sourced from the URL (`"id"`) or from fields in the main result (`"result.field_name"`)
+**동작 원리:**
+1. Manifest에서 `view_name`에 해당하는 detail view를 찾음
+2. `source_query`를 `id` 파라미터로 실행 (메인 데이터)
+3. `sub_queries`를 순차 실행하여 결과를 메인 데이터에 병합
+4. Sub-query 파라미터는 URL(`"id"`) 또는 메인 결과 필드(`"result.field_name"`)에서 가져옴
 
 **Error:**
-- `400`: Missing `id` parameter
-- `404`: View not found, view is not a detail type, source_query missing, or entity not found
+- `400`: `id` 파라미터 누락
+- `404`: View not found, view가 detail 타입이 아님, source_query 없음, entity 없음
 
 ---
 
 ## Metadata API
 
-Metadata is included in the `/api/manifest` response. There is no separate `/api/metadata` endpoint.
+메타데이터는 `/api/manifest` 응답에 포함됩니다. 별도의 `/api/metadata` 엔드포인트는 없습니다.
 
-The top-level fields in the Manifest response (`name`, `description`, `created_at`) serve as package metadata. Detailed metadata can be retrieved via the MCP `get_metadata` tool.
+Manifest 응답의 최상위 필드(`name`, `description`, `created_at`)가 패키지 메타데이터 역할을 합니다. 상세 메타데이터는 MCP `get_metadata` 도구를 통해 조회할 수 있습니다.
 
 ---
 
@@ -300,7 +300,7 @@ The top-level fields in the Manifest response (`name`, `description`, `created_a
 
 ### GET /api/annotations/:entity_type/:entity_id
 
-Retrieves user annotations for a specific entity.
+특정 Entity의 사용자 주석을 조회합니다.
 
 **Parameters:**
 - `entity_type` (path, required): `genus`, `family`, `order`, `suborder`, `superfamily`, `class`
@@ -323,16 +323,16 @@ Retrieves user annotations for a specific entity.
 ```
 
 **Annotation Types:**
-- `note`: General memo
-- `correction`: Correction suggestion
-- `alternative`: Alternative interpretation
-- `link`: External resource link
+- `note`: 일반 메모
+- `correction`: 수정 제안
+- `alternative`: 대안 해석
+- `link`: 외부 리소스 링크
 
 ---
 
 ### POST /api/annotations
 
-Creates a new annotation.
+새로운 주석을 생성합니다.
 
 **Request Body:**
 ```json
@@ -348,7 +348,7 @@ Creates a new annotation.
 **Required Fields:** `entity_type`, `entity_id`, `annotation_type`, `content`
 **Optional Fields:** `author`
 
-**Response:** The created annotation object (same structure as the GET response above)
+**Response:** 생성된 annotation 객체 (위 GET 응답과 동일 구조)
 
 **Error:**
 - `400`: Invalid entity_type or annotation_type
@@ -358,7 +358,7 @@ Creates a new annotation.
 
 ### DELETE /api/annotations/:annotation_id
 
-Deletes an annotation.
+주석을 삭제합니다.
 
 **Parameters:**
 - `annotation_id` (path, required): user_annotations.id
@@ -375,16 +375,16 @@ Deletes an annotation.
 
 ---
 
-## Error Codes
+## 에러 코드
 
-| Code | Meaning | Description |
-|------|---------|-------------|
-| 200 | OK | Request succeeded |
-| 400 | Bad Request | Invalid request parameters |
-| 404 | Not Found | Resource not found |
-| 500 | Internal Server Error | Internal server error |
+| 코드 | 의미 | 설명 |
+|-----|------|------|
+| 200 | OK | 요청 성공 |
+| 400 | Bad Request | 잘못된 요청 파라미터 |
+| 404 | Not Found | 리소스를 찾을 수 없음 |
+| 500 | Internal Server Error | 서버 내부 오류 |
 
-**Error Response Format:**
+**에러 응답 형식:**
 ```json
 {
   "error": "Error message describing what went wrong"
@@ -393,7 +393,7 @@ Deletes an annotation.
 
 ---
 
-## Example Code
+## 예제 코드
 
 ### Python (requests)
 
@@ -402,7 +402,7 @@ import requests
 
 BASE = 'http://localhost:8080'
 
-# Get manifest (view definitions + metadata)
+# Get manifest (뷰 정의 + 메타데이터)
 manifest = requests.get(f'{BASE}/api/manifest').json()
 print(f"Package: {manifest['name']}")
 
@@ -486,29 +486,29 @@ curl -X DELETE http://localhost:8080/api/annotations/1
 
 ---
 
-## Important Notes
+## 주의사항
 
-### SCODA Principles
+### SCODA 원칙
 
-- **Canonical Data is Immutable**: Package data is read-only
-- **Only User Annotations are Modifiable**: Writing is allowed only to the Overlay DB
-- **Manifest-Driven**: View structure, queries, and detail composition are all defined via manifest/named queries
+- **Canonical Data는 불변**: 패키지 데이터는 읽기 전용
+- **User Annotations만 수정 가능**: Overlay DB에만 쓰기 허용
+- **Manifest-Driven**: 뷰 구조, 쿼리, detail 구성 모두 manifest/named queries로 정의
 
-### Performance
+### 성능
 
-- Named Queries are predefined in the server's `ui_queries` table and execute immediately
-- Composite detail executes source_query + sub_queries sequentially, so slight latency is possible
-- Indexes: Applied on name, rank, parent_id, is_valid, and other key columns
+- Named Query는 서버의 `ui_queries` 테이블에 사전 정의되어 즉시 실행
+- Composite detail은 source_query + sub_queries를 순차 실행하므로 약간의 지연 가능
+- 인덱스: name, rank, parent_id, is_valid 등에 인덱스 적용
 
 ---
 
-## Version History
+## 버전 히스토리
 
 - **v2.0.0** (2026-02-14): Domain-agnostic API (Phase 46 Step 3)
-  - Removed 11 legacy domain-specific endpoints
-  - Added `/api/composite/<view_name>` (manifest-driven composite lookup)
-  - Added `/api/detail/<query_name>` (single record lookup)
-  - All domain logic moved into `.scoda` packages
+  - Legacy 도메인 엔드포인트 11개 제거
+  - `/api/composite/<view_name>` 추가 (manifest-driven 복합 조회)
+  - `/api/detail/<query_name>` 추가 (단일 레코드 조회)
+  - 모든 도메인 로직은 `.scoda` 패키지 내부로 이동
 - **v1.0.0** (2026-02-09): Initial API release
   - 14 API endpoints (domain-specific)
   - SCODA metadata support
@@ -516,11 +516,11 @@ curl -X DELETE http://localhost:8080/api/annotations/1
 
 ---
 
-## Related Documents
+## 참고 문서
 
-- [MCP Guide](MCP_GUIDE.md) - MCP server usage guide
-- [SCODA Concept](SCODA_CONCEPT.md) - SCODA concept overview
-- [HANDOFF](HANDOFF.md) - Project status
+- [MCP Guide](MCP_GUIDE.md) - MCP 서버 사용 가이드
+- [SCODA Concept](SCODA_CONCEPT.md) - SCODA 개념 설명
+- [HANDOFF](HANDOFF.md) - 프로젝트 현황
 
 ---
 

@@ -10,79 +10,79 @@
 
 ## Abstract
 
-SCODA(Self-Contained Open Data Artifact)는 과학 데이터를 **불변의 버전화된 패키지**로 배포하기 위한 아키텍처이다. 기존의 서비스 기반 데이터 배포(API 서버, 클라우드 데이터베이스)와 달리, SCODA는 데이터·스키마·메타데이터·UI 정의를 하나의 자기완결적 파일로 묶어 배포한다.
+SCODA (Self-Contained Open Data Artifact) is an architecture for distributing scientific data as **immutable, versioned packages**. Unlike conventional service-based data distribution (API servers, cloud databases), SCODA bundles data, schema, metadata, and UI definitions into a single self-contained file for distribution.
 
-SCODA는 세 가지 핵심 개념으로 구성된다:
+SCODA is composed of three core concepts:
 
-1. **.scoda 패키지** — 데이터와 메타데이터를 담은 ZIP 기반 배포 단위
-2. **SCODA Desktop** — .scoda 패키지를 열고 탐색하는 범용 뷰어
-3. **Overlay DB** — 불변의 canonical 데이터 위에 사용자의 로컬 주석을 분리 저장하는 계층
+1. **.scoda package** -- A ZIP-based distribution unit containing data and metadata
+2. **SCODA Desktop** -- A generic viewer for opening and exploring .scoda packages
+3. **Overlay DB** -- A layer that stores user local annotations separately on top of immutable canonical data
 
-이 문서는 SCODA의 설계 원칙, 패키지 포맷, 뷰어 아키텍처, 그리고 Trilobase(삼엽충 분류 데이터베이스)를 참조 구현으로 사용한 실증 내용을 기술한다.
+This document describes SCODA's design principles, package format, viewer architecture, and a validation using Trilobase (a trilobite taxonomic database) as the reference implementation.
 
 ---
 
-## 목차
+## Table of Contents
 
-1. [설계 철학](#1-설계-철학)
-2. [.scoda 패키지 포맷](#2-scoda-패키지-포맷)
-3. [SCODA 메타데이터 계층](#3-scoda-메타데이터-계층)
-4. [선언적 UI 매니페스트](#4-선언적-ui-매니페스트)
-5. [SCODA Desktop 뷰어](#5-scoda-desktop-뷰어)
-6. [Multi-DB 아키텍처](#6-multi-db-아키텍처)
-7. [Overlay DB와 Local Annotations](#7-overlay-db와-local-annotations)
-8. [MCP 서버 — LLM 통합 인터페이스](#8-mcp-서버--llm-통합-인터페이스)
-9. [빌드 및 배포 파이프라인](#9-빌드-및-배포-파이프라인)
+1. [Design Philosophy](#1-design-philosophy)
+2. [.scoda Package Format](#2-scoda-package-format)
+3. [SCODA Metadata Layer](#3-scoda-metadata-layer)
+4. [Declarative UI Manifest](#4-declarative-ui-manifest)
+5. [SCODA Desktop Viewer](#5-scoda-desktop-viewer)
+6. [Multi-DB Architecture](#6-multi-db-architecture)
+7. [Overlay DB and Local Annotations](#7-overlay-db-and-local-annotations)
+8. [MCP Server -- LLM Integration Interface](#8-mcp-server--llm-integration-interface)
+9. [Build and Deployment Pipeline](#9-build-and-deployment-pipeline)
 10. [Reference Implementation SPA](#10-reference-implementation-spa)
-11. [참조 구현: Trilobase와 PaleoCore](#11-참조-구현-trilobase와-paleocore)
-12. [부록: 파일 구조 및 API 목록](#12-부록-파일-구조-및-api-목록)
+11. [Reference Implementation: Trilobase and PaleoCore](#11-reference-implementation-trilobase-and-paleocore)
+12. [Appendix: File Structure and API Reference](#12-appendix-file-structure-and-api-reference)
 
 ---
 
-## 1. 설계 철학
+## 1. Design Philosophy
 
-### 1.1 "데이터베이스가 아니라 지식 객체"
+### 1.1 "Not a Database, but a Knowledge Object"
 
-과학 데이터는 서비스가 아니라 **출판물**이다. 논문이 출판 후 수정되지 않듯이, 데이터셋의 특정 버전도 불변해야 한다. SCODA는 이 원칙을 소프트웨어 아키텍처로 구현한다:
+Scientific data is a **publication**, not a service. Just as a paper is not modified after publication, a specific version of a dataset must also be immutable. SCODA implements this principle as a software architecture:
 
-- **Trilobase는 연결하는 데이터베이스가 아니다. 여는 지식 객체다.**
-- 각 릴리스는 **읽기 전용의 curated snapshot**이다.
-- 데이터의 변경은 새 버전의 발행으로만 이루어진다.
+- **Trilobase is not a database you connect to. It is a knowledge object you open.**
+- Each release is a **read-only, curated snapshot**.
+- Changes to data are made only by publishing a new version.
 
-### 1.2 핵심 원칙
+### 1.2 Core Principles
 
-| 원칙 | 설명 |
-|------|------|
-| **Immutability** | Canonical 데이터는 릴리스 후 변경 불가. 수정은 새 버전 발행으로만 이루어짐 |
-| **Self-Containment** | 하나의 .scoda 파일 안에 데이터, 스키마, 메타데이터, UI 정의가 모두 포함됨 |
-| **Declarative UI** | 뷰어가 데이터를 어떻게 표시할지를 데이터 자체가 선언함 (매니페스트) |
-| **Separation of Concerns** | Canonical 데이터(불변) / Overlay 데이터(사용자 주석) / 인프라 데이터(공유) 분리 |
-| **DB is Truth, Viewer is Narration** | DB가 유일한 진실의 원천. 뷰어(웹, LLM)는 서술자일 뿐 판단 주체가 아님 |
-| **Provenance Always** | 모든 데이터에 출처가 명시됨. 근거 없는 주장은 허용하지 않음 |
+| Principle | Description |
+|-----------|-------------|
+| **Immutability** | Canonical data cannot be changed after release. Modifications are made only by publishing a new version |
+| **Self-Containment** | A single .scoda file contains all data, schema, metadata, and UI definitions |
+| **Declarative UI** | The data itself declares how the viewer should display it (manifest) |
+| **Separation of Concerns** | Canonical data (immutable) / Overlay data (user annotations) / Infrastructure data (shared) are kept separate |
+| **DB is Truth, Viewer is Narration** | The DB is the single source of truth. Viewers (web, LLM) are narrators, not decision-makers |
+| **Provenance Always** | Every piece of data has an explicit source. Unsupported claims are not permitted |
 
-### 1.3 SCODA가 의도적으로 하지 않는 것
+### 1.3 What SCODA Intentionally Does Not Do
 
-SCODA는 **서비스**가 아니므로 다음을 의도적으로 배제한다:
+Since SCODA is **not a service**, it intentionally excludes the following:
 
-- 실시간 협업 편집
-- 서로 다른 해석의 자동 병합
-- 중앙 집중식 라이브 API를 주된 인터페이스로 사용
-- 과거 데이터의 암묵적 수정
+- Real-time collaborative editing
+- Automatic merging of differing interpretations
+- Using a centralized live API as the primary interface
+- Implicit modification of historical data
 
 ---
 
-## 2. .scoda 패키지 포맷
+## 2. .scoda Package Format
 
-### 2.1 물리적 구조
+### 2.1 Physical Structure
 
-.scoda 파일은 ZIP 압축 아카이브이며, 확장자만 `.scoda`로 변경한 것이다:
+A .scoda file is a ZIP compressed archive with only the extension changed to `.scoda`:
 
 ```
 trilobase.scoda (ZIP archive)
-├── manifest.json          # 패키지 메타데이터
-├── data.db                # SQLite 데이터베이스
-└── assets/                # 추가 리소스 (선택)
-    └── spa/               # Reference SPA 파일 (선택)
+├── manifest.json          # Package metadata
+├── data.db                # SQLite database
+└── assets/                # Additional resources (optional)
+    └── spa/               # Reference SPA files (optional)
         ├── index.html
         ├── app.js
         └── style.css
@@ -90,7 +90,7 @@ trilobase.scoda (ZIP archive)
 
 ### 2.2 manifest.json
 
-패키지의 정체성, 버전, 의존성, 무결성 정보를 담는 최상위 메타데이터 파일:
+The top-level metadata file containing package identity, version, dependencies, and integrity information:
 
 ```json
 {
@@ -120,72 +120,72 @@ trilobase.scoda (ZIP archive)
 }
 ```
 
-**주요 필드:**
+**Key Fields:**
 
-| 필드 | 설명 |
-|------|------|
-| `format` / `format_version` | SCODA 포맷 식별자 및 버전 |
-| `name` | 패키지의 고유 식별자 (파일명과 일치) |
+| Field | Description |
+|-------|-------------|
+| `format` / `format_version` | SCODA format identifier and version |
+| `name` | Unique identifier for the package (matches the filename) |
 | `version` | Semantic Versioning (MAJOR.MINOR.PATCH) |
-| `data_file` | ZIP 내부의 SQLite DB 파일명 |
-| `record_count` | 데이터 테이블 레코드 합계 (메타데이터 테이블 제외) |
-| `data_checksum_sha256` | data.db의 SHA-256 체크섬 (무결성 검증용) |
-| `dependencies` | 이 패키지가 런타임에 필요로 하는 다른 .scoda 패키지 목록 |
-| `has_reference_spa` | Reference SPA 포함 여부 |
+| `data_file` | SQLite DB filename inside the ZIP |
+| `record_count` | Total record count across data tables (excluding metadata tables) |
+| `data_checksum_sha256` | SHA-256 checksum of data.db (for integrity verification) |
+| `dependencies` | List of other .scoda packages required at runtime |
+| `has_reference_spa` | Whether a Reference SPA is included |
 
-### 2.3 데이터 무결성
+### 2.3 Data Integrity
 
-패키지 오픈 시 `data_checksum_sha256`으로 data.db의 무결성을 검증한다:
+When opening a package, the integrity of data.db is verified using `data_checksum_sha256`:
 
 ```python
 pkg = ScodaPackage("trilobase.scoda")
-assert pkg.verify_checksum()  # SHA-256 검증
+assert pkg.verify_checksum()  # SHA-256 verification
 ```
 
-### 2.4 패키지 생명주기
+### 2.4 Package Lifecycle
 
 ```
 [Source DB] → create_scoda.py → [.scoda package]
                                       ↓
                               ScodaPackage.open()
                                       ↓
-                              [temp dir에 data.db 추출]
+                              [Extract data.db to temp dir]
                                       ↓
                               sqlite3.connect(temp/data.db)
                                       ↓
                               [ATTACH overlay + dependencies]
                                       ↓
-                              [Flask/MCP 서비스 제공]
+                              [Serve via Flask/MCP]
                                       ↓
                               ScodaPackage.close()
                                       ↓
-                              [temp dir 자동 정리]
+                              [Auto-cleanup temp dir]
 ```
 
-- .scoda 파일 내부의 data.db는 **직접 접근하지 않는다**
-- 임시 디렉토리로 추출 후 SQLite로 열며, 프로세스 종료 시 자동 정리된다
-- 원본 .scoda 파일은 항상 불변으로 유지된다
+- The data.db inside a .scoda file is **never accessed directly**
+- It is extracted to a temporary directory and opened with SQLite; the temp dir is automatically cleaned up when the process exits
+- The original .scoda file always remains immutable
 
 ---
 
-## 3. SCODA 메타데이터 계층
+## 3. SCODA Metadata Layer
 
-data.db 안에는 실제 데이터 테이블 외에 6개의 SCODA 메타데이터 테이블이 존재한다. 이 테이블들은 패키지의 정체성, 출처, 스키마 설명, UI 렌더링 힌트를 제공한다.
+Inside data.db, in addition to the actual data tables, there are 6 SCODA metadata tables. These tables provide package identity, provenance, schema descriptions, and UI rendering hints.
 
-### 3.1 테이블 목록
+### 3.1 Table List
 
-| 테이블 | 역할 | 예시 레코드 수 |
-|--------|------|---------------|
-| `artifact_metadata` | 패키지 정체성 (key-value) | 7 |
-| `provenance` | 데이터 출처 및 빌드 정보 | 3–5 |
-| `schema_descriptions` | 모든 테이블/컬럼의 자연어 설명 | 80–94 |
-| `ui_display_intent` | 엔티티별 기본 뷰 타입 힌트 | 4–6 |
-| `ui_queries` | Named SQL 쿼리 (파라미터화) | 14–16 |
-| `ui_manifest` | 선언적 뷰 정의 (JSON) | 1 |
+| Table | Role | Example Record Count |
+|-------|------|---------------------|
+| `artifact_metadata` | Package identity (key-value) | 7 |
+| `provenance` | Data provenance and build information | 3--5 |
+| `schema_descriptions` | Natural language descriptions for all tables/columns | 80--94 |
+| `ui_display_intent` | Default view type hints per entity | 4--6 |
+| `ui_queries` | Named SQL queries (parameterized) | 14--16 |
+| `ui_manifest` | Declarative view definitions (JSON) | 1 |
 
 ### 3.2 artifact_metadata
 
-패키지의 정체성을 key-value 쌍으로 저장:
+Stores package identity as key-value pairs:
 
 ```sql
 CREATE TABLE artifact_metadata (
@@ -194,8 +194,8 @@ CREATE TABLE artifact_metadata (
 );
 ```
 
-| key | value (예시) |
-|-----|-------------|
+| key | value (example) |
+|-----|-----------------|
 | `artifact_id` | `trilobase` |
 | `name` | `Trilobase` |
 | `version` | `2.1.0` |
@@ -206,12 +206,12 @@ CREATE TABLE artifact_metadata (
 
 ### 3.3 provenance
 
-데이터의 학술적 출처와 빌드 파이프라인 정보:
+Scholarly provenance and build pipeline information for the data:
 
 ```sql
 CREATE TABLE provenance (
     id          INTEGER PRIMARY KEY,
-    source_type TEXT NOT NULL,    -- 'reference' 또는 'build'
+    source_type TEXT NOT NULL,    -- 'reference' or 'build'
     citation    TEXT NOT NULL,
     description TEXT,
     year        INTEGER,
@@ -219,7 +219,7 @@ CREATE TABLE provenance (
 );
 ```
 
-예시:
+Example:
 
 | id | source_type | citation | year |
 |----|-------------|----------|------|
@@ -229,12 +229,12 @@ CREATE TABLE provenance (
 
 ### 3.4 schema_descriptions
 
-모든 테이블과 컬럼에 대한 자연어 설명. LLM이 스키마를 이해하는 데 사용되며, 뷰어의 도움말에도 활용할 수 있다:
+Natural language descriptions for all tables and columns. Used by LLMs to understand the schema, and can also be leveraged for viewer help text:
 
 ```sql
 CREATE TABLE schema_descriptions (
     table_name  TEXT NOT NULL,
-    column_name TEXT,          -- NULL이면 테이블 수준 설명
+    column_name TEXT,          -- NULL for table-level descriptions
     description TEXT NOT NULL,
     PRIMARY KEY (table_name, column_name)
 );
@@ -242,86 +242,86 @@ CREATE TABLE schema_descriptions (
 
 ### 3.5 ui_display_intent
 
-각 데이터 엔티티를 어떤 뷰 타입(tree, table, chart)으로 표시할지 힌트:
+Hints for which view type (tree, table, chart) to use for each data entity:
 
 ```sql
 CREATE TABLE ui_display_intent (
     id           INTEGER PRIMARY KEY,
-    entity       TEXT NOT NULL,      -- 'genera', 'countries', 'chronostratigraphy' 등
+    entity       TEXT NOT NULL,      -- 'genera', 'countries', 'chronostratigraphy', etc.
     default_view TEXT NOT NULL,      -- 'tree', 'table', 'chart'
     description  TEXT,
-    source_query TEXT,               -- ui_queries.name 참조
+    source_query TEXT,               -- References ui_queries.name
     priority     INTEGER DEFAULT 0
 );
 ```
 
-### 3.6 ui_queries — Named SQL Queries
+### 3.6 ui_queries -- Named SQL Queries
 
-파라미터화된 SQL 쿼리를 DB 안에 저장. 뷰어는 쿼리 이름으로 실행한다:
+Parameterized SQL queries stored inside the DB. The viewer executes them by query name:
 
 ```sql
 CREATE TABLE ui_queries (
     id          INTEGER PRIMARY KEY,
-    name        TEXT NOT NULL UNIQUE,   -- 'taxonomy_tree', 'family_genera', 'genera_list' 등
+    name        TEXT NOT NULL UNIQUE,   -- 'taxonomy_tree', 'family_genera', 'genera_list', etc.
     description TEXT,
-    sql         TEXT NOT NULL,          -- 실행할 SQL (파라미터: :param_name)
-    params_json TEXT,                   -- 기본 파라미터 (JSON)
+    sql         TEXT NOT NULL,          -- SQL to execute (parameters: :param_name)
+    params_json TEXT,                   -- Default parameters (JSON)
     created_at  TEXT NOT NULL
 );
 ```
 
-**핵심 설계 의도:** SQL은 DB 안에 있다. 뷰어는 SQL을 하드코딩할 필요 없이, 쿼리 이름과 파라미터만으로 데이터를 조회한다. 새로운 데이터 패키지를 열면 해당 패키지가 제공하는 쿼리 목록에 따라 뷰어가 자동으로 적응한다.
+**Core Design Intent:** SQL lives inside the DB. The viewer does not need to hardcode SQL -- it queries data using only query names and parameters. When a new data package is opened, the viewer automatically adapts based on the query list provided by that package.
 
 ```python
-# 뷰어 코드
+# Viewer code
 result = execute_named_query("genera_list")
 result = execute_named_query("family_genera", {"family_id": 42})
 ```
 
 ---
 
-## 4. 선언적 UI 매니페스트
+## 4. Declarative UI Manifest
 
-### 4.1 개요
+### 4.1 Overview
 
-`ui_manifest` 테이블은 단일 JSON 문서로 뷰어의 전체 UI 구조를 선언한다. 뷰어는 이 매니페스트를 읽고 탭, 테이블, 트리, 차트, 상세 모달을 **자동으로 생성**한다.
+The `ui_manifest` table declares the entire UI structure of the viewer as a single JSON document. The viewer reads this manifest and **automatically generates** tabs, tables, trees, charts, and detail modals.
 
 ```sql
 CREATE TABLE ui_manifest (
     name          TEXT PRIMARY KEY,    -- 'default'
     description   TEXT,
-    manifest_json TEXT NOT NULL,       -- 전체 UI 정의 (JSON)
+    manifest_json TEXT NOT NULL,       -- Full UI definition (JSON)
     created_at    TEXT NOT NULL
 );
 ```
 
-### 4.2 매니페스트 구조
+### 4.2 Manifest Structure
 
 ```json
 {
   "default_view": "taxonomy_tree",
   "views": {
-    "taxonomy_tree": { ... },       // 탭 뷰: 트리
-    "genera_table": { ... },        // 탭 뷰: 테이블
-    "references_table": { ... },    // 탭 뷰: 테이블
-    "chronostratigraphy_table": { ... },  // 탭 뷰: 차트
-    "genus_detail": { ... },        // 상세 뷰: 모달
-    "formation_detail": { ... },    // 상세 뷰: 모달
+    "taxonomy_tree": { ... },       // Tab view: tree
+    "genera_table": { ... },        // Tab view: table
+    "references_table": { ... },    // Tab view: table
+    "chronostratigraphy_table": { ... },  // Tab view: chart
+    "genus_detail": { ... },        // Detail view: modal
+    "formation_detail": { ... },    // Detail view: modal
     ...
   }
 }
 ```
 
-### 4.3 뷰 타입
+### 4.3 View Types
 
-| type | 설명 | 예시 |
-|------|------|------|
-| `tree` | 계층형 트리 뷰 (expand/collapse) | 분류 체계 (Class→Order→...→Family) |
-| `table` | 범용 테이블 뷰 (정렬/검색) | Genera, Countries, Formations, Bibliography |
-| `chart` | 특수 차트 뷰 | ICS Chronostratigraphic Chart (계층형 색상 코딩) |
-| `detail` | 상세 모달 뷰 (행 클릭 시) | Genus detail, Country detail, Formation detail |
+| type | Description | Example |
+|------|-------------|---------|
+| `tree` | Hierarchical tree view (expand/collapse) | Taxonomy (Class->Order->...->Family) |
+| `table` | Generic table view (sort/search) | Genera, Countries, Formations, Bibliography |
+| `chart` | Specialized chart view | ICS Chronostratigraphic Chart (hierarchical color coding) |
+| `detail` | Detail modal view (on row click) | Genus detail, Country detail, Formation detail |
 
-### 4.4 Table View 정의 예시
+### 4.4 Table View Definition Example
 
 ```json
 {
@@ -347,7 +347,7 @@ CREATE TABLE ui_manifest (
 }
 ```
 
-### 4.5 Tree View 정의 예시
+### 4.5 Tree View Definition Example
 
 ```json
 {
@@ -376,7 +376,7 @@ CREATE TABLE ui_manifest (
 }
 ```
 
-### 4.6 Detail View 정의 예시
+### 4.6 Detail View Definition Example
 
 ```json
 {
@@ -416,40 +416,40 @@ CREATE TABLE ui_manifest (
 
 ### 4.7 Field Formats
 
-매니페스트에서 사용 가능한 필드 포맷:
+Available field formats in the manifest:
 
-| format | 렌더링 |
-|--------|--------|
-| `italic` | 이탤릭체 (학명 등) |
-| `boolean` | 체크마크(✓) / 엑스(✗) |
-| `link` | 클릭 가능한 하이퍼링크 |
-| `color_chip` | 색상 칩 (hex color) |
-| `code` | 모노스페이스 코드 |
-| `hierarchy` | 계층 경로 (Class → Order → ... → Family) |
-| `temporal_range` | 지질 시대 코드 + ICS 매핑 링크 |
-| `computed` | 런타임 계산값 |
+| format | Rendering |
+|--------|-----------|
+| `italic` | Italic text (e.g., scientific names) |
+| `boolean` | Checkmark / X mark |
+| `link` | Clickable hyperlink |
+| `color_chip` | Color chip (hex color) |
+| `code` | Monospace code |
+| `hierarchy` | Hierarchy path (Class -> Order -> ... -> Family) |
+| `temporal_range` | Geological age code + ICS mapping link |
+| `computed` | Runtime computed value |
 
 ### 4.8 Section Types (Detail View)
 
-| type | 설명 |
-|------|------|
-| `field_grid` | 키-값 필드 그리드 (2열 레이아웃) |
-| `linked_table` | 연결된 데이터 테이블 (클릭 가능) |
-| `tagged_list` | 태그 형태의 리스트 (지역, 형성층 등) |
-| `raw_text` | 원본 텍스트 (raw_entry 등) |
-| `annotations` | 사용자 주석 섹션 (Overlay DB) |
-| `synonym_list` | 동의어 목록 (분류학 전용) |
-| `rank_children` | 하위 분류군 목록 |
-| `rank_statistics` | 하위 분류군 통계 |
-| `bibliography` | 관련 참고문헌 |
+| type | Description |
+|------|-------------|
+| `field_grid` | Key-value field grid (2-column layout) |
+| `linked_table` | Linked data table (clickable) |
+| `tagged_list` | Tag-style list (regions, formations, etc.) |
+| `raw_text` | Raw text (raw_entry, etc.) |
+| `annotations` | User annotation section (Overlay DB) |
+| `synonym_list` | Synonym list (taxonomy-specific) |
+| `rank_children` | Child taxa list |
+| `rank_statistics` | Child taxa statistics |
+| `bibliography` | Related references |
 
 ---
 
-## 5. SCODA Desktop 뷰어
+## 5. SCODA Desktop Viewer
 
-### 5.1 구성 요소
+### 5.1 Components
 
-SCODA Desktop은 다음 4개의 런타임 구성 요소로 이루어진다:
+SCODA Desktop consists of the following 4 runtime components:
 
 ```
 ┌─────────────────────────────────────────────────────────┐
@@ -458,17 +458,18 @@ SCODA Desktop은 다음 4개의 런타임 구성 요소로 이루어진다:
 │  ┌──────────────┐  ┌──────────────┐  ┌───────────────┐  │
 │  │  GUI (tkinter)│  │ Flask Server │  │  MCP Server   │  │
 │  │              │  │   (port 8080)│  │  (stdio/SSE)  │  │
-│  │  • 패키지 선택 │  │  • REST API  │  │  • 14개 도구   │  │
-│  │  • Start/Stop │  │  • 정적 파일  │  │  • Evidence   │  │
-│  │  • 로그 뷰어   │  │  • SPA 서빙  │  │    Pack 패턴  │  │
-│  │  • SPA 추출   │  │  • CORS      │  │  • Overlay    │  │
+│  │  • Pkg select │  │  • REST API  │  │  • 14 tools   │  │
+│  │  • Start/Stop │  │  • Static    │  │  • Evidence   │  │
+│  │  • Log viewer │  │    files     │  │    Pack       │  │
+│  │  • SPA extract│  │  • SPA serve │  │    pattern    │  │
+│  │              │  │  • CORS      │  │  • Overlay    │  │
 │  │              │  │              │  │    R/W        │  │
 │  └──────┬───────┘  └──────┬───────┘  └──────┬────────┘  │
 │         │                 │                  │           │
 │         └─────────┬───────┘──────────────────┘           │
 │                   ↓                                      │
 │         ┌─────────────────┐                              │
-│         │  scoda_package.py│  ← 중앙 DB 접근 모듈         │
+│         │  scoda_package.py│  ← Central DB access module  │
 │         │  PackageRegistry │                              │
 │         └────────┬────────┘                              │
 │                  ↓                                       │
@@ -482,110 +483,110 @@ SCODA Desktop은 다음 4개의 런타임 구성 요소로 이루어진다:
 └─────────────────────────────────────────────────────────┘
 ```
 
-### 5.2 GUI 컨트롤 패널
+### 5.2 GUI Control Panel
 
-Docker Desktop에서 영감을 받은 tkinter 기반 컨트롤 패널:
+A tkinter-based control panel inspired by Docker Desktop:
 
-**기능:**
-- **패키지 목록 (Listbox):** 탐색된 .scoda 패키지 표시, Running/Stopped 상태 아이콘
-- **서버 제어:** Start Server / Stop Server 버튼
-- **브라우저 오픈:** 서버 시작 후 자동 / 수동 브라우저 열기
-- **SPA 추출:** Reference SPA가 포함된 패키지에서 SPA 추출
-- **실시간 로그:** Flask 서버 로그를 색상별 레벨로 표시 (ERROR:빨강, WARNING:주황, INFO:파랑, SUCCESS:초록)
-- **의존성 표시:** 실행 중인 패키지의 dependency를 들여쓰기 자식으로 표시
+**Features:**
+- **Package List (Listbox):** Displays discovered .scoda packages with Running/Stopped status icons
+- **Server Control:** Start Server / Stop Server buttons
+- **Browser Open:** Automatic / manual browser opening after server start
+- **SPA Extraction:** Extract SPA from packages that include a Reference SPA
+- **Real-time Logs:** Displays Flask server logs with color-coded levels (ERROR: red, WARNING: orange, INFO: blue, SUCCESS: green)
+- **Dependency Display:** Shows dependencies of the running package as indented children
 
-**실행 모드:**
+**Execution Modes:**
 
-| 모드 | 서버 실행 방식 | 로그 캡처 |
-|------|-------------|----------|
-| 개발 모드 | subprocess (별도 프로세스) | stdout 파이프 |
-| Frozen 모드 (PyInstaller) | threading (동일 프로세스) | sys.stdout/stderr 리다이렉트 |
+| Mode | Server Execution | Log Capture |
+|------|-----------------|-------------|
+| Development mode | subprocess (separate process) | stdout pipe |
+| Frozen mode (PyInstaller) | threading (same process) | sys.stdout/stderr redirect |
 
-**패키지 전환 제약:** 서버가 실행 중일 때는 패키지 전환이 차단된다. 먼저 서버를 중지한 후 다른 패키지를 선택해야 한다.
+**Package Switching Constraint:** Package switching is blocked while the server is running. The server must be stopped first before selecting a different package.
 
-### 5.3 Flask 웹 서버
+### 5.3 Flask Web Server
 
-`app.py` (1,120줄)는 다음을 제공한다:
+`app.py` (1,120 lines) provides the following:
 
-**REST API 엔드포인트 (22개):**
+**REST API Endpoints (22):**
 
-| 범주 | 엔드포인트 | 설명 |
-|------|----------|------|
-| **탐색** | `GET /api/tree` | 전체 분류 계층 트리 |
-| | `GET /api/family/<id>/genera` | Family의 Genus 목록 |
-| | `GET /api/rank/<id>` | 분류군 상세 |
-| | `GET /api/genus/<id>` | Genus 상세 (계층, 동의어, 산출지 포함) |
-| **참조 데이터** | `GET /api/country/<id>` | 국가 상세 + 관련 genera |
-| | `GET /api/region/<id>` | 지역 상세 + 관련 genera |
-| | `GET /api/formation/<id>` | 지층 상세 + 관련 genera |
-| | `GET /api/bibliography/<id>` | 참고문헌 상세 + 관련 genera |
-| | `GET /api/chronostrat/<id>` | ICS 연대 단위 상세 |
-| **SCODA 메타** | `GET /api/metadata` | 패키지 메타데이터 + 통계 |
-| | `GET /api/provenance` | 데이터 출처 |
-| | `GET /api/display-intent` | 뷰 타입 힌트 |
-| | `GET /api/queries` | Named Query 목록 |
-| | `GET /api/queries/<name>/execute` | Named Query 실행 |
-| | `GET /api/manifest` | UI 매니페스트 |
-| **범용** | `GET /api/detail/<query_name>` | Named Query 기반 범용 상세 |
-| **PaleoCore** | `GET /api/paleocore/status` | PaleoCore DB 상태 + Cross-DB 검증 |
-| **Overlay** | `GET /api/annotations/<type>/<id>` | 사용자 주석 조회 |
-| | `POST /api/annotations` | 사용자 주석 추가 |
-| | `DELETE /api/annotations/<id>` | 사용자 주석 삭제 |
-| **정적** | `GET /` | 메인 페이지 (SPA 또는 generic viewer) |
-| | `GET /<path>` | SPA 정적 파일 서빙 |
+| Category | Endpoint | Description |
+|----------|----------|-------------|
+| **Browse** | `GET /api/tree` | Full taxonomic hierarchy tree |
+| | `GET /api/family/<id>/genera` | List of genera in a family |
+| | `GET /api/rank/<id>` | Taxonomic rank detail |
+| | `GET /api/genus/<id>` | Genus detail (with hierarchy, synonyms, localities) |
+| **Reference Data** | `GET /api/country/<id>` | Country detail + related genera |
+| | `GET /api/region/<id>` | Region detail + related genera |
+| | `GET /api/formation/<id>` | Formation detail + related genera |
+| | `GET /api/bibliography/<id>` | Bibliography detail + related genera |
+| | `GET /api/chronostrat/<id>` | ICS chronostratigraphic unit detail |
+| **SCODA Meta** | `GET /api/metadata` | Package metadata + statistics |
+| | `GET /api/provenance` | Data provenance |
+| | `GET /api/display-intent` | View type hints |
+| | `GET /api/queries` | Named query list |
+| | `GET /api/queries/<name>/execute` | Execute named query |
+| | `GET /api/manifest` | UI manifest |
+| **Generic** | `GET /api/detail/<query_name>` | Generic detail based on named query |
+| **PaleoCore** | `GET /api/paleocore/status` | PaleoCore DB status + cross-DB validation |
+| **Overlay** | `GET /api/annotations/<type>/<id>` | Retrieve user annotations |
+| | `POST /api/annotations` | Add user annotation |
+| | `DELETE /api/annotations/<id>` | Delete user annotation |
+| **Static** | `GET /` | Main page (SPA or generic viewer) |
+| | `GET /<path>` | SPA static file serving |
 
-**CORS 지원:** 모든 응답에 `Access-Control-Allow-Origin` 헤더를 추가하여 외부 SPA에서의 접근을 허용한다.
+**CORS Support:** All responses include `Access-Control-Allow-Origin` headers to allow access from external SPAs.
 
-**패키지 선택:** `--package` CLI 인자 또는 `set_active_package()` 호출로 활성 패키지를 지정한다. Flask는 항상 **하나의 패키지만** 서빙한다.
+**Package Selection:** The active package is specified via the `--package` CLI argument or `set_active_package()` call. Flask always serves **only one package** at a time.
 
-### 5.4 Generic 프론트엔드
+### 5.4 Generic Frontend
 
-`static/js/app.js` (1,399줄)는 매니페스트 기반의 범용 SCODA 뷰어이다:
+`static/js/app.js` (1,399 lines) is a manifest-driven, generic SCODA viewer:
 
-**렌더링 파이프라인:**
+**Rendering Pipeline:**
 
 ```
-1. loadManifest()           ← /api/manifest 호출
-2. buildViewTabs()          ← manifest.views에서 탭 생성
-3. switchToView(viewKey)    ← 탭 클릭 시
-4. view.type에 따라 분기:
+1. loadManifest()           ← Calls /api/manifest
+2. buildViewTabs()          ← Generates tabs from manifest.views
+3. switchToView(viewKey)    ← On tab click
+4. Branch by view.type:
    ├── "tree"  → loadTree() → buildTreeFromFlat()
    ├── "table" → loadTableView() → renderTableView()
    └── "chart" → loadChartView() → renderChartView()
-5. 행 클릭 시:
+5. On row click:
    on_row_click.action === "open_detail"
    → openDetail(detail_view, id)
    → renderDetailFromManifest(data, viewDef)
 ```
 
-**특징:**
-- **패키지 비종속:** Trilobase뿐 아니라 어떤 .scoda 패키지든 매니페스트만 있으면 자동으로 탭/테이블/상세 모달을 생성
-- **Graceful degradation:** 매니페스트가 없으면 기존 레거시 UI로 폴백
-- **패키지명 표시:** Navbar에 활성 패키지의 이름과 버전을 표시
+**Characteristics:**
+- **Package-agnostic:** Automatically generates tabs/tables/detail modals for any .scoda package with a manifest, not just Trilobase
+- **Graceful degradation:** Falls back to legacy UI if no manifest is present
+- **Package name display:** Shows the active package name and version in the navbar
 
 ---
 
-## 6. Multi-DB 아키텍처
+## 6. Multi-DB Architecture
 
-### 6.1 SQLite ATTACH 패턴
+### 6.1 SQLite ATTACH Pattern
 
-SCODA는 SQLite의 `ATTACH DATABASE` 기능을 활용하여 여러 패키지의 데이터를 하나의 커넥션에서 조회한다:
+SCODA leverages SQLite's `ATTACH DATABASE` feature to query data from multiple packages within a single connection:
 
 ```sql
--- 메인 연결
+-- Main connection
 conn = sqlite3.connect('trilobase.db')
 
--- Overlay DB 연결 (사용자 주석)
+-- Overlay DB connection (user annotations)
 ATTACH DATABASE 'trilobase_overlay.db' AS overlay
 
--- PaleoCore DB 연결 (공유 인프라 데이터)
+-- PaleoCore DB connection (shared infrastructure data)
 ATTACH DATABASE 'paleocore.db' AS pc
 ```
 
-이를 통해 Cross-DB JOIN이 가능하다:
+This enables cross-DB JOINs:
 
 ```sql
--- Trilobase genus_locations와 PaleoCore countries를 JOIN
+-- JOIN Trilobase genus_locations with PaleoCore countries
 SELECT g.name, c.name AS country
 FROM genus_locations gl
 JOIN taxonomic_ranks g ON gl.genus_id = g.id
@@ -595,77 +596,77 @@ WHERE c.name = 'China';
 
 ### 6.2 PackageRegistry
 
-`scoda_package.py`의 `PackageRegistry` 클래스는 패키지 탐색과 DB 연결을 중앙 관리한다:
+The `PackageRegistry` class in `scoda_package.py` centrally manages package discovery and DB connections:
 
 ```python
 registry = PackageRegistry()
-registry.scan("/path/to/packages/")  # *.scoda 파일 탐색
+registry.scan("/path/to/packages/")  # Discover *.scoda files
 
-# 패키지 목록
+# Package list
 for pkg in registry.list_packages():
     print(f"{pkg['name']} v{pkg['version']} ({pkg['record_count']} records)")
 
-# DB 연결 (의존성 자동 ATTACH)
+# DB connection (auto-ATTACH dependencies)
 conn = registry.get_db("trilobase")
 # → main: trilobase data.db
 # → overlay: trilobase_overlay.db
 # → pc: paleocore data.db (dependency)
 ```
 
-**탐색 우선순위:**
-1. `*.scoda` 파일 탐색 → ZIP에서 data.db 추출
-2. .scoda가 없으면 `*.db` 파일 직접 사용 (폴백)
+**Discovery Priority:**
+1. Discover `*.scoda` files -> Extract data.db from ZIP
+2. If no .scoda files found, use `*.db` files directly (fallback)
 
-**의존성 해결:**
-manifest.json의 `dependencies` 배열을 읽고, 같은 디렉토리에서 해당 .scoda 패키지를 찾아 `alias`로 ATTACH한다.
+**Dependency Resolution:**
+Reads the `dependencies` array from manifest.json and finds the corresponding .scoda packages in the same directory, attaching them with their `alias`.
 
-### 6.3 3-DB 역할 분리
+### 6.3 3-DB Role Separation
 
-| DB | Alias | 접근 | 역할 |
-|----|-------|------|------|
-| trilobase.db | (main) | Read-only | 분류학 데이터 (genus, synonym, bibliography) |
-| trilobase_overlay.db | overlay | Read/Write | 사용자 주석 (annotation) |
-| paleocore.db | pc | Read-only | 공유 인프라 (country, formation, ICS 연대) |
+| DB | Alias | Access | Role |
+|----|-------|--------|------|
+| trilobase.db | (main) | Read-only | Taxonomic data (genus, synonym, bibliography) |
+| trilobase_overlay.db | overlay | Read/Write | User annotations |
+| paleocore.db | pc | Read-only | Shared infrastructure (country, formation, ICS chronostratigraphy) |
 
 ### 6.4 Logical Foreign Key
 
-패키지 간 참조는 SQLite FOREIGN KEY 제약이 아닌 **논리적 FK**로 관리된다:
+Cross-package references are managed via **logical foreign keys** rather than SQLite FOREIGN KEY constraints:
 
-| Source (Trilobase) | Target (PaleoCore) | 참조 의미 |
+| Source (Trilobase) | Target (PaleoCore) | Reference Meaning |
 |---|---|---|
-| `genus_locations.country_id` | `pc.countries.id` | Genus 산출 국가 |
-| `genus_locations.region_id` | `pc.geographic_regions.id` | Genus 산출 지역 |
-| `genus_formations.formation_id` | `pc.formations.id` | Genus 산출 지층 |
-| `taxonomic_ranks.temporal_code` | `pc.temporal_ranges.code` | Genus 지질 시대 |
+| `genus_locations.country_id` | `pc.countries.id` | Genus occurrence country |
+| `genus_locations.region_id` | `pc.geographic_regions.id` | Genus occurrence region |
+| `genus_formations.formation_id` | `pc.formations.id` | Genus occurrence formation |
+| `taxonomic_ranks.temporal_code` | `pc.temporal_ranges.code` | Genus geological age |
 
 ---
 
-## 7. Overlay DB와 Local Annotations
+## 7. Overlay DB and Local Annotations
 
-### 7.1 설계 원칙
+### 7.1 Design Principles
 
-SCODA의 핵심 원칙 중 하나는 **canonical 데이터의 불변성**이다. 그러나 과학자는 데이터에 대해 메모를 남기고, 대안적 해석을 기록하고, 외부 문헌 링크를 추가하고 싶어한다. Overlay DB는 이 두 가지 요구를 동시에 만족시킨다:
+One of SCODA's core principles is the **immutability of canonical data**. However, scientists want to leave notes on data, record alternative interpretations, and add external literature links. The Overlay DB satisfies both requirements simultaneously:
 
-- Canonical 데이터는 절대 수정되지 않는다
-- 사용자의 로컬 주석은 별도 파일에 저장된다
-- 주석은 canonical 데이터와 함께 표시되지만, 시각적으로 구분된다
+- Canonical data is never modified
+- User local annotations are stored in a separate file
+- Annotations are displayed alongside canonical data but are visually distinguished
 
-### 7.2 Overlay DB 스키마
+### 7.2 Overlay DB Schema
 
 ```sql
--- 버전 추적
+-- Version tracking
 CREATE TABLE overlay_metadata (
     key   TEXT PRIMARY KEY,
     value TEXT NOT NULL
 );
 -- key: 'canonical_version', 'created_at'
 
--- 사용자 주석
+-- User annotations
 CREATE TABLE user_annotations (
     id              INTEGER PRIMARY KEY AUTOINCREMENT,
     entity_type     TEXT NOT NULL,      -- 'genus', 'family', 'order', ...
-    entity_id       INTEGER NOT NULL,   -- canonical DB의 ID
-    entity_name     TEXT,               -- 이름 (릴리스 간 매칭용)
+    entity_id       INTEGER NOT NULL,   -- ID in the canonical DB
+    entity_name     TEXT,               -- Name (for cross-release matching)
     annotation_type TEXT NOT NULL,      -- 'note', 'correction', 'alternative', 'link'
     content         TEXT NOT NULL,
     author          TEXT,
@@ -673,63 +674,63 @@ CREATE TABLE user_annotations (
 );
 ```
 
-### 7.3 entity_name의 역할
+### 7.3 Role of entity_name
 
-`entity_id`는 canonical DB 버전마다 달라질 수 있다. 반면 `entity_name`(예: "Paradoxides")은 불변이다. Major 버전 업그레이드 시 entity_name으로 주석을 새 ID에 매핑할 수 있다.
+`entity_id` may change between canonical DB versions. In contrast, `entity_name` (e.g., "Paradoxides") is stable. During a major version upgrade, annotations can be mapped to new IDs using entity_name.
 
 ### 7.4 Annotation Types
 
-| type | 용도 | 예시 |
-|------|------|------|
-| `note` | 일반 메모 | "이 genus에 대해 Smith (2020) 참고할 것" |
-| `correction` | 데이터 오류 지적 | "저자명이 잘못됨, 실제로는 ZHANG, 1981" |
-| `alternative` | 대안적 분류 해석 | "Adrain (2011)에서 이 genus를 Aulacopleuridae로 재배치" |
-| `link` | 외부 링크 | "https://paleobiodb.org/classic/displayReference?id=12345" |
+| type | Purpose | Example |
+|------|---------|---------|
+| `note` | General memo | "See Smith (2020) regarding this genus" |
+| `correction` | Data error report | "Author name is incorrect, should be ZHANG, 1981" |
+| `alternative` | Alternative taxonomic interpretation | "Adrain (2011) reassigned this genus to Aulacopleuridae" |
+| `link` | External link | "https://paleobiodb.org/classic/displayReference?id=12345" |
 
-### 7.5 버전 호환성
+### 7.5 Version Compatibility
 
-| Canonical 버전 변경 | Overlay 처리 | 주석 보존 |
-|------------------|-----------|---------|
-| PATCH (1.0.0 → 1.0.1) | 버전만 업데이트 | 전체 보존 |
-| MINOR (1.0.0 → 1.1.0) | 버전만 업데이트 | 전체 보존 |
-| MAJOR (1.0.0 → 2.0.0) | 재생성 + 마이그레이션 | entity_name 기반 매칭 |
+| Canonical Version Change | Overlay Handling | Annotation Preservation |
+|--------------------------|-----------------|------------------------|
+| PATCH (1.0.0 -> 1.0.1) | Version update only | Fully preserved |
+| MINOR (1.0.0 -> 1.1.0) | Version update only | Fully preserved |
+| MAJOR (1.0.0 -> 2.0.0) | Regeneration + migration | Matched via entity_name |
 
 ---
 
-## 8. MCP 서버 — LLM 통합 인터페이스
+## 8. MCP Server -- LLM Integration Interface
 
-### 8.1 개요
+### 8.1 Overview
 
-MCP(Model Context Protocol) 서버는 LLM(대규모 언어 모델)이 SCODA 패키지의 데이터를 자연어로 쿼리할 수 있게 해주는 인터페이스이다.
+The MCP (Model Context Protocol) server is an interface that enables LLMs (Large Language Models) to query data in SCODA packages using natural language.
 
-**핵심 원칙: DB is truth, MCP is access, LLM is narration**
+**Core Principle: DB is truth, MCP is access, LLM is narration**
 
-- LLM은 데이터를 판단하거나 정의하지 않는다
-- LLM은 DB가 제공하는 증거를 서술할 뿐이다
-- 모든 응답에는 출처(provenance)가 포함된다
+- The LLM does not judge or define the data
+- The LLM only narrates the evidence provided by the DB
+- Every response includes provenance
 
-### 8.2 14개 MCP 도구
+### 8.2 14 MCP Tools
 
-| 범주 | 도구 | 설명 |
-|------|------|------|
-| **분류** | `get_taxonomy_tree` | 전체 분류 계층 트리 |
-| | `get_rank_detail` | 분류군 상세 |
-| | `get_family_genera` | Family의 Genus 목록 |
-| **검색** | `search_genera` | Genus 이름 패턴 검색 |
-| | `get_genera_by_country` | 국가별 Genus 조회 |
-| | `get_genera_by_formation` | 지층별 Genus 조회 |
-| **메타** | `get_metadata` | 패키지 메타데이터 + 통계 |
-| | `get_provenance` | 데이터 출처 |
-| | `list_available_queries` | Named Query 목록 |
-| **쿼리** | `execute_named_query` | Named Query 실행 |
-| **주석** | `get_annotations` | 사용자 주석 조회 |
-| | `add_annotation` | 주석 추가 (Overlay DB) |
-| | `delete_annotation` | 주석 삭제 |
-| **상세** | `get_genus_detail` | Genus Evidence Pack |
+| Category | Tool | Description |
+|----------|------|-------------|
+| **Taxonomy** | `get_taxonomy_tree` | Full taxonomic hierarchy tree |
+| | `get_rank_detail` | Taxonomic rank detail |
+| | `get_family_genera` | List of genera in a family |
+| **Search** | `search_genera` | Genus name pattern search |
+| | `get_genera_by_country` | Query genera by country |
+| | `get_genera_by_formation` | Query genera by formation |
+| **Meta** | `get_metadata` | Package metadata + statistics |
+| | `get_provenance` | Data provenance |
+| | `list_available_queries` | Named query list |
+| **Query** | `execute_named_query` | Execute named query |
+| **Annotations** | `get_annotations` | Retrieve user annotations |
+| | `add_annotation` | Add annotation (Overlay DB) |
+| | `delete_annotation` | Delete annotation |
+| **Detail** | `get_genus_detail` | Genus Evidence Pack |
 
-### 8.3 Evidence Pack 패턴
+### 8.3 Evidence Pack Pattern
 
-`get_genus_detail`은 단순한 레코드가 아니라 **Evidence Pack**을 반환한다. 이는 LLM이 근거 기반 서술을 할 수 있게 구조화된 응답이다:
+`get_genus_detail` returns not a simple record but an **Evidence Pack**. This is a structured response that enables the LLM to produce evidence-based narration:
 
 ```json
 {
@@ -755,14 +756,14 @@ MCP(Model Context Protocol) 서버는 LLM(대규모 언어 모델)이 SCODA 패�
 }
 ```
 
-### 8.4 실행 모드
+### 8.4 Execution Modes
 
-| 모드 | 프로토콜 | 용도 |
-|------|---------|------|
-| **stdio** | stdin/stdout | Claude Desktop에서 직접 실행 |
-| **SSE** | HTTP (Starlette + uvicorn) | GUI에서 포트 8081로 실행 |
+| Mode | Protocol | Use Case |
+|------|----------|----------|
+| **stdio** | stdin/stdout | Direct execution from Claude Desktop |
+| **SSE** | HTTP (Starlette + uvicorn) | Execution from GUI on port 8081 |
 
-**stdio 모드 사용 (Claude Desktop 설정):**
+**stdio Mode Usage (Claude Desktop Configuration):**
 
 ```json
 {
@@ -776,60 +777,60 @@ MCP(Model Context Protocol) 서버는 LLM(대규모 언어 모델)이 SCODA 패�
 
 ---
 
-## 9. 빌드 및 배포 파이프라인
+## 9. Build and Deployment Pipeline
 
-### 9.1 배포 산출물
+### 9.1 Deployment Artifacts
 
 ```
 dist/
-├── ScodaDesktop.exe        # GUI 뷰어 (Windows, console=False)
-├── ScodaDesktop_mcp.exe    # MCP stdio 서버 (Windows, console=True)
-├── trilobase.scoda         # Trilobase 데이터 패키지
-└── paleocore.scoda         # PaleoCore 인프라 패키지
+├── ScodaDesktop.exe        # GUI viewer (Windows, console=False)
+├── ScodaDesktop_mcp.exe    # MCP stdio server (Windows, console=True)
+├── trilobase.scoda         # Trilobase data package
+└── paleocore.scoda         # PaleoCore infrastructure package
 ```
 
-**사용자 배포:** 위 4개 파일을 같은 디렉토리에 놓고 `ScodaDesktop.exe`를 실행하면 된다. 별도 설치 불요.
+**User Deployment:** Place the above 4 files in the same directory and run `ScodaDesktop.exe`. No separate installation required.
 
-### 9.2 빌드 프로세스
+### 9.2 Build Process
 
 ```
 python scripts/build.py
     │
-    ├── 1. PyInstaller로 EXE 빌드
-    │   ├── ScodaDesktop.exe  ← scripts/gui.py 진입점
-    │   │   번들: app.py, scoda_package.py, templates/, static/, spa/
-    │   └── ScodaDesktop_mcp.exe ← mcp_server.py 진입점
-    │       번들: scoda_package.py
+    ├── 1. Build EXE with PyInstaller
+    │   ├── ScodaDesktop.exe  ← scripts/gui.py entry point
+    │   │   Bundles: app.py, scoda_package.py, templates/, static/, spa/
+    │   └── ScodaDesktop_mcp.exe ← mcp_server.py entry point
+    │       Bundles: scoda_package.py
     │
-    ├── 2. trilobase.scoda 생성
+    ├── 2. Create trilobase.scoda
     │   trilobase.db → ZIP(manifest.json + data.db + assets/spa/*)
     │
-    └── 3. paleocore.scoda 생성
+    └── 3. Create paleocore.scoda
         paleocore.db → ZIP(manifest.json + data.db)
 ```
 
-**핵심 설계:** EXE 안에 DB를 번들링하지 않는다. 데이터는 .scoda 패키지로 외부에 분리되어 있으며, EXE는 실행 시 같은 디렉토리의 .scoda 파일을 탐색한다.
+**Key Design Decision:** The DB is not bundled inside the EXE. Data is separated externally as .scoda packages, and the EXE discovers .scoda files in the same directory at runtime.
 
-### 9.3 릴리스 프로세스
+### 9.3 Release Process
 
 ```
-1. 데이터 수정 + 테스트 (pytest, 230개)
-2. artifact_metadata version 업데이트
-3. scripts/release.py 실행 → releases/ 디렉토리에 패키징
+1. Data modifications + testing (pytest, 230 tests)
+2. Update artifact_metadata version
+3. Run scripts/release.py → Package into releases/ directory
 4. Git commit + tag (v2.1.0)
-5. scripts/build.py 실행 → dist/ 생성
-6. GitHub Release 또는 직접 배포
+5. Run scripts/build.py → Generate dist/
+6. GitHub Release or direct distribution
 ```
 
-**불변성 보장:** 같은 버전 번호로 릴리스를 재생성할 수 없다. `release.py`는 기존 디렉토리가 있으면 에러를 발생시킨다.
+**Immutability Guarantee:** A release cannot be regenerated with the same version number. `release.py` raises an error if the directory already exists.
 
 ### 9.4 Semantic Versioning
 
-| 유형 | 버전 예시 | 변경 내용 |
-|------|----------|---------|
-| PATCH | 1.0.0 → 1.0.1 | 데이터 오류 수정, 타이포 |
-| MINOR | 1.0.0 → 1.1.0 | 데이터 추가, 새 테이블 |
-| MAJOR | 1.0.0 → 2.0.0 | 스키마 변경, 테이블 삭제 |
+| Type | Version Example | Change Description |
+|------|----------------|-------------------|
+| PATCH | 1.0.0 -> 1.0.1 | Data error fixes, typos |
+| MINOR | 1.0.0 -> 1.1.0 | Data additions, new tables |
+| MAJOR | 1.0.0 -> 2.0.0 | Schema changes, table removals |
 
 ---
 
@@ -837,74 +838,74 @@ python scripts/build.py
 
 ### 10.1 Generic Viewer vs. Reference SPA
 
-SCODA Desktop은 두 종류의 프론트엔드를 구분한다:
+SCODA Desktop distinguishes between two types of frontends:
 
 | | Generic Viewer | Reference SPA |
 |---|---|---|
-| 위치 | `static/js/app.js` (EXE 내장) | `spa/` (패키지 내 `assets/spa/`) |
-| 대상 | 모든 .scoda 패키지 | 특정 패키지 전용 |
-| 의존성 | Jinja2 템플릿 | 독립 (순수 HTML/JS/CSS) |
-| 커스텀 로직 | 없음 (매니페스트에만 의존) | 패키지 도메인 전용 함수 포함 |
-| API 접근 | `/api/...` (same-origin) | `API_BASE + '/api/...'` (configurable) |
+| Location | `static/js/app.js` (embedded in EXE) | `spa/` (inside package at `assets/spa/`) |
+| Target | All .scoda packages | Specific package only |
+| Dependencies | Jinja2 templates | Independent (pure HTML/JS/CSS) |
+| Custom Logic | None (depends only on manifest) | Includes package domain-specific functions |
+| API Access | `/api/...` (same-origin) | `API_BASE + '/api/...'` (configurable) |
 
-### 10.2 SPA 자동 전환
+### 10.2 Automatic SPA Switching
 
-1. 사용자가 GUI에서 "Extract Reference SPA" 클릭
-2. .scoda 패키지에서 `assets/spa/*` 파일을 `<name>_spa/` 디렉토리로 추출
-3. Flask가 `<name>_spa/index.html`을 감지하면 자동으로 SPA 서빙으로 전환
-4. SPA가 없으면 generic viewer(templates/index.html)로 폴백
+1. User clicks "Extract Reference SPA" in the GUI
+2. Extracts `assets/spa/*` files from the .scoda package to a `<name>_spa/` directory
+3. When Flask detects `<name>_spa/index.html`, it automatically switches to SPA serving
+4. If no SPA exists, falls back to generic viewer (templates/index.html)
 
-### 10.3 Reference SPA 구성
+### 10.3 Reference SPA Structure
 
 ```
 spa/
-├── index.html    # Jinja2 없는 독립 HTML
-├── app.js        # API_BASE prefix 사용, 도메인 전용 함수 포함
-└── style.css     # Rank 색상 등 도메인 전용 스타일
+├── index.html    # Standalone HTML without Jinja2
+├── app.js        # Uses API_BASE prefix, includes domain-specific functions
+└── style.css     # Domain-specific styles such as rank colors
 ```
 
-**API_BASE 패턴:**
+**API_BASE Pattern:**
 
 ```javascript
 // spa/app.js
 if (typeof API_BASE === 'undefined') var API_BASE = '';
 
-// 모든 fetch 호출에서:
+// In all fetch calls:
 const response = await fetch(API_BASE + '/api/manifest');
 ```
 
-이를 통해 SPA를 다른 서버에서 호스팅하면서 API만 SCODA Desktop을 가리킬 수 있다.
+This allows hosting the SPA on a different server while pointing the API to SCODA Desktop.
 
 ---
 
-## 11. 참조 구현: Trilobase와 PaleoCore
+## 11. Reference Implementation: Trilobase and PaleoCore
 
-### 11.1 Trilobase 패키지
+### 11.1 Trilobase Package
 
-삼엽충(trilobite) genus-level 분류학 데이터베이스. Jell & Adrain (2002) PDF에서 추출하여 정제.
+A genus-level taxonomic database for trilobites. Extracted and curated from the Jell & Adrain (2002) PDF.
 
-**데이터 규모:**
+**Data Scale:**
 
-| 항목 | 수량 |
-|------|------|
-| 분류군 (Class~Genus) | 5,340 |
-| 유효 Genus | 4,260 (83.3%) |
-| 무효 Genus (동의어 등) | 855 (16.7%) |
-| 동의어 관계 | 1,055 |
-| Genus-Formation 관계 | 4,853 |
-| Genus-Country 관계 | 4,841 |
-| 참고문헌 | 2,130 |
+| Item | Count |
+|------|-------|
+| Taxonomic ranks (Class to Genus) | 5,340 |
+| Valid genera | 4,260 (83.3%) |
+| Invalid genera (synonyms, etc.) | 855 (16.7%) |
+| Synonym relationships | 1,055 |
+| Genus-Formation relationships | 4,853 |
+| Genus-Country relationships | 4,841 |
+| References | 2,130 |
 
-**분류 계층:**
+**Taxonomic Hierarchy:**
 
 ```
 Trilobita (Class, 1)
-├── Agnostida (Order, 12개 중 하나)
+├── Agnostida (Order, one of 12)
 │   ├── Agnostina (Suborder)
 │   │   ├── Agnostoidea (Superfamily)
 │   │   │   ├── Agnostidae (Family)
-│   │   │   │   ├── Agnostus (Genus, 유효)
-│   │   │   │   ├── Acadagnostus (Genus, 유효)
+│   │   │   │   ├── Agnostus (Genus, valid)
+│   │   │   │   ├── Acadagnostus (Genus, valid)
 │   │   │   │   └── ...
 │   │   │   └── ...
 │   │   └── ...
@@ -912,27 +913,27 @@ Trilobita (Class, 1)
 └── ...
 ```
 
-### 11.2 PaleoCore 패키지
+### 11.2 PaleoCore Package
 
-고생물학 데이터베이스가 공통으로 필요로 하는 인프라 참조 데이터. Trilobase에서 분리하여 독립 패키지로 구성.
+Infrastructure reference data commonly needed by paleontological databases. Separated from Trilobase into an independent package.
 
-**데이터 규모:**
+**Data Scale:**
 
-| 테이블 | 레코드 | 출처 |
-|--------|--------|------|
+| Table | Records | Source |
+|-------|---------|--------|
 | countries | 142 | Jell & Adrain (2002) |
 | geographic_regions | 562 | 60 countries + 502 regions |
 | cow_states | 244 | Correlates of War v2024 |
-| country_cow_mapping | 142 | 수동 매핑 |
+| country_cow_mapping | 142 | Manual mapping |
 | formations | 2,004 | Jell & Adrain (2002) |
-| temporal_ranges | 28 | 지질 시대 코드 |
+| temporal_ranges | 28 | Geological age codes |
 | ics_chronostrat | 178 | ICS GTS 2020 (SKOS/RDF) |
-| temporal_ics_mapping | 40 | 수동 매핑 |
-| **합계** | **3,340** | |
+| temporal_ics_mapping | 40 | Manual mapping |
+| **Total** | **3,340** | |
 
-**PaleoCore는 의존성이 없는 루트 패키지**이다. Trilobase가 PaleoCore에 의존하지만, PaleoCore는 독립적으로 사용할 수 있다. 향후 다른 고생물학 데이터베이스(예: 완족류, 두족류)도 같은 PaleoCore를 공유할 수 있다.
+**PaleoCore is a root package with no dependencies.** While Trilobase depends on PaleoCore, PaleoCore can be used independently. In the future, other paleontological databases (e.g., brachiopods, cephalopods) can share the same PaleoCore.
 
-### 11.3 패키지 간 관계
+### 11.3 Inter-Package Relationships
 
 ```
                             ┌───────────────────┐
@@ -963,68 +964,68 @@ Trilobita (Class, 1)
 
 ---
 
-## 12. 부록: 파일 구조 및 API 목록
+## 12. Appendix: File Structure and API Reference
 
-### 12.1 프로젝트 파일 구조
+### 12.1 Project File Structure
 
 ```
 trilobase/
-├── scoda_package.py          # .scoda 패키지 + PackageRegistry + 중앙 DB 접근
-├── app.py                    # Flask 웹 서버 (22개 엔드포인트, 1,120줄)
-├── mcp_server.py             # MCP 서버 (14개 도구, stdio/SSE, 764줄)
+├── scoda_package.py          # .scoda package + PackageRegistry + central DB access
+├── app.py                    # Flask web server (22 endpoints, 1,120 lines)
+├── mcp_server.py             # MCP server (14 tools, stdio/SSE, 764 lines)
 ├── scripts/
-│   ├── gui.py                # GUI 컨트롤 패널 (tkinter, 859줄)
-│   ├── serve.py              # CLI 서버 런처
-│   ├── build.py              # PyInstaller 빌드 자동화
+│   ├── gui.py                # GUI control panel (tkinter, 859 lines)
+│   ├── serve.py              # CLI server launcher
+│   ├── build.py              # PyInstaller build automation
 │   ├── create_scoda.py       # trilobase.db → trilobase.scoda
 │   ├── create_paleocore.py   # trilobase.db → paleocore.db
 │   └── create_paleocore_scoda.py  # paleocore.db → paleocore.scoda
 ├── templates/
 │   └── index.html            # Generic viewer HTML (Jinja2)
 ├── static/
-│   ├── css/style.css         # Generic viewer CSS (621줄)
-│   └── js/app.js             # Generic viewer JS (1,399줄)
+│   ├── css/style.css         # Generic viewer CSS (621 lines)
+│   └── js/app.js             # Generic viewer JS (1,399 lines)
 ├── spa/                      # Reference Implementation SPA
 │   ├── index.html
-│   ├── app.js                # Full-featured JS (1,569줄)
-│   └── style.css             # Domain-specific CSS (626줄)
+│   ├── app.js                # Full-featured JS (1,569 lines)
+│   └── style.css             # Domain-specific CSS (626 lines)
 ├── examples/
-│   └── genus-explorer/index.html  # 커스텀 SPA 예제
-├── ScodaDesktop.spec         # PyInstaller 빌드 설정
+│   └── genus-explorer/index.html  # Custom SPA example
+├── ScodaDesktop.spec         # PyInstaller build configuration
 ├── trilobase.db              # Canonical SQLite DB (5.4 MB)
 ├── paleocore.db              # PaleoCore SQLite DB (332 KB)
-├── test_app.py               # Flask 테스트 (213개)
-├── test_mcp_basic.py         # MCP 기본 테스트 (1개)
-├── test_mcp.py               # MCP 포괄적 테스트 (16개)
+├── test_app.py               # Flask tests (213 tests)
+├── test_mcp_basic.py         # MCP basic test (1 test)
+├── test_mcp.py               # MCP comprehensive tests (16 tests)
 └── docs/
-    ├── HANDOFF.md            # 프로젝트 현황
-    ├── RELEASE_GUIDE.md       # 릴리스 가이드
-    ├── SCODA_CONCEPT.md       # SCODA 개념 문서
-    └── paleocore_schema.md    # PaleoCore 스키마 정의서
+    ├── HANDOFF.md            # Project status
+    ├── RELEASE_GUIDE.md       # Release guide
+    ├── SCODA_CONCEPT.md       # SCODA concept document
+    └── paleocore_schema.md    # PaleoCore schema reference
 ```
 
-### 12.2 기술 스택
+### 12.2 Technology Stack
 
-| 구성 요소 | 기술 |
-|-----------|------|
-| 데이터베이스 | SQLite 3 (ATTACH, Cross-DB JOIN) |
-| 웹 서버 | Flask (WSGI) + CORS |
-| MCP 서버 | mcp SDK + Starlette + uvicorn (ASGI) |
-| GUI | tkinter (Python 표준 라이브러리) |
-| 프론트엔드 | Vanilla JavaScript + Bootstrap 5 |
-| 패키징 | PyInstaller (onefile, Windows/Linux) |
-| 테스트 | pytest + pytest-asyncio (230개) |
-| 패키지 포맷 | ZIP (확장자 .scoda) |
+| Component | Technology |
+|-----------|-----------|
+| Database | SQLite 3 (ATTACH, Cross-DB JOIN) |
+| Web Server | Flask (WSGI) + CORS |
+| MCP Server | mcp SDK + Starlette + uvicorn (ASGI) |
+| GUI | tkinter (Python standard library) |
+| Frontend | Vanilla JavaScript + Bootstrap 5 |
+| Packaging | PyInstaller (onefile, Windows/Linux) |
+| Testing | pytest + pytest-asyncio (230 tests) |
+| Package Format | ZIP (extension .scoda) |
 
-### 12.3 테스트 현황
+### 12.3 Test Status
 
-| 파일 | 테스트 수 | 범위 |
-|------|---------|------|
-| `test_app.py` | 213 | Flask API, CORS, manifest, detail, SPA 서빙 |
-| `test_mcp_basic.py` | 1 | MCP 서버 초기화 |
-| `test_mcp.py` | 16 | MCP 14개 도구 + Evidence Pack |
-| **합계** | **230** | |
+| File | Test Count | Scope |
+|------|-----------|-------|
+| `test_app.py` | 213 | Flask API, CORS, manifest, detail, SPA serving |
+| `test_mcp_basic.py` | 1 | MCP server initialization |
+| `test_mcp.py` | 16 | MCP 14 tools + Evidence Pack |
+| **Total** | **230** | |
 
 ---
 
-**문서 끝.**
+**End of document.**
