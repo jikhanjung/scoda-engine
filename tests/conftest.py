@@ -390,7 +390,7 @@ def generic_db(tmp_path):
                 '{"category_id": "integer"}', '2026-02-20T00:00:00')
     """)
 
-    # UI Manifest (4 views: 2 tab + 2 detail)
+    # UI Manifest (5 views: 3 tab + 2 detail)
     import json as _json
     generic_manifest = {
         "default_view": "category_tree",
@@ -440,6 +440,34 @@ def generic_db(tmp_path):
                 "default_sort": {"key": "name", "direction": "asc"},
                 "searchable": True,
                 "on_row_click": {"detail_view": "item_detail", "id_key": "id"}
+            },
+            "category_radial": {
+                "type": "hierarchy",
+                "display": "radial",
+                "title": "Radial Categories",
+                "description": "Category tree in radial layout",
+                "source_query": "category_tree",
+                "icon": "bi-diagram-2",
+                "hierarchy_options": {
+                    "id_key": "id",
+                    "parent_key": "parent_id",
+                    "label_key": "name",
+                    "rank_key": "level",
+                    "sort_by": "label",
+                    "order_key": "id"
+                },
+                "radial_display": {
+                    "leaf_rank": "subgroup",
+                    "color_key": "level",
+                    "count_key": "item_count",
+                    "depth_toggle": True,
+                    "rank_radius": {
+                        "root": 0.2,
+                        "group": 0.5,
+                        "subgroup": 1.0
+                    },
+                    "on_node_click": {"detail_view": "category_detail", "id_field": "id"}
+                }
             },
             "item_detail": {
                 "type": "detail",

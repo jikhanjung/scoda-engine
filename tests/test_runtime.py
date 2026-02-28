@@ -320,10 +320,10 @@ class TestApiManifest:
         assert isinstance(data['manifest']['views'], dict)
 
     def test_manifest_view_count(self, generic_client):
-        """Test manifest should have 4 views (2 tab + 2 detail)."""
+        """Test manifest should have 5 views (3 tab + 2 detail)."""
         response = generic_client.get('/api/manifest')
         data = response.json()
-        assert len(data['manifest']['views']) == 4
+        assert len(data['manifest']['views']) == 5
 
     def test_manifest_tree_view(self, generic_client):
         response = generic_client.get('/api/manifest')
