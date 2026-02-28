@@ -1,6 +1,6 @@
 # SCODA Engine — Project Handoff Document
 
-**Last updated:** 2026-02-26
+**Last updated:** 2026-02-28
 
 ---
 
@@ -41,6 +41,8 @@
 | Hub SSL fallback (기관 네트워크 대응) | Done | `devlog/20260225_019_hub_ssl_fallback.md` |
 | P18: GUI 서버 포트 설정 및 자동 탐색 | Done | `devlog/20260226_P18_configurable_server_port.md` |
 | P19: MkDocs + GitHub Pages 다국어 문서 사이트 | Done | `devlog/20260226_P19_mkdocs_github_pages.md` |
+| P20: Radial hierarchy display mode | Done | `devlog/20260228_P20_radial_hierarchy_display.md` |
+| Desktop v0.1.3 버전 업 | Done | `scoda_engine/__init__.py`, `pyproject.toml` |
 
 ### Test Status
 
@@ -52,9 +54,9 @@
 
 - 없음
 
-### Recent Session (2026-02-26) Summary
+### Recent Session (2026-02-28) Summary
 
-1. **P19: MkDocs + GitHub Pages 다국어 문서 사이트**: MkDocs Material 테마 + mkdocs-static-i18n으로 EN/KO 문서 사이트 구축. 기존 8개 문서를 영문/한국어 쌍으로 분리 정리. Hub index.json과 MkDocs가 같은 GitHub Pages에서 공존하도록 통합 워크플로우(`pages.yml`) 구성. `hub-index.yml` 삭제.
+1. **P20: Radial Hierarchy Display Mode**: hierarchy 뷰에 `display: "radial"` 모드 구현. D3.js v7 lazy load 기반 Canvas+SVG 하이브리드 방사형 트리 시각화. `radial.js` 신규 모듈(~470줄). zoom/pan, semantic LOD 라벨, quadtree hover 툴팁, 노드 검색, breadcrumb, depth toggle, detail 모달 연동 지원. 테스트 fixture에 `category_radial` 뷰 추가. Desktop v0.1.3.
 
 ---
 
@@ -98,7 +100,7 @@ scoda-engine contains no domain-specific code. All domain logic comes from `.sco
 - `ui_queries` table: named SQL queries
 - `/api/query/<name>`: query execution endpoint
 - `/api/composite/<view>?id=N`: multi-query composite response
-- Generic viewer supports: hierarchy (tree/nested_table), table, detail modal, global search, annotations
+- Generic viewer supports: hierarchy (tree/nested_table/radial), table, detail modal, global search, annotations
 - Boolean columns: customizable via `true_label`/`false_label`, defaults `BOOLEAN_TRUE_LABEL`/`BOOLEAN_FALSE_LABEL`
 - `label_map` 동적 컬럼 label: 행 데이터의 특정 필드 값에 따라 테이블 헤더를 동적으로 결정 (혼합 시 fallback)
 
@@ -115,14 +117,14 @@ core/scoda_engine_core/     # PyPI: scoda-engine-core v0.1.1 (pure stdlib, zero 
 ├── hub_client.py           # Hub: fetch index, compare, download, SSL fallback
 └── validate_manifest.py    # Manifest validator/linter (pure functions)
 
-scoda_engine/               # PyPI: scoda-engine v0.1.2 (desktop/server)
+scoda_engine/               # PyPI: scoda-engine v0.1.3 (desktop/server)
 ├── scoda_package.py        # Backward-compat shim → scoda_engine_core
 ├── app.py                  # FastAPI web server
 ├── mcp_server.py           # MCP server (stdio/SSE)
 ├── gui.py                  # Tkinter GUI
 ├── serve.py                # uvicorn launcher
 ├── templates/              # Generic viewer template
-└── static/                 # Generic viewer assets
+└── static/                 # Generic viewer assets (+ radial.js for D3 radial tree)
 ```
 
 ---
@@ -195,3 +197,4 @@ pytest tests/
 | Docs + Hub Pages workflow | `.github/workflows/pages.yml` |
 | Hub Dependency UI (P17) | `devlog/20260225_P17_hub_dependency_ui.md` |
 | Hub SSL fallback | `devlog/20260225_019_hub_ssl_fallback.md` |
+| Radial hierarchy display (P20) | `devlog/20260228_P20_radial_hierarchy_display.md` |
