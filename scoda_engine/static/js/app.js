@@ -79,9 +79,14 @@ async function loadManifest() {
 
         // Parse global controls (e.g. profile selectors)
         if (manifest && manifest.global_controls) {
+            // Load saved preferences from overlay DB
+            let savedPrefs = {};
+            try {
+                const prefResp = await fetch('/api/preferences');
+                if (prefResp.ok) savedPrefs = await prefResp.json();
+            } catch (e) { /* use defaults */ }
             for (const ctrl of manifest.global_controls) {
-                const stored = localStorage.getItem(`scoda_ctrl_${ctrl.param}`);
-                globalControls[ctrl.param] = stored !== null ? JSON.parse(stored) : ctrl.default;
+                globalControls[ctrl.param] = (ctrl.param in savedPrefs) ? savedPrefs[ctrl.param] : ctrl.default;
             }
             renderGlobalControls();
         }
@@ -137,7 +142,12 @@ async function renderGlobalControls() {
                 sel.addEventListener('change', () => {
                     const val = parseInt(sel.value, 10);
                     globalControls[ctrl.param] = isNaN(val) ? sel.value : val;
-                    localStorage.setItem(`scoda_ctrl_${ctrl.param}`, JSON.stringify(globalControls[ctrl.param]));
+                    // Fire-and-forget save to overlay DB
+                    fetch(`/api/preferences/${ctrl.param}`, {
+                        method: 'PUT',
+                        headers: {'Content-Type': 'application/json'},
+                        body: JSON.stringify({value: globalControls[ctrl.param]})
+                    }).catch(() => {});
                     queryCache = {};
                     switchToView(currentView);
                 });

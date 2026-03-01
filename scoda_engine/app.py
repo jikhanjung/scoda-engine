@@ -30,7 +30,7 @@ SCODA_META_TABLES = {'artifact_metadata', 'provenance', 'schema_descriptions',
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
-    allow_methods=["GET", "POST", "DELETE", "OPTIONS"],
+    allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
     allow_headers=["Content-Type"],
 )
 
@@ -636,6 +636,75 @@ def api_delete_annotation(annotation_id: int):
     result, status = _delete_annotation(conn, annotation_id)
     conn.close()
     return JSONResponse(result, status_code=status)
+
+
+# ---------------------------------------------------------------------------
+# Preferences API — persist global control values in overlay DB
+# Uses overlay.overlay_metadata with 'pref_' key prefix.
+# ---------------------------------------------------------------------------
+
+class PreferenceValue(BaseModel):
+    value: Any
+
+@app.get('/api/preferences')
+def api_preferences_all():
+    """Get all user preferences (pref_* keys from overlay_metadata)."""
+    conn = get_db()
+    try:
+        cursor = conn.cursor()
+        cursor.execute(
+            "SELECT key, value FROM overlay.overlay_metadata WHERE key LIKE 'pref_%'"
+        )
+        rows = cursor.fetchall()
+        # Strip 'pref_' prefix and parse JSON values
+        result = {}
+        for r in rows:
+            k = r['key'][5:]  # remove 'pref_' prefix
+            try:
+                result[k] = json.loads(r['value'])
+            except (json.JSONDecodeError, TypeError):
+                result[k] = r['value']
+        return result
+    finally:
+        conn.close()
+
+
+@app.get('/api/preferences/{key}')
+def api_preference_get(key: str):
+    """Get a single preference value."""
+    conn = get_db()
+    try:
+        cursor = conn.cursor()
+        cursor.execute(
+            "SELECT value FROM overlay.overlay_metadata WHERE key = ?",
+            (f'pref_{key}',)
+        )
+        row = cursor.fetchone()
+        if not row:
+            return JSONResponse({'error': 'Not found'}, status_code=404)
+        try:
+            val = json.loads(row['value'])
+        except (json.JSONDecodeError, TypeError):
+            val = row['value']
+        return {'key': key, 'value': val}
+    finally:
+        conn.close()
+
+
+@app.put('/api/preferences/{key}')
+def api_preference_put(key: str, body: PreferenceValue):
+    """Store a preference value."""
+    conn = get_db()
+    try:
+        cursor = conn.cursor()
+        cursor.execute(
+            "INSERT OR REPLACE INTO overlay.overlay_metadata (key, value) VALUES (?, ?)",
+            (f'pref_{key}', json.dumps(body.value))
+        )
+        conn.commit()
+        return {'key': key, 'value': body.value}
+    finally:
+        conn.close()
 
 
 # ---------------------------------------------------------------------------
