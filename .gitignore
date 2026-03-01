@@ -34,3 +34,6 @@ ScodaDesktop.cfg
 # Egg/dist info
 *.egg-info/
 *.egg
+
+# Screenshots
+shot/
