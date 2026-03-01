@@ -81,6 +81,16 @@ P20에서 구현한 radial hierarchy display의 다수 버그를 수정하고, �
 - edge에 포함되지 않는 고아 노드(invalid genus 등)를 JS 측에서 제거
 - edge의 child/parent 목록과 대조하여 소속 없는 노드 필터 아웃
 
+### 9. 줌 연동 라벨 크기 조정
+
+- 기존: 줌 레벨에 관계없이 라벨 폰트 크기 고정 (Genus 9px, Family 10px 등)
+- 변경: 줌 50% 비율로 라벨 크기가 함께 증가 (`zoomScale = min(0.5 + 0.5 * k, 4)`)
+  - k=1 (기본): 1.0x (변화 없음)
+  - k=2: 1.5x (Genus 9px → 13.5px)
+  - k=4: 2.5x (Genus 9px → 22.5px)
+  - k=7+: 4.0x 상한 (Genus 9px → 36px)
+- 라벨 offset(노드↔텍스트 간격)도 동일 비율로 조정하여 겹침 방지
+
 ## 비고
 
 - trilobase 쪽 `scripts/create_assertion_db.py`에서도 관련 변경 있음 (DB 컬럼명, 쿼리 필터, rank_radius 설정 등) — 별도 기록 필요

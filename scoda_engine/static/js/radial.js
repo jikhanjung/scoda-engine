@@ -1064,15 +1064,21 @@ function updateRadialLabels(t) {
     // Limit labels
     const limited = labelsToShow.slice(0, maxLabels);
 
-    // Font size by rank
+    // Font size by rank — scales at 50% of zoom rate
+    const zoomScale = Math.min(0.5 + 0.5 * k, 4);
     function fontSize(d) {
         const rank = d.data[rankKey];
-        if (rank === leafRank) return '9px';
-        const rr = rOpts.rank_radius;
-        if (rr && rr[rank] !== undefined) {
-            return rr[rank] <= 0.25 ? '12px' : '10px';
+        let base;
+        if (rank === leafRank) { base = 9; }
+        else {
+            const rr = rOpts.rank_radius;
+            if (rr && rr[rank] !== undefined) {
+                base = rr[rank] <= 0.25 ? 12 : 10;
+            } else {
+                base = d.depth <= 1 ? 12 : 10;
+            }
         }
-        return d.depth <= 1 ? '12px' : '10px';
+        return (base * zoomScale) + 'px';
     }
 
     // Update SVG
@@ -1092,14 +1098,14 @@ function updateRadialLabels(t) {
 
     const merged = enter.merge(sel);
 
+    const labelOffset = 8 * zoomScale;
     merged
         .attr('transform', d => {
             const sx = t.x + (d.cx + cx) * t.k;
             const sy = t.y + (d.cy + cy) * t.k;
             const angle = d.x || 0;
-            const offset = 8;
             let rotation = angle > 180 ? angle - 270 : angle - 90;
-            return `translate(${sx + offset * (angle > 0 && angle < 180 ? 1 : -1)}, ${sy}) rotate(${rotation})`;
+            return `translate(${sx + labelOffset * (angle > 0 && angle < 180 ? 1 : -1)}, ${sy}) rotate(${rotation})`;
         })
         .attr('text-anchor', d => {
             const angle = d.x || 0;
