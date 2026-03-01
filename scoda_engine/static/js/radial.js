@@ -108,8 +108,9 @@ async function loadRadialView(viewKey) {
     // Setup zoom
     setupRadialZoom();
 
-    // Initial render
-    radialTransform = d3.zoomIdentity;
+    // Initial render — fit zoom if tree exceeds canvas
+    radialTransform = computeFitTransform();
+    d3.select(radialCanvas).call(radialZoom.transform, radialTransform);
     renderRadial();
     updateRadialBreadcrumb();
 }
@@ -125,7 +126,13 @@ async function buildRadialHierarchy(view) {
 
     // If edge_query is specified, load edges separately
     if (rOpts.edge_query) {
-        const edges = await fetchQuery(rOpts.edge_query, rOpts.edge_params || {});
+        // Resolve $variable references in edge_params (e.g. "$profile_id" → globalControls value)
+        const resolvedParams = {};
+        for (const [k, v] of Object.entries(rOpts.edge_params || {})) {
+            resolvedParams[k] = (typeof v === 'string' && v.startsWith('$'))
+                ? (globalControls[v.slice(1)] ?? v) : v;
+        }
+        const edges = await fetchQuery(rOpts.edge_query, resolvedParams);
         console.log(`[radial] edge_query="${rOpts.edge_query}" returned ${edges.length} edges`);
         const childKey = rOpts.edge_child_key || 'child_id';
         const parentKey = rOpts.edge_parent_key || 'parent_id';
@@ -240,6 +247,35 @@ function computeRadialLayout(root, view) {
         })
         (root);
 
+    // --- Dynamic radius: ensure minimum spacing between adjacent leaves ---
+    const MIN_SPACING = 20; // minimum arc distance in pixels
+    const leaves = [];
+    root.each(d => {
+        if (!d.children && !d._children) leaves.push(d);
+    });
+
+    if (leaves.length >= 2) {
+        leaves.sort((a, b) => a.x - b.x);
+        let minDeltaTheta = Infinity;
+        for (let i = 1; i < leaves.length; i++) {
+            const delta = leaves[i].x - leaves[i - 1].x;
+            if (delta > 0 && delta < minDeltaTheta) minDeltaTheta = delta;
+        }
+        // Wrap-around gap
+        const wrapDelta = 360 - leaves[leaves.length - 1].x + leaves[0].x;
+        if (wrapDelta > 0 && wrapDelta < minDeltaTheta) minDeltaTheta = wrapDelta;
+
+        if (minDeltaTheta > 0 && minDeltaTheta < Infinity) {
+            const minDeltaRad = minDeltaTheta * Math.PI / 180;
+            const minArc = radialOuterRadius * minDeltaRad;
+            if (minArc < MIN_SPACING) {
+                const scaleFactor = MIN_SPACING / minArc;
+                radialOuterRadius *= scaleFactor;
+                root.each(d => { d.y *= scaleFactor; });
+            }
+        }
+    }
+
     // Override radii by rank if specified
     const rankRadius = rOpts.rank_radius;
     const rankKey = view.hierarchy_options.rank_key || 'rank';
@@ -258,6 +294,17 @@ function computeRadialLayout(root, view) {
         node.cx = node.y * Math.cos(angle);
         node.cy = node.y * Math.sin(angle);
     });
+}
+
+// --- Fit Transform ---
+
+function computeFitTransform() {
+    const padding = 40;
+    const fitScale = Math.min(radialWidth, radialHeight) / (2 * radialOuterRadius + padding);
+    if (fitScale < 1) {
+        return d3.zoomIdentity.scale(fitScale);
+    }
+    return d3.zoomIdentity;
 }
 
 // --- Colors ---
@@ -358,6 +405,8 @@ function buildRadialToolbar(view) {
                 computeRadialLayout(radialRoot, radialViewDef);
                 assignRadialColors(radialRoot, radialViewDef);
                 buildRadialQuadtree(radialRoot);
+                radialTransform = computeFitTransform();
+                d3.select(radialCanvas).call(radialZoom.transform, radialTransform);
                 renderRadial();
             }
         });
@@ -373,7 +422,7 @@ function buildRadialToolbar(view) {
             } else {
                 d3.select(radialCanvas)
                     .transition().duration(500)
-                    .call(radialZoom.transform, d3.zoomIdentity);
+                    .call(radialZoom.transform, computeFitTransform());
             }
         });
     }
@@ -738,9 +787,9 @@ function navigateToSubtree(nodeId) {
     assignRadialColors(radialRoot, radialViewDef);
     buildRadialQuadtree(radialRoot);
 
-    // Reset zoom to center
-    radialTransform = d3.zoomIdentity;
-    d3.select(radialCanvas).call(radialZoom.transform, d3.zoomIdentity);
+    // Fit zoom to center
+    radialTransform = computeFitTransform();
+    d3.select(radialCanvas).call(radialZoom.transform, radialTransform);
     renderRadial();
     updateRadialBreadcrumb();
 }
@@ -804,8 +853,8 @@ function clearSubtreeRoot() {
     computeRadialLayout(radialRoot, radialViewDef);
     assignRadialColors(radialRoot, radialViewDef);
     buildRadialQuadtree(radialRoot);
-    radialTransform = d3.zoomIdentity;
-    d3.select(radialCanvas).call(radialZoom.transform, d3.zoomIdentity);
+    radialTransform = computeFitTransform();
+    d3.select(radialCanvas).call(radialZoom.transform, radialTransform);
     renderRadial();
     updateRadialBreadcrumb();
 }

@@ -24,6 +24,9 @@ let tableViewSearchTerm = '';
 // Shared query cache — fetch once, reuse across search index + tab views
 let queryCache = {};
 
+// Global controls state (populated from manifest.global_controls)
+let globalControls = {};
+
 // Global search state
 let searchIndex = null;
 let searchIndexLoading = false;
@@ -74,6 +77,15 @@ async function loadManifest() {
             }
         }
 
+        // Parse global controls (e.g. profile selectors)
+        if (manifest && manifest.global_controls) {
+            for (const ctrl of manifest.global_controls) {
+                const stored = localStorage.getItem(`scoda_ctrl_${ctrl.param}`);
+                globalControls[ctrl.param] = stored !== null ? JSON.parse(stored) : ctrl.default;
+            }
+            renderGlobalControls();
+        }
+
         buildViewTabs();
 
         // Show package name as main title, SCODA Desktop as subtitle
@@ -91,16 +103,64 @@ async function loadManifest() {
 }
 
 /**
+ * Render global controls (e.g. classification profile selector) into the tab bar.
+ */
+async function renderGlobalControls() {
+    const container = document.getElementById('global-controls');
+    if (!container || !manifest || !manifest.global_controls) return;
+
+    let html = '';
+    for (const ctrl of manifest.global_controls) {
+        if (ctrl.type === 'select' && ctrl.source_query) {
+            html += `<div class="global-control-item">
+                <label class="global-control-label">${ctrl.label || ctrl.param}</label>
+                <select class="global-control-select" data-param="${ctrl.param}" id="gc-${ctrl.param}">
+                    <option value="">Loading...</option>
+                </select>
+            </div>`;
+        }
+    }
+    container.innerHTML = html;
+
+    // Populate select options from source queries
+    for (const ctrl of manifest.global_controls) {
+        if (ctrl.type === 'select' && ctrl.source_query) {
+            try {
+                const rows = await fetchQuery(ctrl.source_query);
+                const sel = document.getElementById(`gc-${ctrl.param}`);
+                if (!sel) continue;
+                const valueKey = ctrl.value_key || 'id';
+                const labelKey = ctrl.label_key || 'name';
+                sel.innerHTML = rows.map(r =>
+                    `<option value="${r[valueKey]}" ${r[valueKey] == globalControls[ctrl.param] ? 'selected' : ''}>${r[labelKey]}</option>`
+                ).join('');
+                sel.addEventListener('change', () => {
+                    const val = parseInt(sel.value, 10);
+                    globalControls[ctrl.param] = isNaN(val) ? sel.value : val;
+                    localStorage.setItem(`scoda_ctrl_${ctrl.param}`, JSON.stringify(globalControls[ctrl.param]));
+                    queryCache = {};
+                    switchToView(currentView);
+                });
+            } catch (e) {
+                console.warn(`Failed to load options for ${ctrl.param}:`, e);
+            }
+        }
+    }
+}
+
+/**
  * Fetch a named query with caching. Returns cached rows if available.
  * @param {string} queryName - Named query to execute
  * @param {Object} [params] - Optional URL query parameters
  */
 async function fetchQuery(queryName, params) {
-    const cacheKey = params ? `${queryName}?${new URLSearchParams(params)}` : queryName;
+    const mergedParams = { ...globalControls, ...params };
+    const hasParams = Object.keys(mergedParams).length > 0;
+    const cacheKey = hasParams ? `${queryName}?${new URLSearchParams(mergedParams)}` : queryName;
     if (queryCache[cacheKey]) return queryCache[cacheKey];
     let url = `/api/queries/${queryName}/execute`;
-    if (params && Object.keys(params).length > 0) {
-        url += '?' + new URLSearchParams(params);
+    if (hasParams) {
+        url += '?' + new URLSearchParams(mergedParams);
     }
     const response = await fetch(url);
     if (!response.ok) throw new Error(`Query failed: ${queryName}`);
@@ -679,7 +739,7 @@ function createTreeNode(node) {
     const idKey = hOpts.id_key || 'id';
 
     const hasChildren = node.children && node.children.length > 0;
-    const isLeaf = node[rankKey] === leafRank;
+    const isLeaf = node[rankKey] === leafRank || (!hasChildren && leafRank);
 
     // Node content
     const content = document.createElement('div');
@@ -809,7 +869,8 @@ async function selectTreeLeaf(leafId, leafName) {
         let items;
         if (tOpts.item_query && tOpts.item_param) {
             const baseUrl = `/api/queries/${tOpts.item_query}/execute`;
-            const url = `${baseUrl}?${tOpts.item_param}=${leafId}`;
+            const qp = new URLSearchParams({ ...globalControls, [tOpts.item_param]: leafId });
+            const url = `${baseUrl}?${qp}`;
             const response = await fetch(url);
             if (!response.ok) throw new Error('Failed to load items');
             const data = await response.json();
