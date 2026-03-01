@@ -773,6 +773,43 @@ html, body {
     margin-top: 2px;
 }
 
+.radial-context-menu {
+    position: absolute;
+    z-index: 30;
+    background: #fff;
+    border: 1px solid #dee2e6;
+    border-radius: 6px;
+    padding: 4px 0;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.18);
+    min-width: 160px;
+    font-size: 0.85rem;
+}
+
+.radial-context-menu .rcm-item {
+    padding: 6px 14px;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.radial-context-menu .rcm-item:hover {
+    background: #e9ecef;
+}
+
+.radial-context-menu .rcm-item i {
+    font-size: 0.9rem;
+    color: #6c757d;
+    width: 16px;
+    text-align: center;
+}
+
+.radial-context-menu .rcm-sep {
+    height: 1px;
+    background: #dee2e6;
+    margin: 4px 0;
+}
+
 /* Global Search */
 .global-search-container {
     position: relative;

@@ -14,6 +14,7 @@ import json
 import logging
 import os
 import sqlite3
+import time
 
 logger = logging.getLogger(__name__)
 
@@ -537,7 +538,9 @@ def api_auto_detail(table_name: str, request: Request):
 @app.get('/', response_class=HTMLResponse)
 def index(request: Request):
     """Main page — generic viewer."""
-    return templates.TemplateResponse(request, "index.html")
+    return templates.TemplateResponse(request, "index.html", {
+        "cache_bust": int(time.time()),
+    })
 
 
 

@@ -9,6 +9,9 @@ let d3Ready = null;
 
 // Radial view state
 let radialRoot = null;
+let radialFullRoot = null;   // Full tree (with leaf rank)
+let radialPrunedRoot = null; // Pruned tree (leaf rank removed)
+let radialSubtreeNode = null; // Current subtree root (null = whole tree)
 let radialViewDef = null;
 let radialViewKey = null;
 let radialTransform = null;
@@ -62,9 +65,10 @@ async function loadRadialView(viewKey) {
 
     radialViewDef = view;
     radialViewKey = viewKey;
-    radialDepthHidden = false;
+    radialDepthHidden = true;  // Start with pruned tree (Family level)
     radialSearchMatches = [];
     radialFocusNode = null;
+    radialSubtreeNode = null;
 
     // Setup canvas
     radialCanvas = document.getElementById('radial-canvas');
@@ -77,14 +81,16 @@ async function loadRadialView(viewKey) {
     // Build toolbar
     buildRadialToolbar(view);
 
-    // Fetch data and build hierarchy
+    // Fetch data and build hierarchy (builds both full and pruned trees)
     try {
-        radialRoot = await buildRadialHierarchy(view);
+        await buildRadialHierarchy(view);
     } catch (e) {
         wrap.innerHTML = `<div class="text-danger">Error loading data: ${e.message}</div>`;
         return;
     }
 
+    // Start with pruned tree if available, otherwise full
+    radialRoot = radialPrunedRoot || radialFullRoot;
     if (!radialRoot) {
         wrap.innerHTML = '<div class="text-muted" style="padding:20px;text-align:center;">No hierarchy data found.</div>';
         return;
@@ -119,31 +125,80 @@ async function buildRadialHierarchy(view) {
 
     // If edge_query is specified, load edges separately
     if (rOpts.edge_query) {
-        const edges = await fetchQuery(rOpts.edge_query);
-        const parentMap = new Map(edges.map(e => [e.child_id, e.parent_id]));
+        const edges = await fetchQuery(rOpts.edge_query, rOpts.edge_params || {});
+        console.log(`[radial] edge_query="${rOpts.edge_query}" returned ${edges.length} edges`);
+        const childKey = rOpts.edge_child_key || 'child_id';
+        const parentKey = rOpts.edge_parent_key || 'parent_id';
+        if (edges.length > 0) {
+            console.log(`[radial] edge[0] keys:`, Object.keys(edges[0]), JSON.stringify(edges[0]));
+        }
+        // Use String keys to avoid number/string type mismatch between queries
+        const parentMap = new Map(edges.map(e => [String(e[childKey]), e[parentKey]]));
+        const edgeChildIds = new Set(edges.map(e => String(e[childKey])));
         rows.forEach(n => {
-            n[hOpts.parent_key] = parentMap.get(n[hOpts.id_key]) || null;
+            const mapped = parentMap.get(String(n[hOpts.id_key]));
+            n[hOpts.parent_key] = mapped !== undefined ? mapped : null;
         });
-    }
 
-    const root = d3.stratify()
-        .id(d => d[hOpts.id_key])
-        .parentId(d => d[hOpts.parent_key])
-        (rows);
-
-    // Sum counts
-    const countKey = rOpts.count_key || hOpts.count_key;
-    if (countKey) {
-        root.sum(d => d[countKey] || 0);
+        // Remove orphan nodes (not part of the classification tree)
+        const edgeParentIds = new Set(edges.map(e => String(e[parentKey])));
+        const before = rows.length;
+        const filtered = rows.filter(n => {
+            const id = String(n[hOpts.id_key]);
+            // Keep if: is a child in an edge, OR is a parent in an edge
+            return edgeChildIds.has(id) || edgeParentIds.has(id);
+        });
+        rows.length = 0;
+        rows.push(...filtered);
+        console.log(`[radial] filtered orphans: ${before} → ${rows.length} nodes`);
     } else {
-        root.count();
+        console.log('[radial] no edge_query configured');
     }
 
-    // Sort by label for consistent layout
-    const labelKey = hOpts.label_key || 'name';
-    root.sort((a, b) => (a.data[labelKey] || '').localeCompare(b.data[labelKey] || ''));
+    // If multiple roots, insert a virtual root so d3.stratify() works
+    const idKey = hOpts.id_key;
+    const parentKey = hOpts.parent_key;
+    const roots = rows.filter(r => !r[parentKey]);
+    console.log(`[radial] ${rows.length} nodes, ${roots.length} root(s)`);
+    if (roots.length > 1) {
+        const virtualRoot = { [idKey]: '__virtual_root__', [parentKey]: null };
+        virtualRoot[hOpts.label_key || 'name'] = '';
+        virtualRoot[hOpts.rank_key || 'rank'] = '_root';
+        rows.unshift(virtualRoot);
+        roots.forEach(r => { r[parentKey] = '__virtual_root__'; });
+    }
 
-    return root;
+    const stratify = d3.stratify().id(d => d[idKey]).parentId(d => d[parentKey]);
+    const labelKey = hOpts.label_key || 'name';
+    const countKey = rOpts.count_key || hOpts.count_key;
+    const rankKey = hOpts.rank_key || 'rank';
+    const leafRank = rOpts.leaf_rank;
+
+    function buildTree(data) {
+        const tree = stratify(data);
+        if (countKey) { tree.sum(d => d[countKey] || 0); } else { tree.count(); }
+        // Sort: non-leaf ranks first (alphabetically), then leaf rank (alphabetically)
+        tree.sort((a, b) => {
+            const aIsLeaf = leafRank && a.data[rankKey] === leafRank;
+            const bIsLeaf = leafRank && b.data[rankKey] === leafRank;
+            if (aIsLeaf !== bIsLeaf) return aIsLeaf ? 1 : -1;
+            return (a.data[labelKey] || '').localeCompare(b.data[labelKey] || '');
+        });
+        return tree;
+    }
+
+    // Full tree (all nodes)
+    radialFullRoot = buildTree(rows);
+
+    // Pruned tree (leaf rank removed) — for depth toggle
+    if (leafRank) {
+        const prunedRows = rows.filter(r => r[rankKey] !== leafRank);
+        if (prunedRows.length > 0) {
+            radialPrunedRoot = buildTree(prunedRows);
+        }
+    }
+
+    return radialFullRoot;
 }
 
 // --- Layout ---
@@ -152,7 +207,38 @@ function computeRadialLayout(root, view) {
     const rOpts = view.radial_display || {};
     radialOuterRadius = Math.min(radialWidth, radialHeight) * 0.42;
 
-    d3.cluster().size([360, radialOuterRadius])(root);
+    // d3.tree() assigns each depth level an equal radius band,
+    // producing proper concentric circles (unlike d3.cluster which
+    // collapses all leaves to the outermost ring).
+    // Custom separation: more angular gap for higher-level boundaries
+    // and extra space for collapsed nodes
+    d3.tree()
+        .size([360, radialOuterRadius])
+        .separation((a, b) => {
+            // Collapsed nodes need more space (they represent hidden subtrees)
+            const collapsedWeight = (a._children ? 3 : 0) + (b._children ? 3 : 0);
+
+            let base;
+            if (a.parent === b.parent) {
+                base = 1;
+            } else {
+                // Find depth of lowest common ancestor
+                let da = a.parent, db = b.parent;
+                const ancestorsA = new Set();
+                while (da) { ancestorsA.add(da); da = da.parent; }
+                let lcaDepth = 0;
+                while (db) {
+                    if (ancestorsA.has(db)) { lcaDepth = db.depth; break; }
+                    db = db.parent;
+                }
+                const maxDepth = Math.max(a.depth, b.depth);
+                const distance = maxDepth - lcaDepth;
+                base = 1 + distance * 0.5;
+            }
+
+            return base + collapsedWeight;
+        })
+        (root);
 
     // Override radii by rank if specified
     const rankRadius = rOpts.rank_radius;
@@ -236,9 +322,9 @@ function buildRadialToolbar(view) {
     // Search
     html += '<input type="text" id="radial-search" placeholder="Search nodes..." autocomplete="off">';
 
-    // Depth toggle
+    // Depth toggle (starts active = pruned)
     if (rOpts.depth_toggle && rOpts.leaf_rank) {
-        html += `<button id="radial-depth-btn" title="Toggle leaf nodes">
+        html += `<button id="radial-depth-btn" class="active" title="Toggle leaf nodes">
                     <i class="bi bi-layers"></i> ${rOpts.leaf_rank}
                  </button>`;
     }
@@ -258,24 +344,37 @@ function buildRadialToolbar(view) {
         });
     }
 
-    // Event: depth toggle
+    // Event: depth toggle — switch between full and pruned tree
     const depthBtn = document.getElementById('radial-depth-btn');
     if (depthBtn) {
         depthBtn.addEventListener('click', () => {
             radialDepthHidden = !radialDepthHidden;
             depthBtn.classList.toggle('active', radialDepthHidden);
-            renderRadial();
+            // If viewing a subtree, rebuild from subtree node in the new source tree
+            if (radialSubtreeNode) {
+                navigateToSubtree(radialSubtreeNode.id);
+            } else {
+                radialRoot = radialDepthHidden && radialPrunedRoot ? radialPrunedRoot : radialFullRoot;
+                computeRadialLayout(radialRoot, radialViewDef);
+                assignRadialColors(radialRoot, radialViewDef);
+                buildRadialQuadtree(radialRoot);
+                renderRadial();
+            }
         });
     }
 
-    // Event: reset
+    // Event: reset — back to full tree, reset zoom
     const resetBtn = document.getElementById('radial-reset-btn');
     if (resetBtn) {
         resetBtn.addEventListener('click', () => {
             radialFocusNode = null;
-            const svg = d3.select('#radial-canvas-wrap');
-            svg.transition().duration(500).call(radialZoom.transform, d3.zoomIdentity);
-            updateRadialBreadcrumb();
+            if (radialSubtreeNode) {
+                clearSubtreeRoot();
+            } else {
+                d3.select(radialCanvas)
+                    .transition().duration(500)
+                    .call(radialZoom.transform, d3.zoomIdentity);
+            }
         });
     }
 }
@@ -320,10 +419,17 @@ function setupRadialZoom() {
 
     d3.select(radialCanvas)
         .call(radialZoom)
-        .on('dblclick.zoom', null)  // disable default double-click zoom
+        .on('dblclick.zoom', null)
         .on('mousemove', onRadialMouseMove)
         .on('click', onRadialClick)
-        .on('dblclick', onRadialDblClick);
+        .on('contextmenu', onRadialContextMenu);
+
+    // Close context menu on click anywhere
+    document.addEventListener('click', hideRadialContextMenu);
+    document.addEventListener('contextmenu', (e) => {
+        // Only close if not on the radial canvas (canvas handles its own)
+        if (e.target !== radialCanvas) hideRadialContextMenu();
+    });
 }
 
 function zoomToNode(node, scale) {
@@ -412,36 +518,296 @@ function onRadialClick(event) {
 
     const rOpts = radialViewDef.radial_display || {};
 
-    // Detail modal integration
-    if (rOpts.on_node_click && nearest.data[rOpts.on_node_click.id_field]) {
-        const detailView = rOpts.on_node_click.detail_view;
-        if (detailView && typeof openDetailModal === 'function') {
-            openDetailModal(detailView, nearest.data[rOpts.on_node_click.id_field]);
-            return;
+    const isLeaf = isLeafByRank(nearest);
+
+    // Leaf node → detail modal
+    if (isLeaf) {
+        if (rOpts.on_node_click) {
+            const idKey = rOpts.on_node_click.id_key || rOpts.on_node_click.id_field;
+            const detailView = rOpts.on_node_click.detail_view;
+            if (detailView && idKey && nearest.data[idKey] && typeof openDetailModal === 'function') {
+                openDetailModal(detailView, nearest.data[idKey]);
+            }
+        }
+        return;
+    }
+
+    // Internal node → toggle collapse/expand
+    toggleRadialNode(nearest);
+}
+
+function toggleRadialNode(node) {
+    if (node._children) {
+        // Expand: restore children
+        node.children = node._children;
+        node._children = null;
+    } else if (node.children) {
+        // Collapse: hide children
+        node._children = node.children;
+        node.children = null;
+    } else {
+        return; // leaf — nothing to toggle
+    }
+
+    // Recount after structure change
+    const rOpts = radialViewDef.radial_display || {};
+    const countKey = rOpts.count_key || radialViewDef.hierarchy_options.count_key;
+    if (countKey) {
+        radialRoot.sum(d => d[countKey] || 0);
+    } else {
+        radialRoot.count();
+    }
+
+    // Recompute layout
+    computeRadialLayout(radialRoot, radialViewDef);
+    assignRadialColors(radialRoot, radialViewDef);
+    buildRadialQuadtree(radialRoot);
+    renderRadial();
+}
+
+// --- Context Menu ---
+
+let radialContextTarget = null;  // node that was right-clicked
+
+function onRadialContextMenu(event) {
+    event.preventDefault();
+    if (!radialQuadtree || !radialTransform) return;
+
+    const [mx, my] = d3.pointer(event, radialCanvas);
+    const cx = radialWidth / 2;
+    const cy = radialHeight / 2;
+
+    const dx = (mx - radialTransform.x - cx * radialTransform.k) / radialTransform.k + cx;
+    const dy = (my - radialTransform.y - cy * radialTransform.k) / radialTransform.k + cy;
+    const dataX = dx - cx;
+    const dataY = dy - cy;
+
+    const searchRadius = 15 / radialTransform.k;
+    const nearest = radialQuadtree.find(dataX, dataY, searchRadius);
+
+    if (!nearest || isNodeHidden(nearest)) {
+        hideRadialContextMenu();
+        return;
+    }
+
+    radialContextTarget = nearest;
+    showRadialContextMenu(event, nearest);
+}
+
+function showRadialContextMenu(event, node) {
+    const menu = document.getElementById('radial-context-menu');
+    if (!menu) return;
+
+    // Hide tooltip
+    const tooltip = document.getElementById('radial-tooltip');
+    if (tooltip) tooltip.style.display = 'none';
+
+    const labelKey = radialViewDef.hierarchy_options.label_key || 'name';
+    const rankKey = radialViewDef.hierarchy_options.rank_key || 'rank';
+    const label = node.data[labelKey] || node.id;
+    const rank = node.data[rankKey] || '';
+    const isLeaf = isLeafByRank(node);
+    const hasChildren = node.children || node._children;
+
+    let html = '';
+
+    // Header: node name
+    html += `<div style="padding:6px 14px;font-weight:600;font-size:0.8rem;color:#6c757d;border-bottom:1px solid #eee;">${rank ? rank + ': ' : ''}${label}</div>`;
+
+    // "View as root" — only for internal nodes
+    if (!isLeaf && hasChildren) {
+        html += `<div class="rcm-item" onclick="rcmViewAsRoot()"><i class="bi bi-diagram-3"></i> View as root</div>`;
+    }
+
+    // "Expand / Collapse" — for internal nodes
+    if (hasChildren) {
+        if (node._children) {
+            html += `<div class="rcm-item" onclick="rcmToggle()"><i class="bi bi-chevron-expand"></i> Expand</div>`;
+        } else if (node.children) {
+            html += `<div class="rcm-item" onclick="rcmToggle()"><i class="bi bi-chevron-contract"></i> Collapse</div>`;
         }
     }
 
-    // If internal node, zoom into subtree
-    if (nearest.children && nearest.children.length > 0) {
-        radialFocusNode = nearest;
-        zoomToNode(nearest, Math.min(radialTransform.k * 2, 15));
-        updateRadialBreadcrumb();
+    // "Zoom to" — always available
+    html += `<div class="rcm-item" onclick="rcmZoomTo()"><i class="bi bi-search"></i> Zoom to</div>`;
+
+    // "Detail" — for leaf nodes with detail_view configured
+    const rOpts = radialViewDef.radial_display || {};
+    if (isLeaf && rOpts.on_node_click) {
+        html += `<div class="rcm-item" onclick="rcmDetail()"><i class="bi bi-info-circle"></i> Detail</div>`;
+    }
+
+    menu.innerHTML = html;
+    menu.style.display = 'block';
+
+    // Position near the mouse, inside the canvas wrap
+    const wrap = document.getElementById('radial-canvas-wrap');
+    const wrapRect = wrap.getBoundingClientRect();
+    let left = event.clientX - wrapRect.left;
+    let top = event.clientY - wrapRect.top;
+
+    menu.style.left = left + 'px';
+    menu.style.top = top + 'px';
+
+    // Keep inside viewport
+    requestAnimationFrame(() => {
+        const menuRect = menu.getBoundingClientRect();
+        if (menuRect.right > wrapRect.right) {
+            menu.style.left = (left - menuRect.width) + 'px';
+        }
+        if (menuRect.bottom > wrapRect.bottom) {
+            menu.style.top = (top - menuRect.height) + 'px';
+        }
+    });
+}
+
+function hideRadialContextMenu() {
+    const menu = document.getElementById('radial-context-menu');
+    if (menu) menu.style.display = 'none';
+    radialContextTarget = null;
+}
+
+function rcmViewAsRoot() {
+    const node = radialContextTarget;
+    hideRadialContextMenu();
+    if (node) setSubtreeRoot(node);
+}
+
+function rcmToggle() {
+    const node = radialContextTarget;
+    hideRadialContextMenu();
+    if (node) toggleRadialNode(node);
+}
+
+function rcmZoomTo() {
+    const node = radialContextTarget;
+    hideRadialContextMenu();
+    if (node) zoomToNode(node, 4);
+}
+
+function rcmDetail() {
+    const node = radialContextTarget;
+    hideRadialContextMenu();
+    if (!node) return;
+    const rOpts = radialViewDef.radial_display || {};
+    if (rOpts.on_node_click) {
+        const idKey = rOpts.on_node_click.id_key || rOpts.on_node_click.id_field;
+        const detailView = rOpts.on_node_click.detail_view;
+        if (detailView && idKey && node.data[idKey] && typeof openDetailModal === 'function') {
+            openDetailModal(detailView, node.data[idKey]);
+        }
     }
 }
 
-function onRadialDblClick(event) {
-    event.preventDefault();
-    if (radialFocusNode && radialFocusNode.parent) {
-        radialFocusNode = radialFocusNode.parent === radialRoot ? null : radialFocusNode.parent;
-        if (radialFocusNode) {
-            zoomToNode(radialFocusNode, Math.max(radialTransform.k / 2, 0.5));
+function setSubtreeRoot(node) {
+    if (!node) return;
+
+    // Find the matching node in the appropriate source tree
+    const sourceTree = radialDepthHidden && radialPrunedRoot ? radialPrunedRoot : radialFullRoot;
+
+    // If already viewing this subtree, go back up
+    if (radialSubtreeNode && radialSubtreeNode.id === node.id) {
+        // Go up to parent subtree, or back to full tree
+        if (radialSubtreeNode.parent && !isNodeHidden(radialSubtreeNode.parent)) {
+            navigateToSubtree(radialSubtreeNode.parent.id);
         } else {
-            d3.select(radialCanvas)
-                .transition().duration(500)
-                .call(radialZoom.transform, d3.zoomIdentity);
+            clearSubtreeRoot();
         }
-        updateRadialBreadcrumb();
+        return;
     }
+
+    navigateToSubtree(node.id);
+}
+
+function navigateToSubtree(nodeId) {
+    const sourceTree = radialDepthHidden && radialPrunedRoot ? radialPrunedRoot : radialFullRoot;
+
+    // Find node in source tree
+    let targetNode = null;
+    sourceTree.each(d => { if (d.id === nodeId) targetNode = d; });
+    if (!targetNode || isLeafByRank(targetNode)) return;
+
+    radialSubtreeNode = targetNode;
+
+    // Build a subtree copy using d3.hierarchy from this node's descendants
+    const subtreeRoot = buildSubtreeFromNode(targetNode);
+    if (!subtreeRoot) return;
+
+    radialRoot = subtreeRoot;
+    computeRadialLayout(radialRoot, radialViewDef);
+    assignRadialColors(radialRoot, radialViewDef);
+    buildRadialQuadtree(radialRoot);
+
+    // Reset zoom to center
+    radialTransform = d3.zoomIdentity;
+    d3.select(radialCanvas).call(radialZoom.transform, d3.zoomIdentity);
+    renderRadial();
+    updateRadialBreadcrumb();
+}
+
+function buildSubtreeFromNode(node) {
+    // Deep-copy the subtree as a d3.hierarchy
+    const idKey = radialViewDef.hierarchy_options.id_key || 'id';
+    const rankKey = radialViewDef.hierarchy_options.rank_key || 'rank';
+    const rOpts = radialViewDef.radial_display || {};
+    const countKey = rOpts.count_key || radialViewDef.hierarchy_options.count_key;
+    const labelKey = radialViewDef.hierarchy_options.label_key || 'name';
+    const leafRank = rOpts.leaf_rank;
+
+    function copyNode(src) {
+        const copy = d3.hierarchy(src.data);
+        copy.id = src.id;
+        // Copy collapsed state
+        if (src._children && !src.children) {
+            copy.children = null;
+            copy._children = src._children.map(copyNode);
+        } else if (src.children) {
+            copy.children = src.children.map(copyNode);
+            if (copy.children.length === 0) copy.children = null;
+        } else {
+            copy.children = null;
+        }
+        // Set parent references
+        if (copy.children) {
+            copy.children.forEach(c => { c.parent = copy; });
+        }
+        if (copy._children) {
+            copy._children.forEach(c => { c.parent = copy; });
+        }
+        return copy;
+    }
+
+    const root = copyNode(node);
+    root.parent = null;
+
+    // Recompute counts
+    if (countKey) {
+        root.sum(d => d[countKey] || 0);
+    } else {
+        root.count();
+    }
+
+    // Sort
+    root.sort((a, b) => {
+        const aIsLeaf = leafRank && a.data[rankKey] === leafRank;
+        const bIsLeaf = leafRank && b.data[rankKey] === leafRank;
+        if (aIsLeaf !== bIsLeaf) return aIsLeaf ? 1 : -1;
+        return (a.data[labelKey] || '').localeCompare(b.data[labelKey] || '');
+    });
+
+    return root;
+}
+
+function clearSubtreeRoot() {
+    radialSubtreeNode = null;
+    radialRoot = radialDepthHidden && radialPrunedRoot ? radialPrunedRoot : radialFullRoot;
+    computeRadialLayout(radialRoot, radialViewDef);
+    assignRadialColors(radialRoot, radialViewDef);
+    buildRadialQuadtree(radialRoot);
+    radialTransform = d3.zoomIdentity;
+    d3.select(radialCanvas).call(radialZoom.transform, d3.zoomIdentity);
+    renderRadial();
+    updateRadialBreadcrumb();
 }
 
 // --- Breadcrumb ---
@@ -450,36 +816,39 @@ function updateRadialBreadcrumb() {
     const bc = document.getElementById('radial-breadcrumb');
     if (!bc) return;
 
-    if (!radialFocusNode) {
+    if (!radialSubtreeNode) {
         bc.innerHTML = '';
         return;
     }
 
     const labelKey = radialViewDef.hierarchy_options.label_key || 'name';
-    const path = radialFocusNode.ancestors().reverse();
-    const parts = path.map((node, i) => {
+    // Build path from the source tree's root to the subtree node
+    const path = radialSubtreeNode.ancestors().reverse();
+    const parts = [];
+
+    // "All" link to go back to full tree
+    parts.push('<span onclick="radialBcClick(null)">All</span>');
+
+    path.forEach((node, i) => {
+        if (isNodeHidden(node)) return;  // skip virtual root
         const label = node.data[labelKey] || node.id || 'Root';
-        const isCurrent = i === path.length - 1;
-        return `<span class="${isCurrent ? 'current' : ''}" onclick="radialBcClick('${node.id}')">${label}</span>`;
+        const isCurrent = node.id === radialSubtreeNode.id;
+        const cls = isCurrent ? 'current' : '';
+        parts.push(`<span class="${cls}" onclick="radialBcClick('${node.id}')">${label}</span>`);
     });
+
     bc.innerHTML = parts.join('<span class="bc-sep">/</span>');
 }
 
 function radialBcClick(nodeId) {
-    if (!radialRoot) return;
-    let target = null;
-    radialRoot.each(d => { if (d.id === nodeId) target = d; });
-    if (target) {
-        radialFocusNode = target === radialRoot ? null : target;
-        if (radialFocusNode) {
-            zoomToNode(radialFocusNode, 3);
-        } else {
-            d3.select(radialCanvas)
-                .transition().duration(500)
-                .call(radialZoom.transform, d3.zoomIdentity);
-        }
-        updateRadialBreadcrumb();
+    if (!nodeId) {
+        // Click "All" → back to full tree
+        clearSubtreeRoot();
+        return;
     }
+
+    // Navigate to the clicked ancestor as subtree root
+    navigateToSubtree(nodeId);
 }
 
 // --- Rendering ---
@@ -500,11 +869,17 @@ function resizeRadialCanvas() {
 }
 
 function isNodeHidden(node) {
-    if (!radialDepthHidden) return false;
+    // Always hide the virtual root inserted for multiple-root trees
+    if (node.data[radialViewDef.hierarchy_options.id_key || 'id'] === '__virtual_root__') return true;
+    return false;
+}
+
+function isLeafByRank(node) {
     const rOpts = radialViewDef.radial_display || {};
     const leafRank = rOpts.leaf_rank;
+    if (!leafRank) return !node.children || node.children.length === 0;
     const rankKey = radialViewDef.hierarchy_options.rank_key || 'rank';
-    return leafRank && node.data[rankKey] === leafRank;
+    return node.data[rankKey] === leafRank;
 }
 
 function renderRadial() {
@@ -586,11 +961,11 @@ function drawNodes(ctx, k) {
     radialRoot.each(node => {
         if (isNodeHidden(node)) return;
 
-        const isLeaf = !node.children || node.children.length === 0;
+        const leaf = isLeafByRank(node);
         const isSearch = searchIds.has(node.id);
 
         // Node size: bigger for higher rank nodes
-        let radius = isLeaf ? 2 : Math.max(3, 6 - node.depth);
+        let radius = leaf ? 2 : Math.max(3, 6 - node.depth);
         if (isSearch) radius = Math.max(radius, 5);
 
         // Draw node
@@ -605,8 +980,26 @@ function drawNodes(ctx, k) {
             ctx.stroke();
         }
 
+        // Collapsed indicator: filled circle with border
+        if (node._children) {
+            ctx.beginPath();
+            ctx.arc(node.cx, node.cy, radius + 3, 0, Math.PI * 2);
+            ctx.strokeStyle = node._color || '#6c757d';
+            ctx.lineWidth = 2;
+            ctx.stroke();
+            // Small "+" sign
+            const s = radius + 1;
+            ctx.strokeStyle = '#fff';
+            ctx.lineWidth = 1.5;
+            ctx.beginPath();
+            ctx.moveTo(node.cx - s, node.cy);
+            ctx.lineTo(node.cx + s, node.cy);
+            ctx.moveTo(node.cx, node.cy - s);
+            ctx.lineTo(node.cx, node.cy + s);
+            ctx.stroke();
+        }
         // Arc for internal nodes with value (count)
-        if (!isLeaf && node.value > 0 && k > 1) {
+        else if (!leaf && node.value > 0 && k > 1) {
             const arcThickness = Math.min(node.value / (radialRoot.value || 1) * 8, 4);
             if (arcThickness > 0.3) {
                 ctx.beginPath();
@@ -634,7 +1027,9 @@ function updateRadialLabels(t) {
 
     // Determine which nodes get labels based on zoom level
     const labelsToShow = [];
-    const maxLabels = 150;
+    const maxLabels = 500;
+    const rOpts = radialViewDef.radial_display || {};
+    const leafRank = rOpts.leaf_rank;  // e.g. "Genus"
 
     // Viewport bounds in data coordinates
     const vpLeft = (-t.x - cx * t.k) / t.k;
@@ -642,29 +1037,24 @@ function updateRadialLabels(t) {
     const vpRight = vpLeft + radialWidth / t.k;
     const vpBottom = vpTop + radialHeight / t.k;
 
+    // Use rank (not d3 leaf status) to decide leaf vs non-leaf
+    function isLeafRank(node) {
+        return leafRank && node.data[rankKey] === leafRank;
+    }
+
     radialRoot.each(node => {
         if (isNodeHidden(node)) return;
 
-        const isLeaf = !node.children || node.children.length === 0;
-        const depth = node.depth;
-
         let show = false;
 
-        if (depth === 0) {
-            show = true; // always show root
-        } else if (depth === 1) {
-            show = k >= 0.5; // top-level children
-        } else if (k < 1.5) {
-            show = depth <= 1;
-        } else if (k < 3) {
-            show = depth <= 2;
-        } else if (k < 6) {
-            show = !isLeaf || depth <= 3;
+        if (!isLeafRank(node)) {
+            // Non-leaf ranks (Class, Order, Family, etc.) — always show
+            show = true;
         } else {
-            // High zoom: show if in viewport
-            if (node.cx >= vpLeft && node.cx <= vpRight &&
-                node.cy >= vpTop && node.cy <= vpBottom) {
-                show = true;
+            // Leaf rank (Genus) — show based on zoom and viewport
+            if (k >= 2) {
+                show = node.cx >= vpLeft && node.cx <= vpRight &&
+                       node.cy >= vpTop && node.cy <= vpBottom;
             }
         }
 
@@ -674,6 +1064,17 @@ function updateRadialLabels(t) {
     // Limit labels
     const limited = labelsToShow.slice(0, maxLabels);
 
+    // Font size by rank
+    function fontSize(d) {
+        const rank = d.data[rankKey];
+        if (rank === leafRank) return '9px';
+        const rr = rOpts.rank_radius;
+        if (rr && rr[rank] !== undefined) {
+            return rr[rank] <= 0.25 ? '12px' : '10px';
+        }
+        return d.depth <= 1 ? '12px' : '10px';
+    }
+
     // Update SVG
     const sel = radialLabelsSvg.selectAll('text')
         .data(limited, d => d.id);
@@ -681,11 +1082,7 @@ function updateRadialLabels(t) {
     sel.exit().remove();
 
     const enter = sel.enter().append('text')
-        .attr('font-size', d => {
-            if (d.depth === 0) return '11px';
-            if (d.depth === 1) return '10px';
-            return '9px';
-        })
+        .attr('font-size', fontSize)
         .attr('fill', '#212529')
         .attr('text-anchor', d => {
             const angle = d.x || 0;
@@ -700,12 +1097,7 @@ function updateRadialLabels(t) {
             const sx = t.x + (d.cx + cx) * t.k;
             const sy = t.y + (d.cy + cy) * t.k;
             const angle = d.x || 0;
-            // Offset label slightly from node
             const offset = 8;
-            const labelAngle = (angle - 90) * Math.PI / 180;
-            const lx = sx + offset * Math.cos(labelAngle) * (angle > 0 && angle < 180 ? 1 : -1);
-            const ly = sy + offset * Math.sin(labelAngle) * (angle > 0 && angle < 180 ? 1 : -1);
-            // Rotate text to follow radial direction
             let rotation = angle > 180 ? angle - 270 : angle - 90;
             return `translate(${sx + offset * (angle > 0 && angle < 180 ? 1 : -1)}, ${sy}) rotate(${rotation})`;
         })
@@ -713,20 +1105,14 @@ function updateRadialLabels(t) {
             const angle = d.x || 0;
             return (angle > 0 && angle < 180) ? 'start' : 'end';
         })
-        .attr('font-size', d => {
-            const base = d.depth === 0 ? 11 : d.depth === 1 ? 10 : 9;
-            // Scale font slightly with zoom but keep readable
-            return Math.min(base, Math.max(7, base / Math.sqrt(k))) + 'px';
-        })
+        .attr('font-size', fontSize)
         .attr('opacity', d => {
-            if (d.depth === 0) return 1;
-            if (d.depth === 1) return Math.min(1, k * 0.8);
-            return Math.min(1, (k - 1) * 0.5);
+            if (!isLeafRank(d)) return 1;
+            return Math.min(1, (k - 1.5) * 0.5);
         })
         .text(d => {
             const label = d.data[labelKey] || d.id || '';
-            // Truncate long labels
-            const maxLen = d.depth <= 1 ? 30 : 20;
+            const maxLen = isLeafRank(d) ? 20 : 30;
             return label.length > maxLen ? label.substring(0, maxLen) + '...' : label;
         });
 }

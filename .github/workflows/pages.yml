@@ -44,7 +44,7 @@ jobs:
       - name: Generate Hub scoda-hub-index.json
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: python scripts/generate_hub_index.py --output site/scoda-hub-index.json
+        run: python scripts/generate_hub_index.py --all --output site/scoda-hub-index.json
 
       - name: Upload Pages artifact
         uses: actions/upload-pages-artifact@v3

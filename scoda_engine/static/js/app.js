@@ -92,15 +92,21 @@ async function loadManifest() {
 
 /**
  * Fetch a named query with caching. Returns cached rows if available.
+ * @param {string} queryName - Named query to execute
+ * @param {Object} [params] - Optional URL query parameters
  */
-async function fetchQuery(queryName) {
-    if (queryCache[queryName]) return queryCache[queryName];
-    const url = `/api/queries/${queryName}/execute`;
+async function fetchQuery(queryName, params) {
+    const cacheKey = params ? `${queryName}?${new URLSearchParams(params)}` : queryName;
+    if (queryCache[cacheKey]) return queryCache[cacheKey];
+    let url = `/api/queries/${queryName}/execute`;
+    if (params && Object.keys(params).length > 0) {
+        url += '?' + new URLSearchParams(params);
+    }
     const response = await fetch(url);
     if (!response.ok) throw new Error(`Query failed: ${queryName}`);
     const data = await response.json();
-    queryCache[queryName] = data.rows || [];
-    return queryCache[queryName];
+    queryCache[cacheKey] = data.rows || [];
+    return queryCache[cacheKey];
 }
 
 /**
