@@ -890,7 +890,7 @@ class ScodaDesktopGUI:
             try:
                 name = self.registry.register_path(path)
                 self._append_log(f"Installed: {name} from Hub", "SUCCESS")
-            except (FileNotFoundError, ValueError) as e:
+            except Exception as e:
                 self._append_log(f"ERROR: Failed to register {path}: {e}", "ERROR")
 
         # Refresh package list

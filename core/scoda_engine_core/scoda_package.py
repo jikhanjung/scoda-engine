@@ -69,7 +69,13 @@ class ScodaPackage:
 
         logger.info("Opening .scoda package: %s", os.path.basename(self.scoda_path))
         self._tmp_dir = tempfile.mkdtemp(prefix="scoda_")
-        self._zf = zipfile.ZipFile(self.scoda_path, 'r')
+        try:
+            self._zf = zipfile.ZipFile(self.scoda_path, 'r')
+        except zipfile.BadZipFile:
+            shutil.rmtree(self._tmp_dir, ignore_errors=True)
+            raise ValueError(
+                f"Invalid .scoda package (not a ZIP file): "
+                f"{os.path.basename(self.scoda_path)}")
 
         # Read manifest
         try:
@@ -77,6 +83,9 @@ class ScodaPackage:
         except KeyError:
             self.close()
             raise ValueError("Invalid .scoda package: missing manifest.json")
+        except json.JSONDecodeError:
+            self.close()
+            raise ValueError("Invalid .scoda package: malformed manifest.json")
 
         logger.debug("Manifest: name=%s version=%s records=%s",
                       self.manifest.get('name'), self.manifest.get('version'),
@@ -304,7 +313,8 @@ class PackageRegistry:
                     'overlay_path': overlay_path,
                     'deps': deps,
                 }
-            except (ValueError, FileNotFoundError, ScodaChecksumError) as e:
+            except (ValueError, FileNotFoundError, ScodaChecksumError,
+                    zipfile.BadZipFile) as e:
                 logger.warning("Skipping invalid package %s: %s",
                                os.path.basename(scoda_path), e)
                 continue  # skip invalid packages
