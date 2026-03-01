@@ -811,6 +811,171 @@ def generic_scoda_package(generic_db, tmp_path):
     return output_path
 
 
+# ---------------------------------------------------------------------------
+# CRUD test fixtures — editable_entities manifest
+# ---------------------------------------------------------------------------
+
+@pytest.fixture
+def crud_db(tmp_path):
+    """Create a test DB with editable_entities in the manifest.
+
+    Tables: categories, items (same as generic_db but with editable_entities).
+    """
+    db_path = str(tmp_path / "test_crud.db")
+    overlay_path = str(tmp_path / "test_crud_overlay.db")
+
+    conn = sqlite3.connect(db_path)
+    cursor = conn.cursor()
+
+    cursor.executescript("""
+        CREATE TABLE categories (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            name TEXT NOT NULL,
+            level TEXT NOT NULL,
+            parent_id INTEGER,
+            description TEXT,
+            FOREIGN KEY (parent_id) REFERENCES categories(id)
+        );
+
+        CREATE TABLE items (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            name TEXT NOT NULL,
+            category_id INTEGER,
+            author TEXT,
+            year TEXT,
+            status TEXT DEFAULT 'active',
+            is_active INTEGER DEFAULT 1,
+            FOREIGN KEY (category_id) REFERENCES categories(id)
+        );
+
+        -- Sample data
+        INSERT INTO categories (id, name, level, parent_id) VALUES (1, 'Science', 'root', NULL);
+        INSERT INTO categories (id, name, level, parent_id) VALUES (2, 'Physics', 'group', 1);
+        INSERT INTO categories (id, name, level, parent_id) VALUES (3, 'Biology', 'group', 1);
+
+        INSERT INTO items (id, name, category_id, author, year, status) VALUES (1, 'Gravity', 2, 'Newton', '1687', 'active');
+        INSERT INTO items (id, name, category_id, author, year, status) VALUES (2, 'Evolution', 3, 'Darwin', '1859', 'active');
+        INSERT INTO items (id, name, category_id, author, year, status) VALUES (3, 'Alchemy', 2, 'Unknown', '800', 'deprecated');
+
+        -- SCODA metadata tables
+        CREATE TABLE artifact_metadata (key TEXT PRIMARY KEY, value TEXT NOT NULL);
+        INSERT INTO artifact_metadata VALUES ('name', 'CRUD Test');
+        INSERT INTO artifact_metadata VALUES ('version', '1.0.0');
+        INSERT INTO artifact_metadata VALUES ('artifact_id', 'crud-test');
+        INSERT INTO artifact_metadata VALUES ('description', 'CRUD test database');
+
+        CREATE TABLE provenance (id INTEGER PRIMARY KEY, source_type TEXT, citation TEXT, description TEXT, year INTEGER, url TEXT);
+        CREATE TABLE schema_descriptions (table_name TEXT, column_name TEXT, description TEXT, PRIMARY KEY (table_name, column_name));
+        CREATE TABLE ui_display_intent (id INTEGER PRIMARY KEY, entity TEXT, default_view TEXT, description TEXT, source_query TEXT, priority INTEGER DEFAULT 0);
+
+        CREATE TABLE ui_queries (
+            id INTEGER PRIMARY KEY,
+            name TEXT NOT NULL UNIQUE,
+            description TEXT,
+            sql TEXT NOT NULL,
+            params_json TEXT,
+            created_at TEXT NOT NULL
+        );
+
+        INSERT INTO ui_queries (name, description, sql, params_json, created_at)
+        VALUES ('items_list', 'All items', 'SELECT id, name, author, year, status FROM items ORDER BY name', NULL, '2026-01-01');
+        INSERT INTO ui_queries (name, description, sql, params_json, created_at)
+        VALUES ('categories_list', 'All categories', 'SELECT id, name, level FROM categories ORDER BY name', NULL, '2026-01-01');
+
+        CREATE TABLE ui_manifest (
+            name TEXT PRIMARY KEY,
+            description TEXT,
+            manifest_json TEXT NOT NULL,
+            created_at TEXT NOT NULL
+        );
+    """)
+
+    manifest = {
+        "default_view": "items_table",
+        "views": {
+            "items_table": {
+                "type": "table",
+                "title": "Items",
+                "source_query": "items_list",
+                "columns": [
+                    {"key": "name", "label": "Name", "sortable": True, "searchable": True},
+                    {"key": "author", "label": "Author", "sortable": True},
+                    {"key": "year", "label": "Year", "sortable": True},
+                    {"key": "status", "label": "Status", "sortable": True},
+                ],
+                "default_sort": {"key": "name", "direction": "asc"},
+            },
+        },
+        "editable_entities": {
+            "item": {
+                "table": "items",
+                "pk": "id",
+                "operations": ["create", "read", "update", "delete"],
+                "fields": {
+                    "name": {"type": "text", "required": True, "label": "Name"},
+                    "category_id": {"type": "integer", "fk": "categories.id", "label": "Category"},
+                    "author": {"type": "text", "label": "Author"},
+                    "year": {"type": "text", "label": "Year"},
+                    "status": {"type": "text", "enum": ["active", "deprecated", "draft"], "default": "active", "label": "Status"},
+                    "is_active": {"type": "boolean", "default": 1, "label": "Active"},
+                },
+                "constraints": [
+                    {"type": "unique_where", "where": "1=1", "fields": ["name"], "message": "Duplicate item name"}
+                ],
+            },
+            "category": {
+                "table": "categories",
+                "pk": "id",
+                "operations": ["create", "read", "update"],
+                "fields": {
+                    "name": {"type": "text", "required": True, "label": "Name"},
+                    "level": {"type": "text", "required": True, "enum": ["root", "group", "subgroup"], "label": "Level"},
+                    "parent_id": {"type": "integer", "fk": "categories.id", "label": "Parent"},
+                    "description": {"type": "text", "label": "Description"},
+                },
+            },
+        },
+    }
+
+    cursor.execute(
+        "INSERT INTO ui_manifest (name, description, manifest_json, created_at) VALUES (?, ?, ?, ?)",
+        ('default', 'CRUD test manifest', json.dumps(manifest), '2026-01-01')
+    )
+
+    conn.commit()
+    conn.close()
+
+    create_overlay_db(overlay_path, canonical_version='1.0.0')
+    return db_path, overlay_path
+
+
+@pytest.fixture
+def crud_client(crud_db):
+    """Test client wired to crud_db in admin mode."""
+    from starlette.testclient import TestClient
+    from scoda_engine.app import _set_scoda_mode
+    db_path, overlay_path = crud_db
+    scoda_package._set_paths_for_testing(db_path, overlay_path)
+    _set_scoda_mode('admin')
+    with TestClient(app) as client:
+        yield client
+    _set_scoda_mode('viewer')
+    scoda_package._reset_paths()
+
+
+@pytest.fixture
+def crud_viewer_client(crud_db):
+    """Test client wired to crud_db in viewer mode (read-only)."""
+    from starlette.testclient import TestClient
+    from scoda_engine.app import _set_scoda_mode
+    db_path, overlay_path = crud_db
+    scoda_package._set_paths_for_testing(db_path, overlay_path)
+    _set_scoda_mode('viewer')
+    with TestClient(app) as client:
+        yield client
+    scoda_package._reset_paths()
+
+
 @pytest.fixture
 def generic_scoda_with_mcp_tools(generic_db, generic_mcp_tools_data, tmp_path):
     """Create a .scoda package that includes mcp_tools.json (generic version)."""

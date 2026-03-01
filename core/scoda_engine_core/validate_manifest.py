@@ -57,6 +57,11 @@ def validate_manifest(manifest, named_queries):
     for view_name, view_def in views.items():
         _validate_view(view_name, view_def, views, named_queries, errors, warnings)
 
+    # Validate editable_entities
+    editable = manifest.get('editable_entities', {})
+    if editable:
+        _validate_editable_entities(editable, named_queries, errors, warnings)
+
     return errors, warnings
 
 
@@ -230,6 +235,60 @@ def _validate_detail_view(view_name, view_def, views, named_queries, errors, war
         elif section_type not in KNOWN_SECTION_TYPES:
             warnings.append(
                 f"view '{view_name}': unrecognized section type '{section_type}'")
+
+
+VALID_FIELD_TYPES = {'text', 'integer', 'boolean', 'json', 'real'}
+VALID_OPERATIONS = {'create', 'read', 'update', 'delete'}
+
+
+def _validate_editable_entities(editable, named_queries, errors, warnings):
+    """Validate the editable_entities section of a manifest."""
+    for ename, edef in editable.items():
+        prefix = f"editable_entities['{ename}']"
+
+        if 'table' not in edef:
+            errors.append(f"{prefix}: missing required 'table'")
+        if 'pk' not in edef:
+            warnings.append(f"{prefix}: missing 'pk' (defaults to 'id')")
+
+        # Validate operations
+        ops = edef.get('operations', [])
+        for op in ops:
+            if op not in VALID_OPERATIONS:
+                errors.append(f"{prefix}: unknown operation '{op}'")
+
+        # Validate fields
+        fields = edef.get('fields', {})
+        if not fields:
+            warnings.append(f"{prefix}: no fields defined")
+
+        for fname, fdef in fields.items():
+            fpfx = f"{prefix}.fields['{fname}']"
+            if isinstance(fdef, str):
+                if fdef not in VALID_FIELD_TYPES:
+                    errors.append(f"{fpfx}: unknown type '{fdef}'")
+            elif isinstance(fdef, dict):
+                ftype = fdef.get('type', 'text')
+                if ftype not in VALID_FIELD_TYPES:
+                    errors.append(f"{fpfx}: unknown type '{ftype}'")
+                # FK format check
+                fk = fdef.get('fk')
+                if fk and '.' not in fk:
+                    errors.append(f"{fpfx}: fk must be 'table.column' format, got '{fk}'")
+
+        # Validate list_query / detail_query references
+        list_q = edef.get('list_query')
+        if list_q and list_q not in named_queries:
+            errors.append(f"{prefix}: list_query '{list_q}' not found in ui_queries")
+
+        detail_q = edef.get('detail_query')
+        if detail_q and detail_q not in named_queries:
+            errors.append(f"{prefix}: detail_query '{detail_q}' not found in ui_queries")
+
+        # Validate hooks
+        for hook in edef.get('hooks', []):
+            if 'sql' not in hook:
+                errors.append(f"{prefix}: hook missing 'sql'")
 
 
 def _collect_detail_view_refs(view_def):

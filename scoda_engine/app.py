@@ -23,6 +23,21 @@ from scoda_engine import __version__ as ENGINE_VERSION
 
 app = FastAPI(title="SCODA Desktop")
 
+# Admin/Viewer mode — set via SCODA_MODE env var or _set_scoda_mode()
+SCODA_MODE = os.environ.get('SCODA_MODE', 'viewer')
+
+
+def _set_scoda_mode(mode: str):
+    """Set the server mode (for testing)."""
+    global SCODA_MODE
+    SCODA_MODE = mode
+
+
+def _require_admin():
+    """Raise 403 if not in admin mode."""
+    if SCODA_MODE != 'admin':
+        raise HTTPException(status_code=403, detail="Admin mode required")
+
 # Tables that are SCODA metadata — excluded from auto-discovery
 SCODA_META_TABLES = {'artifact_metadata', 'provenance', 'schema_descriptions',
                      'ui_display_intent', 'ui_queries', 'ui_manifest'}
@@ -85,6 +100,7 @@ class ManifestResponse(BaseModel):
     created_at: str
     package: PackageInfo
     engine_version: str = ""
+    mode: str = "viewer"
 
 class AnnotationItem(BaseModel):
     id: int
@@ -579,6 +595,7 @@ def api_manifest():
     result = _fetch_manifest(conn)
     conn.close()
     if result:
+        result['mode'] = SCODA_MODE
         return result
     return JSONResponse({'error': 'No manifest found'}, status_code=404)
 
@@ -705,6 +722,241 @@ def api_preference_put(key: str, body: PreferenceValue):
         return {'key': key, 'value': body.value}
     finally:
         conn.close()
+
+
+# ---------------------------------------------------------------------------
+# CRUD Entity endpoints — manifest-driven editable_entities
+# ---------------------------------------------------------------------------
+
+from .entity_schema import parse_editable_entities, EntitySchema
+from .crud_engine import CrudEngine
+
+
+def _get_entity_schemas(conn) -> dict[str, EntitySchema]:
+    """Load editable_entities from manifest and parse into schemas."""
+    manifest_data = _fetch_manifest(conn)
+    if not manifest_data:
+        return {}
+    manifest = manifest_data.get('manifest', {})
+    return parse_editable_entities(manifest)
+
+
+@app.get('/api/entities')
+def api_entity_types():
+    """List all editable entity types with their schemas."""
+    conn = get_db()
+    schemas = _get_entity_schemas(conn)
+    conn.close()
+    if not schemas:
+        return JSONResponse({'error': 'No editable entities defined'}, status_code=404)
+    result = {}
+    for name, schema in schemas.items():
+        result[name] = {
+            'table': schema.table,
+            'pk': schema.pk,
+            'operations': sorted(schema.operations),
+            'fields': {
+                fname: {
+                    'type': fdef.type,
+                    'required': fdef.required,
+                    'enum': fdef.enum,
+                    'fk': fdef.fk,
+                    'default': fdef.default,
+                    'label': fdef.label,
+                    'readonly_on_edit': fdef.readonly_on_edit,
+                }
+                for fname, fdef in schema.fields.items()
+            },
+        }
+    return result
+
+
+@app.get('/api/entities/{entity_type}')
+def api_entity_list(entity_type: str, request: Request):
+    """List entities with pagination and search."""
+    conn = get_db()
+    schemas = _get_entity_schemas(conn)
+    if entity_type not in schemas:
+        conn.close()
+        return JSONResponse({'error': f'Entity type not found: {entity_type}'}, status_code=404)
+
+    schema = schemas[entity_type]
+    if 'read' not in schema.operations:
+        conn.close()
+        return JSONResponse({'error': 'Read not allowed'}, status_code=403)
+
+    params = dict(request.query_params)
+    page = int(params.pop('page', 1))
+    per_page = int(params.pop('per_page', 50))
+    search = params.pop('search', None)
+    q = params.pop('q', None)
+    search = search or q
+
+    engine = CrudEngine(conn, schema)
+    result = engine.list(filters=params, page=page, per_page=per_page, search=search)
+    conn.close()
+    return result
+
+
+@app.get('/api/entities/{entity_type}/{pk}')
+def api_entity_read(entity_type: str, pk: str):
+    """Get a single entity by primary key."""
+    conn = get_db()
+    schemas = _get_entity_schemas(conn)
+    if entity_type not in schemas:
+        conn.close()
+        return JSONResponse({'error': f'Entity type not found: {entity_type}'}, status_code=404)
+
+    schema = schemas[entity_type]
+    if 'read' not in schema.operations:
+        conn.close()
+        return JSONResponse({'error': 'Read not allowed'}, status_code=403)
+
+    engine = CrudEngine(conn, schema)
+    # Try to convert pk to int if possible
+    try:
+        pk_val = int(pk)
+    except ValueError:
+        pk_val = pk
+    result = engine.read(pk_val)
+    conn.close()
+    if result is None:
+        return JSONResponse({'error': 'Not found'}, status_code=404)
+    return result
+
+
+@app.post('/api/entities/{entity_type}', status_code=201)
+async def api_entity_create(entity_type: str, request: Request):
+    """Create a new entity."""
+    _require_admin()
+    conn = get_db()
+    schemas = _get_entity_schemas(conn)
+    if entity_type not in schemas:
+        conn.close()
+        return JSONResponse({'error': f'Entity type not found: {entity_type}'}, status_code=404)
+
+    schema = schemas[entity_type]
+    if 'create' not in schema.operations:
+        conn.close()
+        return JSONResponse({'error': 'Create not allowed'}, status_code=403)
+
+    data = await request.json()
+    engine = CrudEngine(conn, schema)
+    try:
+        result = engine.create(data)
+    except ValueError as e:
+        conn.close()
+        # Check if it's a constraint violation (duplicate)
+        msg = str(e)
+        if 'Duplicate' in msg or 'UNIQUE' in msg:
+            return JSONResponse({'error': msg}, status_code=409)
+        return JSONResponse({'error': msg}, status_code=400)
+    conn.close()
+    return JSONResponse(result, status_code=201)
+
+
+@app.patch('/api/entities/{entity_type}/{pk}')
+async def api_entity_update(entity_type: str, pk: str, request: Request):
+    """Partially update an entity."""
+    _require_admin()
+    conn = get_db()
+    schemas = _get_entity_schemas(conn)
+    if entity_type not in schemas:
+        conn.close()
+        return JSONResponse({'error': f'Entity type not found: {entity_type}'}, status_code=404)
+
+    schema = schemas[entity_type]
+    if 'update' not in schema.operations:
+        conn.close()
+        return JSONResponse({'error': 'Update not allowed'}, status_code=403)
+
+    data = await request.json()
+    try:
+        pk_val = int(pk)
+    except ValueError:
+        pk_val = pk
+    engine = CrudEngine(conn, schema)
+    try:
+        result = engine.update(pk_val, data)
+    except ValueError as e:
+        conn.close()
+        msg = str(e)
+        if 'Duplicate' in msg or 'UNIQUE' in msg:
+            return JSONResponse({'error': msg}, status_code=409)
+        return JSONResponse({'error': msg}, status_code=400)
+    conn.close()
+    if result is None:
+        return JSONResponse({'error': 'Not found'}, status_code=404)
+    return result
+
+
+@app.delete('/api/entities/{entity_type}/{pk}')
+def api_entity_delete(entity_type: str, pk: str):
+    """Delete an entity."""
+    _require_admin()
+    conn = get_db()
+    schemas = _get_entity_schemas(conn)
+    if entity_type not in schemas:
+        conn.close()
+        return JSONResponse({'error': f'Entity type not found: {entity_type}'}, status_code=404)
+
+    schema = schemas[entity_type]
+    if 'delete' not in schema.operations:
+        conn.close()
+        return JSONResponse({'error': 'Delete not allowed'}, status_code=403)
+
+    try:
+        pk_val = int(pk)
+    except ValueError:
+        pk_val = pk
+    engine = CrudEngine(conn, schema)
+    deleted = engine.delete(pk_val)
+    conn.close()
+    if not deleted:
+        return JSONResponse({'error': 'Not found'}, status_code=404)
+    return {'message': f'{entity_type} deleted', 'id': pk_val}
+
+
+@app.post('/api/entities/{entity_type}/hooks/{hook_name}')
+def api_entity_hook(entity_type: str, hook_name: str):
+    """Manually trigger a named hook."""
+    _require_admin()
+    conn = get_db()
+    schemas = _get_entity_schemas(conn)
+    if entity_type not in schemas:
+        conn.close()
+        return JSONResponse({'error': f'Entity type not found: {entity_type}'}, status_code=404)
+
+    schema = schemas[entity_type]
+    cursor = conn.cursor()
+    for hook in schema.hooks:
+        if hook.get('name') == hook_name:
+            sql = hook.get('sql')
+            if sql:
+                cursor.execute(sql)
+                conn.commit()
+            conn.close()
+            return {'message': f'Hook {hook_name} executed'}
+    conn.close()
+    return JSONResponse({'error': f'Hook not found: {hook_name}'}, status_code=404)
+
+
+@app.get('/api/search/{entity_type}')
+def api_entity_search(entity_type: str, request: Request, q: str = ''):
+    """FK autocomplete search for an entity type."""
+    conn = get_db()
+    schemas = _get_entity_schemas(conn)
+    if entity_type not in schemas:
+        conn.close()
+        return JSONResponse({'error': f'Entity type not found: {entity_type}'}, status_code=404)
+
+    # Pass extra query params as column filters (exclude 'q')
+    filters = {k: v for k, v in request.query_params.items() if k != 'q'}
+
+    engine = CrudEngine(conn, schemas[entity_type])
+    results = engine.search(q, limit=20, filters=filters or None)
+    conn.close()
+    return results
 
 
 # ---------------------------------------------------------------------------

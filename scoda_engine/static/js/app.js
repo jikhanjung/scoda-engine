@@ -13,6 +13,10 @@ let detailModal = null;
 let currentItems = [];  // Store current leaf items for filtering
 let showOnlyValid = true;  // Filter state
 
+// Admin mode state
+let appMode = 'viewer';  // Set from manifest response
+let entitySchemas = null; // Loaded from /api/entities
+
 // Manifest state
 let manifest = null;
 let currentView = null;
@@ -89,6 +93,17 @@ async function loadManifest() {
                 globalControls[ctrl.param] = (ctrl.param in savedPrefs) ? savedPrefs[ctrl.param] : ctrl.default;
             }
             renderGlobalControls();
+        }
+
+        // Capture admin mode
+        if (data.mode) appMode = data.mode;
+
+        // Load entity schemas if admin mode
+        if (appMode === 'admin') {
+            try {
+                const schemaResp = await fetch('/api/entities');
+                if (schemaResp.ok) entitySchemas = await schemaResp.json();
+            } catch (e) { /* no editable entities */ }
         }
 
         buildViewTabs();
@@ -313,8 +328,10 @@ async function renderTableView(viewKey) {
     const toolbar = document.getElementById('table-view-toolbar');
     const body = document.getElementById('table-view-body');
 
-    // Header
-    header.innerHTML = `<h5><i class="bi ${view.icon || 'bi-table'}"></i> ${view.title}</h5>
+    // Header (with optional Add button in admin mode)
+    const tableEntityType = findEntityTypeForView(viewKey);
+    const addBtn = tableEntityType ? renderAddButton(tableEntityType) : '';
+    header.innerHTML = `<div class="d-flex align-items-center"><h5 class="mb-0"><i class="bi ${view.icon || 'bi-table'}"></i> ${view.title}</h5>${addBtn}</div>
                         <p class="text-muted mb-0">${view.description || ''}</p>`;
 
     // Toolbar (search)
@@ -1423,11 +1440,35 @@ function renderLinkedTable(section, data) {
     const columns = section.columns || [];
     const onClick = section.on_row_click;
     const title = section.title ? section.title.replace('{count}', rows.length) : '';
-    const titleHtml = title ? `<h6>${title}</h6>` : '';
+
+    // Admin: check if this linked_table has an editable entity_type
+    const sectionEntity = section.entity_type;
+    const hasAdmin = appMode === 'admin' && sectionEntity && entitySchemas && entitySchemas[sectionEntity];
+    const sectionSchema = hasAdmin ? entitySchemas[sectionEntity] : null;
+    const canCreate = hasAdmin && (sectionSchema.operations || []).includes('create');
+    const canUpdate = hasAdmin && (sectionSchema.operations || []).includes('update');
+    const canDelete = hasAdmin && (sectionSchema.operations || []).includes('delete');
+    const entityIdKey = section.entity_id_key || 'id';
+
+    // Build title with optional Add button
+    let titleHtml = '';
+    if (title) {
+        titleHtml = `<div class="d-flex align-items-center gap-2"><h6 class="mb-0">${title}</h6>`;
+        if (canCreate) {
+            // Resolve default values from parent data
+            const defaults = {};
+            for (const [field, source] of Object.entries(section.entity_defaults || {})) {
+                defaults[field] = data[source];
+            }
+            const defaultsJson = escapeHtml(JSON.stringify(defaults));
+            titleHtml += `<button class="btn btn-sm btn-outline-success py-0 px-1" onclick="openCreateFormWithDefaults('${sectionEntity}', '${defaultsJson}')" title="Add"><i class="bi bi-plus"></i></button>`;
+        }
+        titleHtml += '</div>';
+    }
 
     // Empty handling
     if (rows.length === 0) {
-        if (section.show_empty) {
+        if (section.show_empty || canCreate) {
             return `
                 <div class="detail-section">
                     ${titleHtml}
@@ -1454,10 +1495,12 @@ function renderLinkedTable(section, data) {
         }
         html += `<th>${label}</th>`;
     });
+    if (canUpdate || canDelete) html += '<th></th>';
     html += '</tr></thead><tbody>';
 
     // Rows
     rows.forEach(row => {
+        const rowPk = row[entityIdKey];
         const clickAttr = onClick
             ? ` onclick="openDetail('${onClick.detail_view}', ${row[onClick.id_key]})"`
             : '';
@@ -1488,6 +1531,18 @@ function renderLinkedTable(section, data) {
 
             html += `<td>${val}</td>`;
         });
+
+        // Admin action buttons per row
+        if ((canUpdate || canDelete) && rowPk != null) {
+            html += '<td class="text-end text-nowrap">';
+            if (canUpdate) {
+                html += `<button class="btn btn-sm btn-link p-0 me-1" onclick="event.stopPropagation(); openEditForm('${sectionEntity}', ${rowPk})" title="Edit"><i class="bi bi-pencil"></i></button>`;
+            }
+            if (canDelete) {
+                html += `<button class="btn btn-sm btn-link text-danger p-0" onclick="event.stopPropagation(); confirmDelete('${sectionEntity}', ${rowPk})" title="Delete"><i class="bi bi-trash"></i></button>`;
+            }
+            html += '</td>';
+        }
 
         html += '</tr>';
     });
@@ -1611,8 +1666,13 @@ async function renderDetailFromManifest(viewKey, entityId) {
             }
         }
 
-        // Title
-        modalTitle.innerHTML = buildDetailTitle(view.title_template, data);
+        // Title + admin buttons
+        let titleHtml = buildDetailTitle(view.title_template, data);
+        const entityType = findEntityTypeForView(viewKey);
+        if (entityType && data.id != null) {
+            titleHtml += renderAdminButtons(entityType, data.id, data);
+        }
+        modalTitle.innerHTML = titleHtml;
 
         // Sections
         let html = '';
@@ -1992,4 +2052,365 @@ function hideSearchResults() {
         resultsEl.classList.remove('visible');
     }
     searchHighlightIndex = -1;
+}
+
+
+// ═══════════════════════════════════════════════════════════════════════
+// Admin Mode — CRUD UI
+// ═══════════════════════════════════════════════════════════════════════
+
+/**
+ * Find the entity type for a given detail view key or table view key.
+ */
+function findEntityTypeForView(viewKey) {
+    if (!entitySchemas) return null;
+    // Direct match: view key starts with entity name
+    for (const etype of Object.keys(entitySchemas)) {
+        if (viewKey.startsWith(etype)) return etype;
+    }
+    // Check source_query mapping
+    const view = manifest && manifest.views && manifest.views[viewKey];
+    if (view && view.source_query) {
+        for (const [etype, schema] of Object.entries(entitySchemas)) {
+            if (schema.table === etype || view.source_query.includes(etype)) return etype;
+        }
+    }
+    return null;
+}
+
+/**
+ * Render admin buttons (Edit/Delete) in the detail modal header.
+ */
+function renderAdminButtons(entityType, entityId, data) {
+    if (appMode !== 'admin' || !entitySchemas || !entitySchemas[entityType]) return '';
+    const schema = entitySchemas[entityType];
+    const ops = schema.operations || [];
+    let html = '<div class="admin-buttons ms-auto d-flex gap-1">';
+    if (ops.includes('update')) {
+        html += `<button class="btn btn-sm btn-outline-primary" onclick="openEditForm('${entityType}', ${entityId})"><i class="bi bi-pencil"></i> Edit</button>`;
+    }
+    if (ops.includes('delete')) {
+        html += `<button class="btn btn-sm btn-outline-danger" onclick="confirmDelete('${entityType}', ${entityId})"><i class="bi bi-trash"></i> Delete</button>`;
+    }
+    html += '</div>';
+    return html;
+}
+
+/**
+ * Build a form for creating/editing an entity.
+ */
+function buildEntityForm(entityType, data, isEdit) {
+    const schema = entitySchemas[entityType];
+    if (!schema) return '';
+    let html = `<form id="entity-form" data-entity-type="${entityType}" data-pk="${isEdit ? data[schema.pk] : ''}">`;
+    for (const [fname, fdef] of Object.entries(schema.fields)) {
+        const label = fdef.label || fname.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
+        const value = data ? (data[fname] ?? fdef.default ?? '') : (fdef.default ?? '');
+        const required = fdef.required ? 'required' : '';
+        html += `<div class="mb-3">`;
+        html += `<label class="form-label">${label}${fdef.required ? ' <span class="text-danger">*</span>' : ''}</label>`;
+        if (isEdit && fdef.readonly_on_edit) {
+            // Read-only on edit: show as static text + hidden input to preserve value
+            html += `<input type="hidden" name="${fname}" value="${value}">`;
+            html += `<p class="form-control-plaintext" data-fk-readonly="${fname}">${escapeHtml(String(value))}</p>`;
+        } else if (fdef.enum) {
+            html += `<select class="form-select" name="${fname}" ${required}>`;
+            html += `<option value="">-- Select --</option>`;
+            for (const opt of fdef.enum) {
+                const sel = String(value) === String(opt) ? 'selected' : '';
+                html += `<option value="${opt}" ${sel}>${opt}</option>`;
+            }
+            html += `</select>`;
+        } else if (fdef.type === 'boolean') {
+            const checked = value ? 'checked' : '';
+            html += `<div class="form-check"><input class="form-check-input" type="checkbox" name="${fname}" ${checked}></div>`;
+        } else if (fdef.fk) {
+            html += `<div class="fk-autocomplete" data-fk="${fdef.fk}">`;
+            html += `<input type="hidden" name="${fname}" value="${value}">`;
+            html += `<input type="text" class="form-control" data-fk-search="${fname}" placeholder="Search..." value="${value}" autocomplete="off">`;
+            html += `<div class="fk-results list-group" style="display:none; position:absolute; z-index:1000; max-height:200px; overflow-y:auto;"></div>`;
+            html += `</div>`;
+        } else if (fdef.type === 'integer' || fdef.type === 'real') {
+            const step = fdef.type === 'real' ? 'step="any"' : '';
+            html += `<input type="number" class="form-control" name="${fname}" value="${value}" ${step} ${required}>`;
+        } else {
+            html += `<input type="text" class="form-control" name="${fname}" value="${escapeHtml(String(value))}" ${required}>`;
+        }
+        html += `</div>`;
+    }
+    html += `<div class="d-flex gap-2 justify-content-end">`;
+    html += `<button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>`;
+    html += `<button type="submit" class="btn btn-primary">${isEdit ? 'Save' : 'Create'}</button>`;
+    html += `</div></form>`;
+    return html;
+}
+
+/**
+ * Open the edit form for an entity.
+ */
+async function openEditForm(entityType, entityId) {
+    const modalBody = document.getElementById('detailModalBody');
+    const modalTitle = document.getElementById('detailModalTitle');
+    modalBody.innerHTML = '<div class="loading">Loading...</div>';
+
+    try {
+        const resp = await fetch(`/api/entities/${entityType}/${entityId}`);
+        if (!resp.ok) throw new Error('Failed to load entity');
+        const data = await resp.json();
+        modalTitle.innerHTML = `Edit ${entityType}`;
+        modalBody.innerHTML = buildEntityForm(entityType, data, true);
+        setupFormHandlers(entityType, true, entityId);
+        await resolveFkDisplayNames(entityType, data);
+    } catch (e) {
+        modalBody.innerHTML = `<div class="text-danger">${e.message}</div>`;
+    }
+}
+
+/**
+ * Open the create form for an entity type.
+ */
+function openCreateForm(entityType) {
+    const modalBody = document.getElementById('detailModalBody');
+    const modalTitle = document.getElementById('detailModalTitle');
+    modalTitle.innerHTML = `New ${entityType}`;
+    modalBody.innerHTML = buildEntityForm(entityType, null, false);
+    detailModal.show();
+    setupFormHandlers(entityType, false);
+}
+
+/**
+ * Open the create form with pre-filled defaults (e.g., from a parent detail view).
+ */
+async function openCreateFormWithDefaults(entityType, defaultsJson) {
+    const defaults = JSON.parse(defaultsJson);
+    const modalBody = document.getElementById('detailModalBody');
+    const modalTitle = document.getElementById('detailModalTitle');
+    modalTitle.innerHTML = `New ${entityType}`;
+    modalBody.innerHTML = buildEntityForm(entityType, defaults, false);
+    detailModal.show();
+    setupFormHandlers(entityType, false);
+    await resolveFkDisplayNames(entityType, defaults);
+}
+
+/**
+ * Build a short display label for an FK entity row using schema-defined fields.
+ * Uses first 2 non-FK fields (e.g. "Paramicroparia (Genus)", "JELL (2002)").
+ */
+function fkDisplayLabel(entity, entityType) {
+    const schema = entitySchemas[entityType];
+    if (!schema) return String(Object.values(entity)[0]);
+    const display = Object.entries(schema.fields)
+        .filter(([, fd]) => !fd.fk)
+        .slice(0, 2)
+        .map(([fname]) => entity[fname])
+        .filter(v => v != null && String(v) !== '');
+    if (display.length === 0) return String(entity[schema.pk]);
+    if (display.length === 1) return String(display[0]);
+    return `${display[0]} (${display[1]})`;
+}
+
+/**
+ * Resolve FK field IDs to display names in the form.
+ * For each FK field with a numeric value, fetches the referenced entity
+ * and shows its name instead of the raw ID.
+ */
+async function resolveFkDisplayNames(entityType, data) {
+    const schema = entitySchemas[entityType];
+    if (!schema || !data) return;
+    const form = document.getElementById('entity-form');
+    if (!form) return;
+
+    const resolved = {};
+    const promises = [];
+    for (const [fname, fdef] of Object.entries(schema.fields)) {
+        if (!fdef.fk || data[fname] == null || data[fname] === '') continue;
+        const [fkTable] = fdef.fk.split('.');
+        let searchType = null;
+        for (const [etype, s] of Object.entries(entitySchemas)) {
+            if (s.table === fkTable) { searchType = etype; break; }
+        }
+        if (!searchType) continue;
+
+        const fkId = data[fname];
+        // Target: editable search input or readonly display element
+        const searchInput = form.querySelector(`[data-fk-search="${fname}"]`);
+        const readonlyEl = form.querySelector(`[data-fk-readonly="${fname}"]`);
+        if (!searchInput && !readonlyEl) continue;
+
+        promises.push(
+            fetch(`/api/entities/${searchType}/${fkId}`)
+                .then(r => r.ok ? r.json() : null)
+                .then(entity => {
+                    if (!entity) return;
+                    const label = fkDisplayLabel(entity, searchType);
+                    if (searchInput) searchInput.value = label;
+                    if (readonlyEl) readonlyEl.textContent = label;
+                    resolved[fname] = entity;
+                })
+                .catch(() => {})
+        );
+    }
+    await Promise.all(promises);
+
+    // Store subject taxon rank on the object_taxon search input for PLACED_IN filtering
+    if (resolved['subject_taxon_id'] && resolved['subject_taxon_id'].rank) {
+        const objInput = form.querySelector('[data-fk-search="object_taxon_id"]');
+        if (objInput) objInput._subjectRank = resolved['subject_taxon_id'].rank;
+    }
+}
+
+/**
+ * Set up form submit handler and FK autocomplete.
+ */
+function setupFormHandlers(entityType, isEdit, entityId) {
+    const form = document.getElementById('entity-form');
+    if (!form) return;
+
+    // Form submit
+    form.addEventListener('submit', async (e) => {
+        e.preventDefault();
+        const formData = new FormData(form);
+        const data = {};
+        const schema = entitySchemas[entityType];
+        for (const [fname, fdef] of Object.entries(schema.fields)) {
+            if (fdef.type === 'boolean') {
+                data[fname] = formData.has(fname) ? 1 : 0;
+            } else {
+                const val = formData.get(fname);
+                if (val !== null && val !== '') {
+                    data[fname] = (fdef.type === 'integer') ? parseInt(val, 10) :
+                                  (fdef.type === 'real') ? parseFloat(val) : val;
+                }
+            }
+        }
+
+        try {
+            const url = isEdit ? `/api/entities/${entityType}/${entityId}` : `/api/entities/${entityType}`;
+            const method = isEdit ? 'PATCH' : 'POST';
+            const resp = await fetch(url, {method, headers: {'Content-Type': 'application/json'}, body: JSON.stringify(data)});
+            if (!resp.ok) {
+                const err = await resp.json().catch(() => ({}));
+                throw new Error(err.error || `HTTP ${resp.status}`);
+            }
+            detailModal.hide();
+            // Refresh current view
+            queryCache = {};
+            if (currentView) switchToView(currentView);
+        } catch (err) {
+            let alertEl = form.querySelector('.alert');
+            if (!alertEl) {
+                alertEl = document.createElement('div');
+                alertEl.className = 'alert alert-danger mt-2';
+                form.prepend(alertEl);
+            }
+            alertEl.textContent = err.message;
+        }
+    });
+
+    // Rank hierarchy for PLACED_IN filtering (low → high)
+    const RANK_ORDER = ['Genus', 'Subfamily', 'Family', 'Superfamily', 'Suborder', 'Order', 'Class'];
+
+    function getHigherRanks(rank) {
+        const normalized = rank.charAt(0).toUpperCase() + rank.slice(1).toLowerCase();
+        const idx = RANK_ORDER.indexOf(normalized);
+        if (idx < 0) return null;
+        return RANK_ORDER.slice(idx + 1);
+    }
+
+    // FK autocomplete
+    form.querySelectorAll('[data-fk-search]').forEach(input => {
+        const fname = input.dataset.fkSearch;
+        const hiddenInput = form.querySelector(`input[name="${fname}"]`);
+        const wrapper = input.closest('.fk-autocomplete');
+        const fk = wrapper.dataset.fk;
+        const [fkTable] = fk.split('.');
+        const resultsList = wrapper.querySelector('.fk-results');
+        let debounce = null;
+
+        input.addEventListener('input', () => {
+            clearTimeout(debounce);
+            debounce = setTimeout(async () => {
+                const q = input.value.trim();
+                if (q.length < 1) { resultsList.style.display = 'none'; return; }
+                // Find the entity type that maps to this FK table
+                let searchType = null;
+                for (const [etype, schema] of Object.entries(entitySchemas)) {
+                    if (schema.table === fkTable) { searchType = etype; break; }
+                }
+                if (!searchType) { resultsList.style.display = 'none'; return; }
+
+                // Build search URL with optional rank filter
+                let searchUrl = `/api/search/${searchType}?q=${encodeURIComponent(q)}`;
+                const predSel = form.querySelector('[name="predicate"]');
+                if (fname === 'object_taxon_id' && predSel && predSel.value === 'PLACED_IN') {
+                    // Resolve subject taxon rank for filtering
+                    const subjectId = form.querySelector('input[name="subject_taxon_id"]')?.value;
+                    if (subjectId && input._subjectRank) {
+                        const higher = getHigherRanks(input._subjectRank);
+                        if (higher && higher.length > 0) {
+                            searchUrl += `&rank=${encodeURIComponent(higher.join(','))}`;
+                        }
+                    }
+                }
+
+                const resp = await fetch(searchUrl);
+                if (!resp.ok) return;
+                const results = await resp.json();
+                resultsList.innerHTML = '';
+                for (const row of results) {
+                    const pk = row[entitySchemas[searchType].pk];
+                    const displayText = fkDisplayLabel(row, searchType);
+                    const item = document.createElement('a');
+                    item.className = 'list-group-item list-group-item-action';
+                    item.href = '#';
+                    item.textContent = displayText;
+                    item.addEventListener('click', (e) => {
+                        e.preventDefault();
+                        hiddenInput.value = pk;
+                        input.value = displayText;
+                        resultsList.style.display = 'none';
+                        // Update subject rank on object_taxon input for PLACED_IN filtering
+                        if (fname === 'subject_taxon_id' && row.rank) {
+                            const objInput = form.querySelector('[data-fk-search="object_taxon_id"]');
+                            if (objInput) objInput._subjectRank = row.rank;
+                        }
+                    });
+                    resultsList.appendChild(item);
+                }
+                resultsList.style.display = results.length ? 'block' : 'none';
+            }, 200);
+        });
+
+        // Hide on blur
+        input.addEventListener('blur', () => setTimeout(() => resultsList.style.display = 'none', 200));
+    });
+}
+
+/**
+ * Confirm and delete an entity.
+ */
+async function confirmDelete(entityType, entityId) {
+    if (!confirm(`Delete this ${entityType}? This cannot be undone.`)) return;
+    try {
+        const resp = await fetch(`/api/entities/${entityType}/${entityId}`, {method: 'DELETE'});
+        if (!resp.ok) {
+            const err = await resp.json().catch(() => ({}));
+            throw new Error(err.error || `HTTP ${resp.status}`);
+        }
+        detailModal.hide();
+        queryCache = {};
+        if (currentView) switchToView(currentView);
+    } catch (e) {
+        alert(`Delete failed: ${e.message}`);
+    }
+}
+
+/**
+ * Render "Add" button for a table/list view if admin mode + entity is editable.
+ */
+function renderAddButton(entityType) {
+    if (appMode !== 'admin' || !entitySchemas || !entitySchemas[entityType]) return '';
+    const ops = entitySchemas[entityType].operations || [];
+    if (!ops.includes('create')) return '';
+    return `<button class="btn btn-sm btn-success ms-2" onclick="openCreateForm('${entityType}')"><i class="bi bi-plus-lg"></i> Add</button>`;
 }
