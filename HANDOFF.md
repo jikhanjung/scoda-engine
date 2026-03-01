@@ -1,6 +1,6 @@
 # SCODA Engine — Project Handoff Document
 
-**Last updated:** 2026-02-28
+**Last updated:** 2026-03-01
 
 ---
 
@@ -43,20 +43,24 @@
 | P19: MkDocs + GitHub Pages 다국어 문서 사이트 | Done | `devlog/20260226_P19_mkdocs_github_pages.md` |
 | P20: Radial hierarchy display mode | Done | `devlog/20260228_P20_radial_hierarchy_display.md` |
 | Desktop v0.1.3 버전 업 | Done | `scoda_engine/__init__.py`, `pyproject.toml` |
+| Global controls (profile selector) | Done | `devlog/20260301_026_global_controls_framework.md` |
+| Preferences API (overlay persistence) | Done | `devlog/20260301_027_preferences_api.md` |
+| P21: Manifest-driven CRUD framework | Done | `devlog/20260301_028_crud_framework.md` |
 
 ### Test Status
 
-- All 276 tests passing: `pytest tests/` (runtime + MCP + hub_client)
+- All 303 tests passing: `pytest tests/` (runtime 218 + MCP 7 + hub_client 24 + CRUD 27 + etc.)
 - All fixtures converted to domain-independent generic data
 - MCP subprocess tests support `SCODA_DB_PATH` environment variable
+- CRUD tests: `tests/test_crud.py` (27 tests) — generic item/category fixture
 
 ### In Progress
 
 - 없음
 
-### Recent Session (2026-02-28) Summary
+### Recent Session (2026-03-01) Summary
 
-1. **P20: Radial Hierarchy Display Mode**: hierarchy 뷰에 `display: "radial"` 모드 구현. D3.js v7 lazy load 기반 Canvas+SVG 하이브리드 방사형 트리 시각화. `radial.js` 신규 모듈(~470줄). zoom/pan, semantic LOD 라벨, quadtree hover 툴팁, 노드 검색, breadcrumb, depth toggle, detail 모달 연동 지원. 테스트 fixture에 `category_radial` 뷰 추가. Desktop v0.1.3.
+1. **P21: Manifest-Driven CRUD Framework**: manifest의 `editable_entities` 섹션 기반 제네릭 CRUD 엔진. `entity_schema.py` (FieldDef/EntitySchema 파서), `crud_engine.py` (parameterized SQL, FK 검증, unique 제약, post-mutation 훅), REST 엔드포인트 10개, admin/viewer 모드 분리, `--db-path`/`--mode` CLI 인자. 프론트엔드: Edit/Delete/Add 버튼, FK autocomplete (name 표시 + 검색), `readonly_on_edit`, PLACED_IN rank 필터링. `validate_manifest.py`에 editable_entities 검증 규칙 추가. 27개 테스트.
 
 ---
 
@@ -74,9 +78,13 @@
 - 기존 manifest/overlay와의 통합 시나리오
 - Phase 0 POC 범위 확정
 
-### S-4: SCODA Back-office
+### S-4: SCODA Back-office (partially done)
 
-Web-based tool for managing and packaging `.scoda` packages (long-term project).
+P21 CRUD framework가 기반 작업 완료. 남은 항목:
+- MCP 서버에 CRUD 도구 등록 (현재 보류)
+- Overlay 기반 편집 (.scoda 불변 유지)
+- `.scoda` 빌드 버튼 (편집 완료 후 패키징)
+- ScodaDesktop GUI에 admin 모드 노출 (현재 CLI 전용)
 
 ---
 
@@ -103,6 +111,8 @@ scoda-engine contains no domain-specific code. All domain logic comes from `.sco
 - Generic viewer supports: hierarchy (tree/nested_table/radial), table, detail modal, global search, annotations
 - Boolean columns: customizable via `true_label`/`false_label`, defaults `BOOLEAN_TRUE_LABEL`/`BOOLEAN_FALSE_LABEL`
 - `label_map` 동적 컬럼 label: 행 데이터의 특정 필드 값에 따라 테이블 헤더를 동적으로 결정 (혼합 시 fallback)
+- `editable_entities`: admin 모드에서 CRUD UI 자동 생성 (FK autocomplete, readonly_on_edit, post-mutation hooks)
+- `global_controls`: 전역 파라미터 셀렉터 (profile 등), overlay DB에 사용자 선택 저장
 
 ### MCP Tools
 
@@ -119,10 +129,12 @@ core/scoda_engine_core/     # PyPI: scoda-engine-core v0.1.1 (pure stdlib, zero 
 
 scoda_engine/               # PyPI: scoda-engine v0.1.3 (desktop/server)
 ├── scoda_package.py        # Backward-compat shim → scoda_engine_core
-├── app.py                  # FastAPI web server
+├── app.py                  # FastAPI web server (+ CRUD endpoints)
+├── entity_schema.py        # P21: FieldDef/EntitySchema parser + validation
+├── crud_engine.py          # P21: Generic CRUD engine (FK, constraints, hooks)
 ├── mcp_server.py           # MCP server (stdio/SSE)
 ├── gui.py                  # Tkinter GUI
-├── serve.py                # uvicorn launcher
+├── serve.py                # uvicorn launcher (--db-path, --mode admin|viewer)
 ├── templates/              # Generic viewer template
 └── static/                 # Generic viewer assets (+ radial.js for D3 radial tree)
 ```
@@ -152,6 +164,7 @@ pytest tests/
 |---------|---------|
 | Web server | `python -m scoda_engine.serve` |
 | Web server (임의 경로) | `python -m scoda_engine.serve --scoda-path /path/to/data.scoda` |
+| Web server (admin 편집) | `python -m scoda_engine.serve --db-path /path/to/data.db --mode admin` |
 | MCP server | `python -m scoda_engine.mcp_server` |
 | GUI | `python launcher_gui.py` |
 | GUI (임의 경로) | `python launcher_gui.py --scoda-path /path/to/data.scoda` |
@@ -198,3 +211,6 @@ pytest tests/
 | Hub Dependency UI (P17) | `devlog/20260225_P17_hub_dependency_ui.md` |
 | Hub SSL fallback | `devlog/20260225_019_hub_ssl_fallback.md` |
 | Radial hierarchy display (P20) | `devlog/20260228_P20_radial_hierarchy_display.md` |
+| Global controls framework | `devlog/20260301_026_global_controls_framework.md` |
+| Preferences API | `devlog/20260301_027_preferences_api.md` |
+| CRUD framework (P21) | `devlog/20260301_028_crud_framework.md` |
