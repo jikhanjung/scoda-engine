@@ -264,8 +264,9 @@ function buildViewTabs() {
         const isActive = key === currentView;
         const icon = view.icon || 'bi-square';
         html += `<button class="view-tab ${isActive ? 'active' : ''}"
-                         data-view="${key}" onclick="switchToView('${key}')">
-                    <i class="bi ${icon}"></i> ${view.title}
+                         data-view="${key}" onclick="switchToView('${key}')"
+                         title="${view.title}">
+                    <i class="bi ${icon}"></i><span class="tab-label">${view.title}</span>
                  </button>`;
     }
 
