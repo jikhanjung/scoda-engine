@@ -192,6 +192,21 @@ def _validate_hierarchy_view(view_name, view_def, views, named_queries, errors, 
                 f"view '{view_name}': nested_table_display.cell_click.detail_view "
                 f"'{detail_view}' not in views")
 
+    # tree_chart display: validate tree_chart_options and detail_view refs
+    elif display == 'tree_chart':
+        tc_opts = view_def.get('tree_chart_options', {})
+        # Check edge_query reference
+        edge_query = tc_opts.get('edge_query')
+        if edge_query and edge_query not in named_queries:
+            errors.append(
+                f"view '{view_name}': tree_chart_options.edge_query "
+                f"'{edge_query}' not in ui_queries")
+        # Check detail_view references inside tree_chart_options
+        for ref in _collect_detail_view_refs(tc_opts):
+            if ref not in views:
+                errors.append(
+                    f"view '{view_name}': detail_view '{ref}' not in views")
+
 
 def _validate_detail_view(view_name, view_def, views, named_queries, errors, warnings):
     """Validate a detail view."""

@@ -109,7 +109,7 @@ scoda-engine contains no domain-specific code. All domain logic comes from `.sco
 - `ui_queries` table: named SQL queries
 - `/api/query/<name>`: query execution endpoint
 - `/api/composite/<view>?id=N`: multi-query composite response
-- Generic viewer supports: hierarchy (tree/nested_table/radial), table, detail modal, global search, annotations
+- Generic viewer supports: hierarchy (tree/nested_table/tree_chart), table, detail modal, global search, annotations
 - Boolean columns: customizable via `true_label`/`false_label`, defaults `BOOLEAN_TRUE_LABEL`/`BOOLEAN_FALSE_LABEL`
 - `label_map` 동적 컬럼 label: 행 데이터의 특정 필드 값에 따라 테이블 헤더를 동적으로 결정 (혼합 시 fallback)
 - `editable_entities`: admin 모드에서 CRUD UI 자동 생성 (FK autocomplete, readonly_on_edit, post-mutation hooks)
@@ -138,7 +138,7 @@ scoda_engine/               # PyPI: scoda-engine v0.1.3 (desktop/server)
 ├── serve.py                # uvicorn launcher (--db-path, --mode admin|viewer)
 ├── serve_web.py            # Production web launcher (gunicorn/Docker)
 ├── templates/              # Generic viewer template
-└── static/                 # Generic viewer assets (+ radial.js for D3 radial tree)
+└── static/                 # Generic viewer assets (+ tree_chart.js for D3 tree chart)
 ```
 
 ---

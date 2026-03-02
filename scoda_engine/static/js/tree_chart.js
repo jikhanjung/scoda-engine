@@ -1,13 +1,14 @@
 /**
- * SCODA Desktop — Radial Hierarchy View
- * D3-based radial tree visualization for hierarchy data.
+ * SCODA Desktop — Tree Chart View (Radial + Rectangular)
+ * D3-based tree visualization for hierarchy data.
+ * Supports two layout modes: radial (concentric) and rectangular (cladogram).
  * Lazy-loads D3.js only when this view is activated.
  */
 
 // D3 lazy load state
 let d3Ready = null;
 
-// Radial view state
+// Tree chart view state (internal variable names kept as radial* for minimal refactoring)
 let radialRoot = null;
 let radialFullRoot = null;   // Full tree (with leaf rank)
 let radialPrunedRoot = null; // Pruned tree (leaf rank removed)
@@ -29,6 +30,11 @@ let radialWidth = 0;
 let radialHeight = 0;
 let radialOuterRadius = 0;
 
+// Layout mode state
+let treeLayoutMode = 'radial';  // 'radial' or 'rectangular'
+let cladoBoundsW = 0;
+let cladoBoundsH = 0;
+
 // --- D3 Lazy Loading ---
 
 function ensureD3Loaded() {
@@ -47,7 +53,7 @@ function ensureD3Loaded() {
 // --- Main Entry Point ---
 
 async function loadRadialView(viewKey) {
-    const wrap = document.getElementById('radial-canvas-wrap');
+    const wrap = document.getElementById('tc-canvas-wrap');
     wrap.innerHTML = '<div class="loading">Loading D3.js...</div>';
 
     try {
@@ -58,7 +64,7 @@ async function loadRadialView(viewKey) {
     }
 
     // Restore canvas + SVG structure
-    wrap.innerHTML = '<canvas id="radial-canvas"></canvas><svg id="radial-labels"></svg>';
+    wrap.innerHTML = '<canvas id="tc-canvas"></canvas><svg id="tc-labels"></svg>';
 
     const view = manifest.views[viewKey];
     if (!view) return;
@@ -70,10 +76,14 @@ async function loadRadialView(viewKey) {
     radialFocusNode = null;
     radialSubtreeNode = null;
 
+    // Read layout mode from tree_chart_options
+    const tcOpts = view.tree_chart_options || {};
+    treeLayoutMode = tcOpts.default_layout || 'radial';
+
     // Setup canvas
-    radialCanvas = document.getElementById('radial-canvas');
+    radialCanvas = document.getElementById('tc-canvas');
     radialCtx = radialCanvas.getContext('2d');
-    radialLabelsSvg = d3.select('#radial-labels');
+    radialLabelsSvg = d3.select('#tc-labels');
     radialDpr = window.devicePixelRatio || 1;
 
     resizeRadialCanvas();
@@ -97,7 +107,7 @@ async function loadRadialView(viewKey) {
     }
 
     // Compute layout
-    computeRadialLayout(radialRoot, view);
+    computeLayout(radialRoot, view);
 
     // Assign colors
     assignRadialColors(radialRoot, view);
@@ -119,25 +129,25 @@ async function loadRadialView(viewKey) {
 
 async function buildRadialHierarchy(view) {
     const hOpts = view.hierarchy_options;
-    const rOpts = view.radial_display || {};
+    const tcOpts = view.tree_chart_options || {};
     const rows = await fetchQuery(view.source_query);
 
     if (!rows || rows.length === 0) return null;
 
     // If edge_query is specified, load edges separately
-    if (rOpts.edge_query) {
+    if (tcOpts.edge_query) {
         // Resolve $variable references in edge_params (e.g. "$profile_id" → globalControls value)
         const resolvedParams = {};
-        for (const [k, v] of Object.entries(rOpts.edge_params || {})) {
+        for (const [k, v] of Object.entries(tcOpts.edge_params || {})) {
             resolvedParams[k] = (typeof v === 'string' && v.startsWith('$'))
                 ? (globalControls[v.slice(1)] ?? v) : v;
         }
-        const edges = await fetchQuery(rOpts.edge_query, resolvedParams);
-        console.log(`[radial] edge_query="${rOpts.edge_query}" returned ${edges.length} edges`);
-        const childKey = rOpts.edge_child_key || 'child_id';
-        const parentKey = rOpts.edge_parent_key || 'parent_id';
+        const edges = await fetchQuery(tcOpts.edge_query, resolvedParams);
+        console.log(`[tree_chart] edge_query="${tcOpts.edge_query}" returned ${edges.length} edges`);
+        const childKey = tcOpts.edge_child_key || 'child_id';
+        const parentKey = tcOpts.edge_parent_key || 'parent_id';
         if (edges.length > 0) {
-            console.log(`[radial] edge[0] keys:`, Object.keys(edges[0]), JSON.stringify(edges[0]));
+            console.log(`[tree_chart] edge[0] keys:`, Object.keys(edges[0]), JSON.stringify(edges[0]));
         }
         // Use String keys to avoid number/string type mismatch between queries
         const parentMap = new Map(edges.map(e => [String(e[childKey]), e[parentKey]]));
@@ -157,16 +167,16 @@ async function buildRadialHierarchy(view) {
         });
         rows.length = 0;
         rows.push(...filtered);
-        console.log(`[radial] filtered orphans: ${before} → ${rows.length} nodes`);
+        console.log(`[tree_chart] filtered orphans: ${before} → ${rows.length} nodes`);
     } else {
-        console.log('[radial] no edge_query configured');
+        console.log('[tree_chart] no edge_query configured');
     }
 
     // If multiple roots, insert a virtual root so d3.stratify() works
     const idKey = hOpts.id_key;
     const parentKey = hOpts.parent_key;
     const roots = rows.filter(r => !r[parentKey]);
-    console.log(`[radial] ${rows.length} nodes, ${roots.length} root(s)`);
+    console.log(`[tree_chart] ${rows.length} nodes, ${roots.length} root(s)`);
     if (roots.length > 1) {
         const virtualRoot = { [idKey]: '__virtual_root__', [parentKey]: null };
         virtualRoot[hOpts.label_key || 'name'] = '';
@@ -177,9 +187,9 @@ async function buildRadialHierarchy(view) {
 
     const stratify = d3.stratify().id(d => d[idKey]).parentId(d => d[parentKey]);
     const labelKey = hOpts.label_key || 'name';
-    const countKey = rOpts.count_key || hOpts.count_key;
+    const countKey = tcOpts.count_key || hOpts.count_key;
     const rankKey = hOpts.rank_key || 'rank';
-    const leafRank = rOpts.leaf_rank;
+    const leafRank = tcOpts.leaf_rank;
 
     function buildTree(data) {
         const tree = stratify(data);
@@ -208,46 +218,57 @@ async function buildRadialHierarchy(view) {
     return radialFullRoot;
 }
 
-// --- Layout ---
+// --- Layout Dispatcher ---
+
+function computeLayout(root, view) {
+    if (treeLayoutMode === 'rectangular') {
+        computeCladogramLayout(root, view);
+    } else {
+        computeRadialLayout(root, view);
+    }
+}
+
+// --- Radial Layout ---
 
 function computeRadialLayout(root, view) {
-    const rOpts = view.radial_display || {};
+    const tcOpts = view.tree_chart_options || {};
+    const rankKey = view.hierarchy_options.rank_key || 'rank';
     radialOuterRadius = Math.min(radialWidth, radialHeight) * 0.42;
 
-    // d3.tree() assigns each depth level an equal radius band,
-    // producing proper concentric circles (unlike d3.cluster which
-    // collapses all leaves to the outermost ring).
-    // Custom separation: more angular gap for higher-level boundaries
-    // and extra space for collapsed nodes
-    d3.tree()
-        .size([360, radialOuterRadius])
-        .separation((a, b) => {
-            // Collapsed nodes need more space (they represent hidden subtrees)
-            const collapsedWeight = (a._children ? 3 : 0) + (b._children ? 3 : 0);
+    // Bottom-up angular layout: assign angles to leaves first,
+    // then center parents among children — same approach as rectangular
+    // to guarantee no overlap.
+    const LEAF_GAP_DEG = 2;        // minimum angular gap between leaves (degrees)
+    const SUBTREE_GAP_DEG = 1;     // extra gap between sibling subtrees
+    let nextAngle = 0;
 
-            let base;
-            if (a.parent === b.parent) {
-                base = 1;
-            } else {
-                // Find depth of lowest common ancestor
-                let da = a.parent, db = b.parent;
-                const ancestorsA = new Set();
-                while (da) { ancestorsA.add(da); da = da.parent; }
-                let lcaDepth = 0;
-                while (db) {
-                    if (ancestorsA.has(db)) { lcaDepth = db.depth; break; }
-                    db = db.parent;
-                }
-                const maxDepth = Math.max(a.depth, b.depth);
-                const distance = maxDepth - lcaDepth;
-                base = 1 + distance * 0.5;
+    function layoutRadialSubtree(node) {
+        if (!node.children || node.children.length === 0) {
+            node._la = nextAngle;
+            nextAngle += node._children ? LEAF_GAP_DEG * 2 : LEAF_GAP_DEG;
+            return;
+        }
+        for (let i = 0; i < node.children.length; i++) {
+            layoutRadialSubtree(node.children[i]);
+            if (i < node.children.length - 1) {
+                nextAngle += SUBTREE_GAP_DEG;
             }
+        }
+        const first = node.children[0];
+        const last = node.children[node.children.length - 1];
+        node._la = (first._la + last._la) / 2;
+    }
 
-            return base + collapsedWeight;
-        })
-        (root);
+    layoutRadialSubtree(root);
 
-    // --- Dynamic radius: ensure minimum spacing between adjacent leaves ---
+    // Scale angles to fill 360 degrees
+    const totalAngle = nextAngle || 1;
+    root.each(node => {
+        node.x = (node._la / totalAngle) * 360;
+        node.y = node.depth * (radialOuterRadius / (root.height || 1));
+    });
+
+    // --- Dynamic radius: ensure minimum arc spacing between adjacent leaves ---
     const MIN_SPACING = 20; // minimum arc distance in pixels
     const leaves = [];
     root.each(d => {
@@ -261,7 +282,6 @@ function computeRadialLayout(root, view) {
             const delta = leaves[i].x - leaves[i - 1].x;
             if (delta > 0 && delta < minDeltaTheta) minDeltaTheta = delta;
         }
-        // Wrap-around gap
         const wrapDelta = 360 - leaves[leaves.length - 1].x + leaves[0].x;
         if (wrapDelta > 0 && wrapDelta < minDeltaTheta) minDeltaTheta = wrapDelta;
 
@@ -277,8 +297,7 @@ function computeRadialLayout(root, view) {
     }
 
     // Override radii by rank if specified
-    const rankRadius = rOpts.rank_radius;
-    const rankKey = view.hierarchy_options.rank_key || 'rank';
+    const rankRadius = tcOpts.rank_radius;
     if (rankRadius) {
         root.each(node => {
             const rank = node.data[rankKey];
@@ -296,9 +315,108 @@ function computeRadialLayout(root, view) {
     });
 }
 
+// --- Rectangular (Cladogram) Layout ---
+
+function computeCladogramLayout(root, view) {
+    const tcOpts = view.tree_chart_options || {};
+    const rankKey = view.hierarchy_options.rank_key || 'rank';
+
+    const LEAF_GAP = 24;       // minimum vertical gap between adjacent leaves
+    const SUBTREE_GAP = 8;     // extra gap between sibling subtrees
+
+    // Bottom-up layout: leaves first, then center parents among children.
+    // This guarantees no overlap because every leaf gets a unique Y slot.
+    let nextY = 0;
+
+    function layoutSubtree(node) {
+        if (!node.children || node.children.length === 0) {
+            // Leaf or collapsed node
+            node._ly = nextY;
+            nextY += node._children ? LEAF_GAP * 2 : LEAF_GAP;
+            return;
+        }
+        for (let i = 0; i < node.children.length; i++) {
+            layoutSubtree(node.children[i]);
+            if (i < node.children.length - 1) {
+                nextY += SUBTREE_GAP;
+            }
+        }
+        // Center among children
+        const first = node.children[0];
+        const last = node.children[node.children.length - 1];
+        node._ly = (first._ly + last._ly) / 2;
+    }
+
+    layoutSubtree(root);
+
+    const treeH = Math.max(nextY, LEAF_GAP);
+    const maxDepth = root.height || 1;
+    const depthSpacing = 120;
+    const treeW = maxDepth * depthSpacing;
+
+    // Assign positions: x = vertical (from _ly), y = horizontal (from depth)
+    root.each(node => {
+        node.x = node._ly;
+        node.y = node.depth * depthSpacing;
+    });
+
+    // Align same-rank nodes to the same X position
+    const rankRadius = tcOpts.rank_radius;
+    if (rankRadius) {
+        root.each(node => {
+            const rank = node.data[rankKey];
+            if (rank && rankRadius[rank] !== undefined) {
+                node.y = rankRadius[rank] * treeW;
+            }
+        });
+    } else {
+        // Auto-compute: group by rank, average depth → snap to same position
+        const rankSum = {};
+        const rankCount = {};
+        root.each(node => {
+            if (isNodeHidden(node)) return;
+            const rank = node.data[rankKey];
+            if (!rank) return;
+            rankSum[rank] = (rankSum[rank] || 0) + node.depth;
+            rankCount[rank] = (rankCount[rank] || 0) + 1;
+        });
+        const ranks = Object.keys(rankSum)
+            .sort((a, b) => (rankSum[a] / rankCount[a]) - (rankSum[b] / rankCount[b]));
+        const rankY = {};
+        ranks.forEach((rank, i) => {
+            rankY[rank] = (ranks.length > 1) ? (i / (ranks.length - 1)) * treeW : 0;
+        });
+        root.each(node => {
+            const rank = node.data[rankKey];
+            if (rank && rankY[rank] !== undefined) {
+                node.y = rankY[rank];
+            }
+        });
+    }
+
+    cladoBoundsW = treeW;
+    cladoBoundsH = treeH;
+
+    // d3 tree: node.x = vertical spread [0, treeH], node.y = depth [0, treeW]
+    // Map to centered cartesian (left-to-right tree)
+    root.each(node => {
+        node.cx = node.y - treeW / 2;   // depth → horizontal
+        node.cy = node.x - treeH / 2;   // spread → vertical
+    });
+}
+
 // --- Fit Transform ---
 
 function computeFitTransform() {
+    if (treeLayoutMode === 'rectangular') {
+        const padding = 120; // extra room for labels on the right
+        const scaleX = radialWidth / (cladoBoundsW + padding);
+        const scaleY = radialHeight / (cladoBoundsH + padding);
+        const fitScale = Math.min(scaleX, scaleY);
+        if (fitScale < 1) return d3.zoomIdentity.scale(fitScale);
+        return d3.zoomIdentity;
+    }
+    // Radial mode
     const padding = 40;
     const fitScale = Math.min(radialWidth, radialHeight) / (2 * radialOuterRadius + padding);
     if (fitScale < 1) {
@@ -310,8 +428,8 @@ function computeFitTransform() {
 // --- Colors ---
 
 function assignRadialColors(root, view) {
-    const rOpts = view.radial_display || {};
-    const colorKey = rOpts.color_key;
+    const tcOpts = view.tree_chart_options || {};
+    const colorKey = tcOpts.color_key;
     radialColorMap = {};
 
     // Get top-level children for color assignment
@@ -362,27 +480,33 @@ function buildRadialQuadtree(root) {
 // --- Toolbar ---
 
 function buildRadialToolbar(view) {
-    const toolbar = document.getElementById('radial-toolbar');
-    const rOpts = view.radial_display || {};
+    const toolbar = document.getElementById('tc-toolbar');
+    const tcOpts = view.tree_chart_options || {};
     let html = '';
 
     // Search
-    html += '<input type="text" id="radial-search" placeholder="Search nodes..." autocomplete="off">';
+    html += '<input type="text" id="tc-search" placeholder="Search nodes..." autocomplete="off">';
+
+    // Layout toggle
+    const radialActive = treeLayoutMode === 'radial' ? ' active' : '';
+    const rectActive = treeLayoutMode === 'rectangular' ? ' active' : '';
+    html += `<button id="tc-layout-radial" class="tc-layout-btn${radialActive}" title="Radial layout"><i class="bi bi-bullseye"></i></button>`;
+    html += `<button id="tc-layout-rect" class="tc-layout-btn${rectActive}" title="Rectangular layout"><i class="bi bi-diagram-3"></i></button>`;
 
     // Depth toggle (starts active = pruned)
-    if (rOpts.depth_toggle && rOpts.leaf_rank) {
-        html += `<button id="radial-depth-btn" class="active" title="Toggle leaf nodes">
-                    <i class="bi bi-layers"></i> ${rOpts.leaf_rank}
+    if (tcOpts.depth_toggle && tcOpts.leaf_rank) {
+        html += `<button id="tc-depth-btn" class="active" title="Toggle leaf nodes">
+                    <i class="bi bi-layers"></i> ${tcOpts.leaf_rank}
                  </button>`;
     }
 
     // Reset zoom
-    html += '<button id="radial-reset-btn" title="Reset zoom"><i class="bi bi-arrows-fullscreen"></i></button>';
+    html += '<button id="tc-reset-btn" title="Reset zoom"><i class="bi bi-arrows-fullscreen"></i></button>';
 
     toolbar.innerHTML = html;
 
     // Event: search
-    const searchInput = document.getElementById('radial-search');
+    const searchInput = document.getElementById('tc-search');
     if (searchInput) {
         let timer;
         searchInput.addEventListener('input', () => {
@@ -391,8 +515,16 @@ function buildRadialToolbar(view) {
         });
     }
 
+    // Event: layout toggle
+    const radialBtn = document.getElementById('tc-layout-radial');
+    const rectBtn = document.getElementById('tc-layout-rect');
+    if (radialBtn && rectBtn) {
+        radialBtn.addEventListener('click', () => switchLayout('radial'));
+        rectBtn.addEventListener('click', () => switchLayout('rectangular'));
+    }
+
     // Event: depth toggle — switch between full and pruned tree
-    const depthBtn = document.getElementById('radial-depth-btn');
+    const depthBtn = document.getElementById('tc-depth-btn');
     if (depthBtn) {
         depthBtn.addEventListener('click', () => {
             radialDepthHidden = !radialDepthHidden;
@@ -402,7 +534,7 @@ function buildRadialToolbar(view) {
                 navigateToSubtree(radialSubtreeNode.id);
             } else {
                 radialRoot = radialDepthHidden && radialPrunedRoot ? radialPrunedRoot : radialFullRoot;
-                computeRadialLayout(radialRoot, radialViewDef);
+                computeLayout(radialRoot, radialViewDef);
                 assignRadialColors(radialRoot, radialViewDef);
                 buildRadialQuadtree(radialRoot);
                 radialTransform = computeFitTransform();
@@ -413,7 +545,7 @@ function buildRadialToolbar(view) {
     }
 
     // Event: reset — back to full tree, reset zoom
-    const resetBtn = document.getElementById('radial-reset-btn');
+    const resetBtn = document.getElementById('tc-reset-btn');
     if (resetBtn) {
         resetBtn.addEventListener('click', () => {
             radialFocusNode = null;
@@ -425,6 +557,26 @@ function buildRadialToolbar(view) {
                     .call(radialZoom.transform, computeFitTransform());
             }
         });
+    }
+}
+
+function switchLayout(mode) {
+    if (mode === treeLayoutMode) return;
+    treeLayoutMode = mode;
+
+    // Update toolbar button active states
+    const radialBtn = document.getElementById('tc-layout-radial');
+    const rectBtn = document.getElementById('tc-layout-rect');
+    if (radialBtn) radialBtn.classList.toggle('active', mode === 'radial');
+    if (rectBtn) rectBtn.classList.toggle('active', mode === 'rectangular');
+
+    // Recompute layout and re-render
+    if (radialRoot) {
+        computeLayout(radialRoot, radialViewDef);
+        buildRadialQuadtree(radialRoot);
+        radialTransform = computeFitTransform();
+        d3.select(radialCanvas).call(radialZoom.transform, radialTransform);
+        renderRadial();
     }
 }
 
@@ -476,7 +628,7 @@ function setupRadialZoom() {
     // Close context menu on click anywhere
     document.addEventListener('click', hideRadialContextMenu);
     document.addEventListener('contextmenu', (e) => {
-        // Only close if not on the radial canvas (canvas handles its own)
+        // Only close if not on the canvas (canvas handles its own)
         if (e.target !== radialCanvas) hideRadialContextMenu();
     });
 }
@@ -514,19 +666,19 @@ function onRadialMouseMove(event) {
     const searchRadius = 15 / radialTransform.k;
     const nearest = radialQuadtree.find(dataX, dataY, searchRadius);
 
-    const tooltip = document.getElementById('radial-tooltip');
+    const tooltip = document.getElementById('tc-tooltip');
     if (nearest && !isNodeHidden(nearest)) {
         const labelKey = radialViewDef.hierarchy_options.label_key || 'name';
         const rankKey = radialViewDef.hierarchy_options.rank_key || 'rank';
-        const rOpts = radialViewDef.radial_display || {};
-        const countKey = rOpts.count_key || radialViewDef.hierarchy_options.count_key;
+        const tcOpts = radialViewDef.tree_chart_options || {};
+        const countKey = tcOpts.count_key || radialViewDef.hierarchy_options.count_key;
 
-        let html = `<div class="rt-name">${nearest.data[labelKey] || nearest.id}</div>`;
+        let html = `<div class="tc-tt-name">${nearest.data[labelKey] || nearest.id}</div>`;
         if (nearest.data[rankKey]) {
-            html += `<div class="rt-rank">${nearest.data[rankKey]}</div>`;
+            html += `<div class="tc-tt-rank">${nearest.data[rankKey]}</div>`;
         }
         if (countKey && nearest.value !== undefined) {
-            html += `<div class="rt-count">${countKey}: ${nearest.value}</div>`;
+            html += `<div class="tc-tt-count">${countKey}: ${nearest.value}</div>`;
         }
 
         tooltip.innerHTML = html;
@@ -536,7 +688,7 @@ function onRadialMouseMove(event) {
 
         // Keep tooltip inside viewport
         const rect = tooltip.getBoundingClientRect();
-        const wrap = document.getElementById('radial-canvas-wrap').getBoundingClientRect();
+        const wrap = document.getElementById('tc-canvas-wrap').getBoundingClientRect();
         if (rect.right > wrap.right) {
             tooltip.style.left = (mx - rect.width - 8) + 'px';
         }
@@ -565,15 +717,15 @@ function onRadialClick(event) {
 
     if (!nearest || isNodeHidden(nearest)) return;
 
-    const rOpts = radialViewDef.radial_display || {};
+    const tcOpts = radialViewDef.tree_chart_options || {};
 
     const isLeaf = isLeafByRank(nearest);
 
     // Leaf node → detail modal
     if (isLeaf) {
-        if (rOpts.on_node_click) {
-            const idKey = rOpts.on_node_click.id_key || rOpts.on_node_click.id_field;
-            const detailView = rOpts.on_node_click.detail_view;
+        if (tcOpts.on_node_click) {
+            const idKey = tcOpts.on_node_click.id_key || tcOpts.on_node_click.id_field;
+            const detailView = tcOpts.on_node_click.detail_view;
             if (detailView && idKey && nearest.data[idKey] && typeof openDetailModal === 'function') {
                 openDetailModal(detailView, nearest.data[idKey]);
             }
@@ -599,8 +751,8 @@ function toggleRadialNode(node) {
     }
 
     // Recount after structure change
-    const rOpts = radialViewDef.radial_display || {};
-    const countKey = rOpts.count_key || radialViewDef.hierarchy_options.count_key;
+    const tcOpts = radialViewDef.tree_chart_options || {};
+    const countKey = tcOpts.count_key || radialViewDef.hierarchy_options.count_key;
     if (countKey) {
         radialRoot.sum(d => d[countKey] || 0);
     } else {
@@ -608,7 +760,7 @@ function toggleRadialNode(node) {
     }
 
     // Recompute layout
-    computeRadialLayout(radialRoot, radialViewDef);
+    computeLayout(radialRoot, radialViewDef);
     assignRadialColors(radialRoot, radialViewDef);
     buildRadialQuadtree(radialRoot);
     renderRadial();
@@ -644,11 +796,11 @@ function onRadialContextMenu(event) {
 }
 
 function showRadialContextMenu(event, node) {
-    const menu = document.getElementById('radial-context-menu');
+    const menu = document.getElementById('tc-context-menu');
     if (!menu) return;
 
     // Hide tooltip
-    const tooltip = document.getElementById('radial-tooltip');
+    const tooltip = document.getElementById('tc-tooltip');
     if (tooltip) tooltip.style.display = 'none';
 
     const labelKey = radialViewDef.hierarchy_options.label_key || 'name';
@@ -665,32 +817,32 @@ function showRadialContextMenu(event, node) {
 
     // "View as root" — only for internal nodes
     if (!isLeaf && hasChildren) {
-        html += `<div class="rcm-item" onclick="rcmViewAsRoot()"><i class="bi bi-diagram-3"></i> View as root</div>`;
+        html += `<div class="tc-cm-item" onclick="rcmViewAsRoot()"><i class="bi bi-diagram-3"></i> View as root</div>`;
     }
 
     // "Expand / Collapse" — for internal nodes
     if (hasChildren) {
         if (node._children) {
-            html += `<div class="rcm-item" onclick="rcmToggle()"><i class="bi bi-chevron-expand"></i> Expand</div>`;
+            html += `<div class="tc-cm-item" onclick="rcmToggle()"><i class="bi bi-chevron-expand"></i> Expand</div>`;
         } else if (node.children) {
-            html += `<div class="rcm-item" onclick="rcmToggle()"><i class="bi bi-chevron-contract"></i> Collapse</div>`;
+            html += `<div class="tc-cm-item" onclick="rcmToggle()"><i class="bi bi-chevron-contract"></i> Collapse</div>`;
         }
     }
 
     // "Zoom to" — always available
-    html += `<div class="rcm-item" onclick="rcmZoomTo()"><i class="bi bi-search"></i> Zoom to</div>`;
+    html += `<div class="tc-cm-item" onclick="rcmZoomTo()"><i class="bi bi-search"></i> Zoom to</div>`;
 
     // "Detail" — for leaf nodes with detail_view configured
-    const rOpts = radialViewDef.radial_display || {};
-    if (isLeaf && rOpts.on_node_click) {
-        html += `<div class="rcm-item" onclick="rcmDetail()"><i class="bi bi-info-circle"></i> Detail</div>`;
+    const tcOpts = radialViewDef.tree_chart_options || {};
+    if (isLeaf && tcOpts.on_node_click) {
+        html += `<div class="tc-cm-item" onclick="rcmDetail()"><i class="bi bi-info-circle"></i> Detail</div>`;
     }
 
     menu.innerHTML = html;
     menu.style.display = 'block';
 
     // Position near the mouse, inside the canvas wrap
-    const wrap = document.getElementById('radial-canvas-wrap');
+    const wrap = document.getElementById('tc-canvas-wrap');
     const wrapRect = wrap.getBoundingClientRect();
     let left = event.clientX - wrapRect.left;
     let top = event.clientY - wrapRect.top;
@@ -711,7 +863,7 @@ function showRadialContextMenu(event, node) {
 }
 
 function hideRadialContextMenu() {
-    const menu = document.getElementById('radial-context-menu');
+    const menu = document.getElementById('tc-context-menu');
     if (menu) menu.style.display = 'none';
     radialContextTarget = null;
 }
@@ -738,10 +890,10 @@ function rcmDetail() {
     const node = radialContextTarget;
     hideRadialContextMenu();
     if (!node) return;
-    const rOpts = radialViewDef.radial_display || {};
-    if (rOpts.on_node_click) {
-        const idKey = rOpts.on_node_click.id_key || rOpts.on_node_click.id_field;
-        const detailView = rOpts.on_node_click.detail_view;
+    const tcOpts = radialViewDef.tree_chart_options || {};
+    if (tcOpts.on_node_click) {
+        const idKey = tcOpts.on_node_click.id_key || tcOpts.on_node_click.id_field;
+        const detailView = tcOpts.on_node_click.detail_view;
         if (detailView && idKey && node.data[idKey] && typeof openDetailModal === 'function') {
             openDetailModal(detailView, node.data[idKey]);
         }
@@ -783,7 +935,7 @@ function navigateToSubtree(nodeId) {
     if (!subtreeRoot) return;
 
     radialRoot = subtreeRoot;
-    computeRadialLayout(radialRoot, radialViewDef);
+    computeLayout(radialRoot, radialViewDef);
     assignRadialColors(radialRoot, radialViewDef);
     buildRadialQuadtree(radialRoot);
 
@@ -798,10 +950,10 @@ function buildSubtreeFromNode(node) {
     // Deep-copy the subtree as a d3.hierarchy
     const idKey = radialViewDef.hierarchy_options.id_key || 'id';
     const rankKey = radialViewDef.hierarchy_options.rank_key || 'rank';
-    const rOpts = radialViewDef.radial_display || {};
-    const countKey = rOpts.count_key || radialViewDef.hierarchy_options.count_key;
+    const tcOpts = radialViewDef.tree_chart_options || {};
+    const countKey = tcOpts.count_key || radialViewDef.hierarchy_options.count_key;
     const labelKey = radialViewDef.hierarchy_options.label_key || 'name';
-    const leafRank = rOpts.leaf_rank;
+    const leafRank = tcOpts.leaf_rank;
 
     function copyNode(src) {
         const copy = d3.hierarchy(src.data);
@@ -850,7 +1002,7 @@ function buildSubtreeFromNode(node) {
 function clearSubtreeRoot() {
     radialSubtreeNode = null;
     radialRoot = radialDepthHidden && radialPrunedRoot ? radialPrunedRoot : radialFullRoot;
-    computeRadialLayout(radialRoot, radialViewDef);
+    computeLayout(radialRoot, radialViewDef);
     assignRadialColors(radialRoot, radialViewDef);
     buildRadialQuadtree(radialRoot);
     radialTransform = computeFitTransform();
@@ -862,7 +1014,7 @@ function clearSubtreeRoot() {
 // --- Breadcrumb ---
 
 function updateRadialBreadcrumb() {
-    const bc = document.getElementById('radial-breadcrumb');
+    const bc = document.getElementById('tc-breadcrumb');
     if (!bc) return;
 
     if (!radialSubtreeNode) {
@@ -903,11 +1055,11 @@ function radialBcClick(nodeId) {
 // --- Rendering ---
 
 function resizeRadialCanvas() {
-    const wrap = document.getElementById('radial-canvas-wrap');
+    const wrap = document.getElementById('tc-canvas-wrap');
     radialWidth = wrap.clientWidth;
     radialHeight = wrap.clientHeight;
 
-    radialCanvas = document.getElementById('radial-canvas');
+    radialCanvas = document.getElementById('tc-canvas');
     radialCanvas.width = radialWidth * radialDpr;
     radialCanvas.height = radialHeight * radialDpr;
     radialCanvas.style.width = radialWidth + 'px';
@@ -924,8 +1076,8 @@ function isNodeHidden(node) {
 }
 
 function isLeafByRank(node) {
-    const rOpts = radialViewDef.radial_display || {};
-    const leafRank = rOpts.leaf_rank;
+    const tcOpts = radialViewDef.tree_chart_options || {};
+    const leafRank = tcOpts.leaf_rank;
     if (!leafRank) return !node.children || node.children.length === 0;
     const rankKey = radialViewDef.hierarchy_options.rank_key || 'rank';
     return node.data[rankKey] === leafRank;
@@ -944,8 +1096,8 @@ function renderRadial() {
     ctx.translate(t.x + cx * t.k, t.y + cy * t.k);
     ctx.scale(t.k, t.k);
 
-    // Draw guide circles (concentric rings per depth)
-    drawGuideCircles(ctx);
+    // Draw guide lines (circles for radial, vertical lines for rectangular)
+    drawGuideLines(ctx);
 
     // Draw links
     drawLinks(ctx);
@@ -959,24 +1111,37 @@ function renderRadial() {
     updateRadialLabels(t);
 }
 
-function drawGuideCircles(ctx) {
+function drawGuideLines(ctx) {
     if (!radialRoot) return;
-
-    // Collect unique depths
-    const depths = new Set();
-    radialRoot.each(d => {
-        if (!isNodeHidden(d)) depths.add(d.y);
-    });
 
     ctx.strokeStyle = 'rgba(0, 0, 0, 0.06)';
     ctx.lineWidth = 0.5;
     ctx.setLineDash([4, 4]);
 
-    for (const r of depths) {
-        if (r === 0) continue;
-        ctx.beginPath();
-        ctx.arc(0, 0, r, 0, Math.PI * 2);
-        ctx.stroke();
+    if (treeLayoutMode === 'rectangular') {
+        // Vertical dashed lines at each depth level
+        const depths = new Set();
+        radialRoot.each(d => { if (!isNodeHidden(d)) depths.add(d.cx); });
+
+        for (const x of depths) {
+            ctx.beginPath();
+            ctx.moveTo(x, -cladoBoundsH / 2 - 20);
+            ctx.lineTo(x, cladoBoundsH / 2 + 20);
+            ctx.stroke();
+        }
+    } else {
+        // Radial: concentric circles at each depth radius
+        const depths = new Set();
+        radialRoot.each(d => {
+            if (!isNodeHidden(d)) depths.add(d.y);
+        });
+
+        for (const r of depths) {
+            if (r === 0) continue;
+            ctx.beginPath();
+            ctx.arc(0, 0, r, 0, Math.PI * 2);
+            ctx.stroke();
+        }
     }
 
     ctx.setLineDash([]);
@@ -990,16 +1155,22 @@ function drawLinks(ctx) {
         if (isNodeHidden(link.source) || isNodeHidden(link.target)) return;
 
         ctx.beginPath();
-        ctx.moveTo(link.source.cx, link.source.cy);
 
-        // Curved link: radial step
-        const midAngle = (link.source.x + link.target.x) / 2;
-        const midR = (link.source.y + link.target.y) / 2;
-        const midA = (midAngle - 90) * Math.PI / 180;
-        const midX = midR * Math.cos(midA);
-        const midY = midR * Math.sin(midA);
-
-        ctx.quadraticCurveTo(midX, midY, link.target.cx, link.target.cy);
+        if (treeLayoutMode === 'rectangular') {
+            // Elbow connector: vertical at parent x, then horizontal to child
+            ctx.moveTo(link.source.cx, link.source.cy);
+            ctx.lineTo(link.source.cx, link.target.cy);
+            ctx.lineTo(link.target.cx, link.target.cy);
+        } else {
+            // Radial curved link
+            ctx.moveTo(link.source.cx, link.source.cy);
+            const midAngle = (link.source.x + link.target.x) / 2;
+            const midR = (link.source.y + link.target.y) / 2;
+            const midA = (midAngle - 90) * Math.PI / 180;
+            const midX = midR * Math.cos(midA);
+            const midY = midR * Math.sin(midA);
+            ctx.quadraticCurveTo(midX, midY, link.target.cx, link.target.cy);
+        }
         ctx.stroke();
     });
 }
@@ -1077,8 +1248,8 @@ function updateRadialLabels(t) {
     // Determine which nodes get labels based on zoom level
     const labelsToShow = [];
     const maxLabels = 500;
-    const rOpts = radialViewDef.radial_display || {};
-    const leafRank = rOpts.leaf_rank;  // e.g. "Genus"
+    const tcOpts = radialViewDef.tree_chart_options || {};
+    const leafRank = tcOpts.leaf_rank;
 
     // Viewport bounds in data coordinates
     const vpLeft = (-t.x - cx * t.k) / t.k;
@@ -1097,10 +1268,10 @@ function updateRadialLabels(t) {
         let show = false;
 
         if (!isLeafRank(node)) {
-            // Non-leaf ranks (Class, Order, Family, etc.) — always show
+            // Non-leaf ranks — always show
             show = true;
         } else {
-            // Leaf rank (Genus) — show based on zoom and viewport
+            // Leaf rank — show based on zoom and viewport
             if (k >= 2) {
                 show = node.cx >= vpLeft && node.cx <= vpRight &&
                        node.cy >= vpTop && node.cy <= vpBottom;
@@ -1120,7 +1291,7 @@ function updateRadialLabels(t) {
         let base;
         if (rank === leafRank) { base = 9; }
         else {
-            const rr = rOpts.rank_radius;
+            const rr = tcOpts.rank_radius;
             if (rr && rr[rank] !== undefined) {
                 base = rr[rank] <= 0.25 ? 12 : 10;
             } else {
@@ -1136,10 +1307,20 @@ function updateRadialLabels(t) {
 
     sel.exit().remove();
 
+    const isRect = treeLayoutMode === 'rectangular';
+
+    // In rectangular mode, a node is "visually leaf" if it's leaf by rank OR has no children
+    function isRectLeaf(d) {
+        return isLeafRank(d) || (!d.children && !d._children);
+    }
+
     const enter = sel.enter().append('text')
         .attr('font-size', fontSize)
         .attr('fill', '#212529')
         .attr('text-anchor', d => {
+            if (isRect) {
+                return isRectLeaf(d) ? 'start' : 'end';
+            }
             const angle = d.x || 0;
             return (angle > 0 && angle < 180) ? 'start' : 'end';
         })
@@ -1152,11 +1333,23 @@ function updateRadialLabels(t) {
         .attr('transform', d => {
             const sx = t.x + (d.cx + cx) * t.k;
             const sy = t.y + (d.cy + cy) * t.k;
+            if (isRect) {
+                if (isRectLeaf(d)) {
+                    // Leaf: label to the right of node
+                    return `translate(${sx + labelOffset}, ${sy})`;
+                }
+                // Internal: label at top-left shoulder of node
+                return `translate(${sx - labelOffset * 0.5}, ${sy - labelOffset})`;
+            }
+            // Radial: rotated labels
             const angle = d.x || 0;
             let rotation = angle > 180 ? angle - 270 : angle - 90;
             return `translate(${sx + labelOffset * (angle > 0 && angle < 180 ? 1 : -1)}, ${sy}) rotate(${rotation})`;
         })
         .attr('text-anchor', d => {
+            if (isRect) {
+                return isRectLeaf(d) ? 'start' : 'end';
+            }
             const angle = d.x || 0;
             return (angle > 0 && angle < 180) ? 'start' : 'end';
         })
@@ -1179,11 +1372,11 @@ window.addEventListener('resize', () => {
     if (!radialViewDef) return;
     clearTimeout(radialResizeTimer);
     radialResizeTimer = setTimeout(() => {
-        const radialContainer = document.getElementById('view-radial');
-        if (radialContainer && radialContainer.style.display !== 'none') {
+        const container = document.getElementById('view-tree-chart');
+        if (container && container.style.display !== 'none') {
             resizeRadialCanvas();
             if (radialRoot) {
-                computeRadialLayout(radialRoot, radialViewDef);
+                computeLayout(radialRoot, radialViewDef);
                 buildRadialQuadtree(radialRoot);
                 renderRadial();
             }

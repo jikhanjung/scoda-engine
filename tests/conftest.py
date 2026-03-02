@@ -443,11 +443,11 @@ def generic_db(tmp_path):
                 "searchable": True,
                 "on_row_click": {"detail_view": "item_detail", "id_key": "id"}
             },
-            "category_radial": {
+            "category_tree_chart": {
                 "type": "hierarchy",
-                "display": "radial",
-                "title": "Radial Categories",
-                "description": "Category tree in radial layout",
+                "display": "tree_chart",
+                "title": "Tree Chart Categories",
+                "description": "Category tree chart (radial + rectangular)",
                 "source_query": "category_tree",
                 "icon": "bi-diagram-2",
                 "hierarchy_options": {
@@ -458,7 +458,8 @@ def generic_db(tmp_path):
                     "sort_by": "label",
                     "order_key": "id"
                 },
-                "radial_display": {
+                "tree_chart_options": {
+                    "default_layout": "radial",
                     "leaf_rank": "subgroup",
                     "color_key": "level",
                     "count_key": "item_count",

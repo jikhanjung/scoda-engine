@@ -653,14 +653,14 @@ html, body {
     background: #adb5bd;
 }
 
-/* Radial View */
-.radial-view-content {
+/* Tree Chart View (radial + rectangular) */
+.tc-view-content {
     position: relative;
     height: 100%;
     overflow: hidden;
 }
 
-.radial-toolbar {
+.tc-toolbar {
     position: absolute;
     top: 8px;
     right: 16px;
@@ -670,7 +670,7 @@ html, body {
     align-items: center;
 }
 
-.radial-toolbar input {
+.tc-toolbar input {
     font-size: 0.82rem;
     padding: 4px 8px;
     border: 1px solid var(--border-color);
@@ -679,12 +679,12 @@ html, body {
     outline: none;
 }
 
-.radial-toolbar input:focus {
+.tc-toolbar input:focus {
     border-color: #86b7fe;
     box-shadow: 0 0 0 2px rgba(13, 110, 253, 0.15);
 }
 
-.radial-toolbar button {
+.tc-toolbar button {
     font-size: 0.78rem;
     padding: 4px 10px;
     border: 1px solid var(--border-color);
@@ -694,29 +694,33 @@ html, body {
     white-space: nowrap;
 }
 
-.radial-toolbar button:hover {
+.tc-toolbar button:hover {
     background: #e9ecef;
 }
 
-.radial-toolbar button.active {
+.tc-toolbar button.active {
     background: #0d6efd;
     color: #fff;
     border-color: #0d6efd;
 }
 
-.radial-canvas-wrap {
+.tc-toolbar .tc-layout-btn {
+    padding: 4px 8px;
+}
+
+.tc-canvas-wrap {
     width: 100%;
     height: 100%;
     position: relative;
 }
 
-#radial-canvas {
+#tc-canvas {
     width: 100%;
     height: 100%;
     display: block;
 }
 
-#radial-labels {
+#tc-labels {
     position: absolute;
     top: 0;
     left: 0;
@@ -726,7 +730,7 @@ html, body {
     overflow: visible;
 }
 
-.radial-breadcrumb {
+.tc-breadcrumb {
     position: absolute;
     top: 8px;
     left: 16px;
@@ -737,34 +741,34 @@ html, body {
     font-size: 0.8rem;
 }
 
-.radial-breadcrumb span {
+.tc-breadcrumb span {
     color: #6c757d;
     cursor: pointer;
     padding: 2px 6px;
     border-radius: 3px;
 }
 
-.radial-breadcrumb span:hover {
+.tc-breadcrumb span:hover {
     background: #e9ecef;
     color: #212529;
 }
 
-.radial-breadcrumb span.current {
+.tc-breadcrumb span.current {
     color: #0d6efd;
     font-weight: 500;
 }
 
-.radial-breadcrumb .bc-sep {
+.tc-breadcrumb .bc-sep {
     color: #adb5bd;
     cursor: default;
     padding: 0;
 }
 
-.radial-breadcrumb .bc-sep:hover {
+.tc-breadcrumb .bc-sep:hover {
     background: none;
 }
 
-.radial-tooltip {
+.tc-tooltip {
     position: absolute;
     z-index: 20;
     background: #fff;
@@ -777,23 +781,23 @@ html, body {
     max-width: 300px;
 }
 
-.radial-tooltip .rt-name {
+.tc-tooltip .tc-tt-name {
     font-weight: 600;
     margin-bottom: 2px;
 }
 
-.radial-tooltip .rt-rank {
+.tc-tooltip .tc-tt-rank {
     font-size: 0.75rem;
     color: #6c757d;
 }
 
-.radial-tooltip .rt-count {
+.tc-tooltip .tc-tt-count {
     font-size: 0.75rem;
     color: #495057;
     margin-top: 2px;
 }
 
-.radial-context-menu {
+.tc-context-menu {
     position: absolute;
     z-index: 30;
     background: #fff;
@@ -805,7 +809,7 @@ html, body {
     font-size: 0.85rem;
 }
 
-.radial-context-menu .rcm-item {
+.tc-context-menu .tc-cm-item {
     padding: 6px 14px;
     cursor: pointer;
     display: flex;
@@ -813,18 +817,18 @@ html, body {
     gap: 8px;
 }
 
-.radial-context-menu .rcm-item:hover {
+.tc-context-menu .tc-cm-item:hover {
     background: #e9ecef;
 }
 
-.radial-context-menu .rcm-item i {
+.tc-context-menu .tc-cm-item i {
     font-size: 0.9rem;
     color: #6c757d;
     width: 16px;
     text-align: center;
 }
 
-.radial-context-menu .rcm-sep {
+.tc-context-menu .tc-cm-sep {
     height: 1px;
     background: #dee2e6;
     margin: 4px 0;

@@ -245,6 +245,14 @@ function normalizeViewDef(viewDef) {
         };
         delete viewDef.chart_options;
     }
+    // Backward compat: display:"radial" + radial_display → display:"tree_chart" + tree_chart_options
+    if (viewDef.type === 'hierarchy' && viewDef.display === 'radial') {
+        viewDef.display = 'tree_chart';
+        if (viewDef.radial_display && !viewDef.tree_chart_options) {
+            viewDef.tree_chart_options = viewDef.radial_display;
+            delete viewDef.radial_display;
+        }
+    }
     return viewDef;
 }
 
@@ -291,12 +299,12 @@ function switchToView(viewKey) {
     const treeContainer = document.getElementById('view-tree');
     const tableContainer = document.getElementById('view-table');
     const chartContainer = document.getElementById('view-chart');
-    const radialContainer = document.getElementById('view-radial');
+    const treeChartContainer = document.getElementById('view-tree-chart');
 
     treeContainer.style.display = 'none';
     tableContainer.style.display = 'none';
     chartContainer.style.display = 'none';
-    radialContainer.style.display = 'none';
+    treeChartContainer.style.display = 'none';
 
     if (view.type === 'hierarchy') {
         if (view.display === 'tree') {
@@ -306,8 +314,8 @@ function switchToView(viewKey) {
         } else if (view.display === 'nested_table') {
             chartContainer.style.display = '';
             renderNestedTableView(viewKey);
-        } else if (view.display === 'radial') {
-            radialContainer.style.display = '';
+        } else if (view.display === 'tree_chart') {
+            treeChartContainer.style.display = '';
             loadRadialView(viewKey);
         }
     } else if (view.type === 'table') {
