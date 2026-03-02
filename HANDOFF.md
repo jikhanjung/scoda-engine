@@ -1,6 +1,6 @@
 # SCODA Engine — Project Handoff Document
 
-**Last updated:** 2026-03-02
+**Last updated:** 2026-03-03
 
 ---
 
@@ -43,10 +43,16 @@
 | P19: MkDocs + GitHub Pages 다국어 문서 사이트 | Done | `devlog/20260226_P19_mkdocs_github_pages.md` |
 | P20: Radial hierarchy display mode | Done | `devlog/20260228_P20_radial_hierarchy_display.md` |
 | Desktop v0.1.3 버전 업 | Done | `scoda_engine/__init__.py`, `pyproject.toml` |
+| Radial tree 고도화 (subtree view, context menu) | Done | `devlog/20260301_024_radial_tree_enhancements.md` |
+| Fix: 잘못된 .scoda 파일 BadZipFile 에러 처리 | Done | `devlog/20260301_025_fix_invalid_scoda_error_handling.md` |
+| Desktop v0.1.4 버전 업 | Done | `62b736e` |
 | Global controls (profile selector) | Done | `devlog/20260301_026_global_controls_framework.md` |
 | Preferences API (overlay persistence) | Done | `devlog/20260301_027_preferences_api.md` |
 | P21: Manifest-driven CRUD framework | Done | `devlog/20260301_028_crud_framework.md` |
 | P22: Production web viewer (Docker deploy) | Done | `devlog/20260302_P22_production_web_viewer.md` |
+| Collapsible view tab labels | Done | `9cc7c2d` |
+| P23: Tree chart — radial + rectangular layout | Done | `devlog/20260302_P23_tree_chart_layout_mode.md` |
+| Desktop v0.1.5 버전 업 | Done | `scoda_engine/__init__.py`, `pyproject.toml` |
 
 ### Test Status
 
@@ -59,9 +65,11 @@
 
 - 없음
 
-### Recent Session (2026-03-02) Summary
+### Recent Session (2026-03-03) Summary
 
-1. **P22: Production Web Viewer**: Docker Compose 기반 프로덕션 배포. `serve_web.py` (create_app factory + CLI), `/healthz` 헬스체크, MCP 조건부 mount (`SCODA_DISABLE_MCP`), gunicorn + uvicorn workers, nginx 리버스 프록시 (정적 파일 직접 서빙, MCP 차단, gzip, 보안 헤더). `pyproject.toml`에 `web` extras + `scoda-web` 스크립트. 303개 테스트 전부 통과.
+1. **P23: Tree Chart Layout**: D3 기반 tree chart에 radial + rectangular 레이아웃 모드 추가. bottom-up 엔진으로 노드 크기 기반 레이아웃 계산. 레이아웃 전환 토글 UI.
+2. **Collapsible view tabs**: 뷰 탭 라벨을 기본 아이콘만 표시, hover/active 시 확장.
+3. **P22: Production Web Viewer**: Docker Compose 기반 프로덕션 배포. `serve_web.py` (create_app factory + CLI), `/healthz` 헬스체크, MCP 조건부 mount (`SCODA_DISABLE_MCP`), gunicorn + uvicorn workers, nginx 리버스 프록시 (정적 파일 직접 서빙, MCP 차단, gzip, 보안 헤더). `pyproject.toml`에 `web` extras + `scoda-web` 스크립트.
 
 ---
 
@@ -109,7 +117,7 @@ scoda-engine contains no domain-specific code. All domain logic comes from `.sco
 - `ui_queries` table: named SQL queries
 - `/api/query/<name>`: query execution endpoint
 - `/api/composite/<view>?id=N`: multi-query composite response
-- Generic viewer supports: hierarchy (tree/nested_table/tree_chart), table, detail modal, global search, annotations
+- Generic viewer supports: hierarchy (tree/nested_table/tree_chart with radial+rectangular layout), table, detail modal, global search, annotations
 - Boolean columns: customizable via `true_label`/`false_label`, defaults `BOOLEAN_TRUE_LABEL`/`BOOLEAN_FALSE_LABEL`
 - `label_map` 동적 컬럼 label: 행 데이터의 특정 필드 값에 따라 테이블 헤더를 동적으로 결정 (혼합 시 fallback)
 - `editable_entities`: admin 모드에서 CRUD UI 자동 생성 (FK autocomplete, readonly_on_edit, post-mutation hooks)
@@ -128,7 +136,7 @@ core/scoda_engine_core/     # PyPI: scoda-engine-core v0.1.1 (pure stdlib, zero 
 ├── hub_client.py           # Hub: fetch index, compare, download, SSL fallback
 └── validate_manifest.py    # Manifest validator/linter (pure functions)
 
-scoda_engine/               # PyPI: scoda-engine v0.1.3 (desktop/server)
+scoda_engine/               # PyPI: scoda-engine v0.1.5 (desktop/server)
 ├── scoda_package.py        # Backward-compat shim → scoda_engine_core
 ├── app.py                  # FastAPI web server (+ CRUD endpoints)
 ├── entity_schema.py        # P21: FieldDef/EntitySchema parser + validation
@@ -217,3 +225,5 @@ pytest tests/
 | Global controls framework | `devlog/20260301_026_global_controls_framework.md` |
 | Preferences API | `devlog/20260301_027_preferences_api.md` |
 | CRUD framework (P21) | `devlog/20260301_028_crud_framework.md` |
+| Production web viewer (P22) | `devlog/20260302_P22_production_web_viewer.md` |
+| Tree chart layout mode (P23) | `devlog/20260302_P23_tree_chart_layout_mode.md` |
