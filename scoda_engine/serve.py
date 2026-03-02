@@ -76,6 +76,7 @@ def main():
 
         # Set mode before importing app
         os.environ['SCODA_MODE'] = args.mode
+        os.environ.setdefault('SCODA_ENABLE_MCP', '1')
 
         if resolved_db_path:
             from scoda_engine_core import _set_paths_for_testing

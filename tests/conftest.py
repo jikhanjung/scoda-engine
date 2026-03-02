@@ -19,6 +19,8 @@ import sys
 import pytest
 
 import scoda_engine_core as scoda_package
+# Enable MCP mount for tests (MCP is opt-in via SCODA_ENABLE_MCP)
+os.environ.setdefault('SCODA_ENABLE_MCP', '1')
 from scoda_engine.app import app
 from scoda_engine_core import get_db, ScodaPackage
 

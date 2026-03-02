@@ -1,0 +1,26 @@
+name: scoda-server
+
+services:
+  app:
+    image: scoda-server
+    container_name: scoda-server
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile
+      args:
+        DEFAULT_PACKAGE: ${DEFAULT_PACKAGE:-trilobase-assertion}
+    ports:
+      - "${SCODA_PUBLIC_PORT:-80}:80"
+    environment:
+      - SCODA_PATH=/data/
+      - SCODA_MODE=viewer
+      - SCODA_PACKAGE=${SCODA_PACKAGE:-trilobase-assertion}
+      - SCODA_WORKERS=${SCODA_WORKERS:-2}
+      - SCODA_LOG_LEVEL=${SCODA_LOG_LEVEL:-info}
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:80/healthz')"]
+      interval: 30s
+      timeout: 5s
+      start_period: 10s
+      retries: 3
+    restart: unless-stopped

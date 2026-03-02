@@ -1,6 +1,6 @@
 # SCODA Engine — Project Handoff Document
 
-**Last updated:** 2026-03-01
+**Last updated:** 2026-03-02
 
 ---
 
@@ -46,6 +46,7 @@
 | Global controls (profile selector) | Done | `devlog/20260301_026_global_controls_framework.md` |
 | Preferences API (overlay persistence) | Done | `devlog/20260301_027_preferences_api.md` |
 | P21: Manifest-driven CRUD framework | Done | `devlog/20260301_028_crud_framework.md` |
+| P22: Production web viewer (Docker deploy) | Done | `devlog/20260302_P22_production_web_viewer.md` |
 
 ### Test Status
 
@@ -58,9 +59,9 @@
 
 - 없음
 
-### Recent Session (2026-03-01) Summary
+### Recent Session (2026-03-02) Summary
 
-1. **P21: Manifest-Driven CRUD Framework**: manifest의 `editable_entities` 섹션 기반 제네릭 CRUD 엔진. `entity_schema.py` (FieldDef/EntitySchema 파서), `crud_engine.py` (parameterized SQL, FK 검증, unique 제약, post-mutation 훅), REST 엔드포인트 10개, admin/viewer 모드 분리, `--db-path`/`--mode` CLI 인자. 프론트엔드: Edit/Delete/Add 버튼, FK autocomplete (name 표시 + 검색), `readonly_on_edit`, PLACED_IN rank 필터링. `validate_manifest.py`에 editable_entities 검증 규칙 추가. 27개 테스트.
+1. **P22: Production Web Viewer**: Docker Compose 기반 프로덕션 배포. `serve_web.py` (create_app factory + CLI), `/healthz` 헬스체크, MCP 조건부 mount (`SCODA_DISABLE_MCP`), gunicorn + uvicorn workers, nginx 리버스 프록시 (정적 파일 직접 서빙, MCP 차단, gzip, 보안 헤더). `pyproject.toml`에 `web` extras + `scoda-web` 스크립트. 303개 테스트 전부 통과.
 
 ---
 
@@ -135,6 +136,7 @@ scoda_engine/               # PyPI: scoda-engine v0.1.3 (desktop/server)
 ├── mcp_server.py           # MCP server (stdio/SSE)
 ├── gui.py                  # Tkinter GUI
 ├── serve.py                # uvicorn launcher (--db-path, --mode admin|viewer)
+├── serve_web.py            # Production web launcher (gunicorn/Docker)
 ├── templates/              # Generic viewer template
 └── static/                 # Generic viewer assets (+ radial.js for D3 radial tree)
 ```
@@ -165,6 +167,7 @@ pytest tests/
 | Web server | `python -m scoda_engine.serve` |
 | Web server (임의 경로) | `python -m scoda_engine.serve --scoda-path /path/to/data.scoda` |
 | Web server (admin 편집) | `python -m scoda_engine.serve --db-path /path/to/data.db --mode admin` |
+| Web server (production) | `python -m scoda_engine.serve_web --scoda-path /path/to/data.scoda` |
 | MCP server | `python -m scoda_engine.mcp_server` |
 | GUI | `python launcher_gui.py` |
 | GUI (임의 경로) | `python launcher_gui.py --scoda-path /path/to/data.scoda` |

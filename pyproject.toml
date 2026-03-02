@@ -20,10 +20,12 @@ dependencies = [
 [project.optional-dependencies]
 dev = ["pytest>=7.0", "pytest-asyncio>=0.21", "pyinstaller>=5.0"]
 docs = ["mkdocs>=1.6,<2.0", "mkdocs-material>=9.5", "mkdocs-static-i18n>=1.2"]
+web = ["gunicorn>=21.0"]
 
 [project.scripts]
 scoda-serve = "scoda_engine.serve:main"
 scoda-mcp = "scoda_engine.mcp_server:main"
+scoda-web = "scoda_engine.serve_web:main"
 
 [tool.setuptools.packages.find]
 include = ["scoda_engine*"]

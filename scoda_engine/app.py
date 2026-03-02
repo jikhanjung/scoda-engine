@@ -1019,9 +1019,29 @@ def api_entity_detail(entity_name: str, entity_id: str):
     return data
 
 
-# Mount MCP SSE server as sub-application at /mcp
-from .mcp_server import create_mcp_app
-app.mount("/mcp", create_mcp_app())
+# ---------------------------------------------------------------------------
+# Health check endpoint
+# ---------------------------------------------------------------------------
+
+@app.get('/healthz')
+def healthz():
+    """Health check — verifies DB connectivity."""
+    try:
+        conn = get_db()
+        conn.execute("SELECT 1")
+        conn.close()
+        return {"status": "ok", "engine_version": ENGINE_VERSION, "mode": SCODA_MODE}
+    except Exception as e:
+        return JSONResponse(
+            {"status": "error", "detail": str(e)},
+            status_code=503,
+        )
+
+
+# Mount MCP SSE server as sub-application at /mcp (opt-in via SCODA_ENABLE_MCP=1)
+if os.environ.get('SCODA_ENABLE_MCP') == '1':
+    from .mcp_server import create_mcp_app
+    app.mount("/mcp", create_mcp_app())
 
 
 

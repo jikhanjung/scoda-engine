@@ -1,0 +1,38 @@
+# Version control
+.git/
+.github/
+
+# Documentation & design
+docs/
+design/
+devlog/
+*.md
+!deploy/README.md
+
+# Data files
+*.scoda
+*.db
+
+# Desktop-specific
+launcher_gui.py
+launcher_mcp.py
+ScodaDesktop.spec
+scripts/build.py
+scripts/release.py
+
+# Development
+tests/
+examples/
+.venv/
+__pycache__/
+*.pyc
+*.egg-info/
+.pytest_cache/
+
+# IDE
+.vscode/
+.idea/
+
+# OS files
+.DS_Store
+Thumbs.db
