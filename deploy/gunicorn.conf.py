@@ -8,8 +8,8 @@ worker_class = "uvicorn.workers.UvicornWorker"
 # Number of worker processes
 workers = int(os.environ.get("SCODA_WORKERS", "2"))
 
-# Bind address (localhost only — nginx proxies from port 80)
-bind = f"127.0.0.1:{os.environ.get('SCODA_PORT', '8000')}"
+# Bind address (all interfaces — no nginx proxy)
+bind = f"0.0.0.0:{os.environ.get('SCODA_PORT', '8081')}"
 
 # Drop privileges to non-root user
 user = "scoda"
