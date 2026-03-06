@@ -48,6 +48,7 @@ RUN sed -i 's/\r$//' /app/entrypoint.sh && chmod +x /app/entrypoint.sh
 
 # Download all latest .scoda packages from Hub at build time
 COPY deploy/fetch_packages.py /tmp/fetch_packages.py
+ENV SCODA_HUB_SSL_VERIFY=0
 RUN mkdir -p /data && python /tmp/fetch_packages.py --dest /data/ && \
     chown -R scoda:scoda /data && rm /tmp/fetch_packages.py
 
