@@ -71,6 +71,8 @@ jobs:
 
   docker:
     runs-on: ubuntu-latest
+    outputs:
+      bare_version: ${{ steps.version.outputs.bare }}
     steps:
       - uses: actions/checkout@v4
 
@@ -83,6 +85,12 @@ jobs:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
 
+      - name: Strip v prefix from version tag
+        id: version
+        run: echo "bare=${VERSION_TAG#v}" >> "$GITHUB_OUTPUT"
+        env:
+          VERSION_TAG: ${{ inputs.version_tag }}
+
       - name: Build and push
         uses: docker/build-push-action@v6
         with:
@@ -90,7 +98,7 @@ jobs:
           file: deploy/Dockerfile
           push: true
           tags: |
-            honestjung/scoda-server:${{ inputs.version_tag }}
+            honestjung/scoda-server:${{ steps.version.outputs.bare }}
             honestjung/scoda-server:latest
 
   release:
@@ -126,7 +134,7 @@ jobs:
             ### Artifacts
             - **ScodaDesktop-${{ inputs.version_tag }}-windows.zip** — Windows x64 (ScodaDesktop.exe + ScodaMCP.exe)
             - **ScodaDesktop-${{ inputs.version_tag }}-linux.zip** — Linux x64 (ScodaDesktop + ScodaMCP)
-            - **Docker**: `docker pull honestjung/scoda-server:${{ inputs.version_tag }}`
+            - **Docker**: `docker pull honestjung/scoda-server:${{ needs.docker.outputs.bare_version }}`
 
             ---
             Build: `${{ github.run_number }}` | Commit: `${{ github.sha }}`
