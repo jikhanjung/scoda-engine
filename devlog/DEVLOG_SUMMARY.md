@@ -1,8 +1,8 @@
 # SCODA Engine 개발 기록 요약
 
-**최종 업데이트:** 2026-02-26
-**총 문서:** 41개 (작업 로그 22개, 계획 문서 19개)
-**개발 기간:** 2026-02-19 ~ 2026-02-26 (8일)
+**최종 업데이트:** 2026-03-03
+**총 문서:** 56개 (작업 로그 33개, 계획 문서 23개)
+**개발 기간:** 2026-02-19 ~ 2026-03-03 (13일)
 
 ---
 
@@ -122,9 +122,9 @@ Hub Manifest 스펙 문서화, Navbar 버전 표시, 기관 네트워크 SSL fal
 
 ---
 
-### 2026-02-26 (Day 8) — 포트 설정 + MkDocs 다국어 문서 사이트
+### 2026-02-26 (Day 8) — 포트 설정 + MkDocs + Hub 파일명 정리
 
-Hyper-V 포트 충돌 대응 (GUI 포트 설정/자동 탐색), MkDocs + Material 테마로 다국어 문서 사이트 구축.
+Hyper-V 포트 충돌 대응 (GUI 포트 설정/자동 탐색), MkDocs + Material 테마로 다국어 문서 사이트 구축, Hub index 파일명 변경.
 
 | # | 유형 | 제목 | 문서 |
 |---|------|------|------|
@@ -132,8 +132,65 @@ Hyper-V 포트 충돌 대응 (GUI 포트 설정/자동 탐색), MkDocs + Materia
 | P19 | 계획 | MkDocs + GitHub Pages 다국어 문서 사이트 구축 | `20260226_P19_mkdocs_github_pages.md` |
 | 021 | 작업 | GUI 서버 포트 설정 및 자동 탐색 (P18) | `20260226_021_configurable_server_port.md` |
 | 022 | 작업 | MkDocs + GitHub Pages 다국어 문서 사이트 구축 (P19) | `20260226_022_mkdocs_github_pages.md` |
+| 023 | 작업 | Hub index 파일명 변경 (index.json → scoda-hub-index.json) | `20260226_023_hub_index_filename_rename.md` |
 
-**결과:** Hyper-V 포트 충돌 해소 (자동 탐색 + 설정 저장). EN/KO 다국어 문서 사이트 빌드 성공. Hub index.json 공존 확인. 276 tests passing.
+**결과:** Hyper-V 포트 충돌 해소 (자동 탐색 + 설정 저장). EN/KO 다국어 문서 사이트 빌드 성공. Hub index 파일명을 `scoda-hub-index.json`으로 변경하여 MkDocs와의 충돌 해소. 276 tests passing.
+
+---
+
+### 2026-02-28 (Day 10) — Radial Hierarchy Display 설계
+
+Hierarchy 뷰에 방사형(radial) 트리 display mode를 추가하는 계획 문서 작성. D3.js lazy load, Canvas+SVG 렌더링, semantic LOD, 줌/검색/detail 연동 설계.
+
+| # | 유형 | 제목 | 문서 |
+|---|------|------|------|
+| P20 | 계획 | Radial Hierarchy Display Mode (D3.js, Canvas+SVG, LOD) | `20260228_P20_radial_hierarchy_display.md` |
+
+---
+
+### 2026-03-01 (Day 11) — Radial Tree 고도화 + CRUD 프레임워크 + Global Controls
+
+P20 radial tree 구현 후 대폭 개선, 잘못된 .scoda 에러 처리, manifest-driven global controls 프레임워크, Preferences API(overlay DB), manifest-driven CRUD 프레임워크 구현.
+
+| # | 유형 | 제목 | 문서 |
+|---|------|------|------|
+| P21 | 계획 | CRUD 프레임워크 계획 (entity_schema + crud_engine + REST API) | `20260301_P21_crud_backend_plan.md` |
+| 024 | 작업 | Radial Tree 기능 고도화 (버그 수정, pruned tree, collapse, subtree, 컨텍스트 메뉴) | `20260301_024_radial_tree_enhancements.md` |
+| 025 | 작업 | 잘못된 .scoda 파일 에러 처리 (BadZipFile → ValueError 변환) | `20260301_025_fix_invalid_scoda_error_handling.md` |
+| 026 | 작업 | Global Controls 프레임워크 (manifest-driven 드롭다운, 쿼리 자동 병합) | `20260301_026_global_controls_framework.md` |
+| 027 | 작업 | Preferences API (overlay DB 저장, localStorage 제거) | `20260301_027_preferences_api.md` |
+| 028 | 작업 | Manifest-Driven CRUD Framework (entity_schema, crud_engine, 27개 테스트) | `20260301_028_crud_framework.md` |
+
+**결과:** Radial tree에 collapse/expand, subtree, 컨텍스트 메뉴 추가. Admin/Viewer 모드 분리. CRUD REST API 10개 엔드포인트. 303 tests passing.
+
+---
+
+### 2026-03-02 (Day 12) — 프로덕션 Docker 배포 + Tree Chart 이중 레이아웃
+
+프로덕션 웹 뷰어 Docker 환경 구축, Hub 패키지 빌드 타임 자동 다운로드, nginx+app 단일 컨테이너 통합, Tree Chart radial+rectangular 이중 레이아웃.
+
+| # | 유형 | 제목 | 문서 |
+|---|------|------|------|
+| P22 | 계획 | 프로덕션 웹 뷰어 Docker 배포 (nginx + gunicorn + Docker Compose) | `20260302_P22_production_web_viewer.md` |
+| P23 | 계획 | Tree Chart Layout Mode (radial + rectangular, 용어 정리) | `20260302_P23_tree_chart_layout_mode.md` |
+| 029 | 작업 | 프로덕션 웹 뷰어 구현 (serve_web.py, /healthz, MCP opt-in, deploy/) | `20260302_029_production_web_viewer.md` |
+| 030 | 작업 | Docker 빌드 시 Hub 패키지 자동 다운로드 (fetch_packages.py) | `20260302_030_docker_hub_auto_fetch.md` |
+| 031 | 작업 | nginx + app 단일 Docker 이미지 (2-컨테이너 → 1-컨테이너) | `20260302_031_single_container_docker.md` |
+| 032 | 작업 | Tree Chart — Radial + Rectangular Layout Mode (radial.js → tree_chart.js) | `20260302_032_tree_chart_rectangular_layout.md` |
+
+**결과:** Docker Hub `honestjung/scoda-server:0.1.0` 게시. GCP 서버 배포 완료. Tree Chart에 rectangular cladogram 레이아웃 추가. 303 tests passing.
+
+---
+
+### 2026-03-03 (Day 13) — Tree Chart 레이아웃 품질 개선
+
+Rectangular/radial 레이아웃의 겹침 문제 해결을 위해 d3.tree()를 bottom-up 레이아웃 엔진으로 교체. 라벨 위치 분기, rank별 X 정렬.
+
+| # | 유형 | 제목 | 문서 |
+|---|------|------|------|
+| 033 | 작업 | Tree Chart Layout Refinements (bottom-up 엔진, 라벨 위치, rank 정렬) | `20260303_033_tree_chart_layout_refinements.md` |
+
+**결과:** Bottom-up 레이아웃으로 leaf 겹침 원천 방지. Radial/rectangular 모두 동일 원리 적용. Desktop v0.1.5.
 
 ---
 
@@ -177,7 +234,7 @@ Hyper-V 포트 충돌 대응 (GUI 포트 설정/자동 탐색), MkDocs + Materia
 | 02-23 | `test.yml` — 2 OS × 2 Python 매트릭스 CI |
 | 02-23 | `release.yml` — PyInstaller 빌드 + GitHub Release |
 
-### 5. Desktop UI 기능 (02-22~02-26)
+### 5. Desktop UI 기능 (02-22~03-01)
 
 | 날짜 | 내용 |
 |------|------|
@@ -187,6 +244,8 @@ Hyper-V 포트 충돌 대응 (GUI 포트 설정/자동 탐색), MkDocs + Materia
 | 02-25 | Navbar "Powered by SCODA Desktop v{version}" 동적 표시 |
 | 02-25 | EXE 및 GUI 윈도우 아이콘 적용 (멀티 사이즈 ICO) |
 | 02-26 | GUI 서버 포트 설정 + 자동 탐색 (Hyper-V 포트 충돌 대응) |
+| 03-01 | Global Controls 프레임워크 (manifest-driven 드롭다운, 쿼리 자동 병합) |
+| 03-01 | Preferences API (overlay DB 저장, localStorage 완전 제거) |
 
 ### 6. 임의 경로 로딩 (P14, 02-24)
 
@@ -196,7 +255,7 @@ Hyper-V 포트 충돌 대응 (GUI 포트 설정/자동 탐색), MkDocs + Materia
 | 02-24 | `--scoda-path` CLI 인수 (serve, mcp, gui) |
 | 02-24 | `SCODA_PACKAGE_PATH` 환경변수 |
 
-### 7. SCODA Hub (P15/P16/P17, 02-24~02-25)
+### 7. SCODA Hub (P15/P16/P17, 02-24~02-26)
 
 정적 패키지 레지스트리 + 자동 다운로드 시스템.
 
@@ -210,6 +269,7 @@ Hyper-V 포트 충돌 대응 (GUI 포트 설정/자동 탐색), MkDocs + Materia
 | 02-25 | Hub Manifest Spec 문서 (`docs/HUB_MANIFEST_SPEC.md`) |
 | 02-25 | Dependency UI (`[requires: ...]`) + 다운로드 확인 다이얼로그 |
 | 02-25 | SSL fallback (Windows 인증서 저장소, `HubSSLError`, 설정 저장) |
+| 02-26 | Hub index 파일명 변경 (`index.json` → `scoda-hub-index.json`, MkDocs 충돌 해소) |
 
 ### 8. 문서 사이트 (P19, 02-26)
 
@@ -221,9 +281,45 @@ MkDocs + Material 테마 기반 다국어(EN/KO) GitHub Pages 문서 사이트.
 | 02-26 | 8개 문서 다국어 분리 (`.md` EN + `.ko.md` KO) |
 | 02-26 | 랜딩 페이지 (`index.md` / `index.ko.md`) |
 | 02-26 | `pages.yml` 통합 워크플로우 (MkDocs + Hub index.json 공존) |
-| 02-26 | `hub-index.yml` 삭제 (pages.yml로 통합) |
 
-### 9. 설계 문서 (미구현)
+### 9. Tree Chart 시각화 (P20/P23, 02-28~03-03)
+
+Hierarchy 데이터의 방사형/직각 트리 시각화 엔진.
+
+| 날짜 | 내용 |
+|------|------|
+| 02-28 | P20: Radial hierarchy display 설계 (D3.js, Canvas+SVG, LOD) |
+| 03-01 | Radial tree 구현 + 대폭 고도화 (pruned tree, collapse/expand, subtree, 컨텍스트 메뉴, 라벨 LOD) |
+| 03-02 | P23: Radial → Tree Chart 범용화 설계 (radial + rectangular 이중 레이아웃) |
+| 03-02 | `radial.js` → `tree_chart.js` 전환, rectangular cladogram 레이아웃 추가, backward compat |
+| 03-03 | Bottom-up 레이아웃 엔진으로 교체 (leaf 겹침 원천 방지), 라벨 위치 분기, rank별 X 정렬 |
+
+### 10. CRUD 프레임워크 (P21, 03-01)
+
+Manifest-driven 제네릭 CRUD 시스템 (Admin/Viewer 모드 분리).
+
+| 날짜 | 내용 |
+|------|------|
+| 03-01 | P21: CRUD 프레임워크 계획 (entity_schema + crud_engine + REST API + 편집 UI) |
+| 03-01 | `entity_schema.py` (FieldDef, EntitySchema, 입력 검증) |
+| 03-01 | `crud_engine.py` (parameterized SQL CRUD, FK 검증, unique 제약, post-mutation 훅) |
+| 03-01 | REST API 10개 엔드포인트 (`/api/entities/*`, `/api/search/*`) |
+| 03-01 | 편집 UI (detail Edit/Delete, 목록 Add, FK autocomplete, `readonly_on_edit`) |
+| 03-01 | 27개 CRUD 테스트 (`test_crud.py`) |
+
+### 11. 프로덕션 Docker 배포 (P22, 03-02)
+
+읽기 전용 프로덕션 웹 뷰어를 단일 Docker 컨테이너로 배포.
+
+| 날짜 | 내용 |
+|------|------|
+| 03-02 | P22: 프로덕션 웹 뷰어 설계 (nginx + gunicorn + Docker Compose) |
+| 03-02 | `serve_web.py` (gunicorn 팩토리, CLI, MCP opt-in), `/healthz` 엔드포인트 |
+| 03-02 | `fetch_packages.py` — Docker 빌드 시 Hub에서 최신 .scoda 자동 다운로드 |
+| 03-02 | 2-컨테이너 → 단일 컨테이너 통합 (nginx + gunicorn in one image) |
+| 03-02 | Docker Hub 게시 (`honestjung/scoda-server:0.1.0`), GCP 서버 배포 |
+
+### 12. 설계 문서 (미구현)
 
 | 날짜 | 문서 | 주제 | 상태 |
 |------|------|------|------|
@@ -231,11 +327,12 @@ MkDocs + Material 테마 기반 다국어(EN/KO) GitHub Pages 문서 사이트.
 | 02-20 | P05 | SCODA Distribution and Architecture Strategy | 부분 구현 |
 | 02-22 | P11 | Tree Snapshot Design v1 Review | 설계 검토 완료, 구현 대기 |
 
-### 10. 버그 수정
+### 13. 버그 수정
 
 | 날짜 | 내용 | 문서 |
 |------|------|------|
 | 02-24 | Hub 업데이트 다운로드 시 버전 비교 누락 | `20260224_016_fix_hub_update_download.md` |
+| 03-01 | 잘못된 .scoda 파일(BadZipFile) 에러 처리 보강 | `20260301_025_fix_invalid_scoda_error_handling.md` |
 
 ---
 
@@ -243,8 +340,8 @@ MkDocs + Material 테마 기반 다국어(EN/KO) GitHub Pages 문서 사이트.
 
 | 유형 | 접두사 | 개수 | 설명 |
 |------|--------|------|------|
-| 작업 로그 | `NNN` (숫자) | 22 | 완료된 작업의 상세 기록 |
-| 계획 문서 | `PNN` | 19 | 작업 전 설계/계획 |
+| 작업 로그 | `NNN` (숫자) | 33 | 완료된 작업의 상세 기록 |
+| 계획 문서 | `PNN` | 23 | 작업 전 설계/계획 |
 
 ## 테스트 수 추이
 
@@ -254,6 +351,7 @@ MkDocs + Material 테마 기반 다국어(EN/KO) GitHub Pages 문서 사이트.
 | 02-22 | 225 | Spec alignment 29개 + validate_manifest 테스트 추가 |
 | 02-24 | 255 | 임의 경로 로딩 5개 + Hub 클라이언트 25개 추가 |
 | 02-25 | 276 | Hub SSL fallback 21개 추가 |
+| 03-01 | 303 | CRUD 프레임워크 27개 추가 |
 
 ## 버전 이력
 
@@ -262,3 +360,6 @@ MkDocs + Material 테마 기반 다국어(EN/KO) GitHub Pages 문서 사이트.
 | 02-22 | scoda-engine-core | 0.1.1 | validate_manifest 통합 |
 | 02-24 | scoda-engine (Desktop) | 0.1.1 | 임의 경로 로딩 |
 | 02-24 | scoda-engine (Desktop) | 0.1.2 | Hub 자동 체크/다운로드 |
+| 03-01 | scoda-engine (Desktop) | 0.1.3 | Radial hierarchy display |
+| 03-02 | scoda-server (Docker) | 0.1.0 | 프로덕션 Docker 배포 (Docker Hub) |
+| 03-03 | scoda-engine (Desktop) | 0.1.5 | Tree Chart bottom-up 레이아웃 |
