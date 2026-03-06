@@ -36,6 +36,7 @@ def create_app():
     """
     # Force read-only viewer mode (MCP disabled by default, no action needed)
     os.environ['SCODA_MODE'] = 'viewer'
+    os.environ['SCODA_ENGINE_NAME'] = 'SCODA Server'
 
     scoda_path = os.environ.get('SCODA_PATH')
     if scoda_path:

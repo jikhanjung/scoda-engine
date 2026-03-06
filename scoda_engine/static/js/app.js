@@ -113,8 +113,9 @@ async function loadManifest() {
             const titleEl = document.getElementById('navbar-title');
             const subtitleEl = document.getElementById('navbar-subtitle');
             if (titleEl) titleEl.textContent = `${data.package.name} v${data.package.version}`;
+            const engineName = data.engine_name || 'SCODA Desktop';
             const engineVer = data.engine_version ? ` v${data.engine_version}` : '';
-            if (subtitleEl) subtitleEl.textContent = `Powered by SCODA Desktop${engineVer}`;
+            if (subtitleEl) subtitleEl.textContent = `Powered by ${engineName}${engineVer}`;
             document.title = `${data.package.name} v${data.package.version}`;
         }
     } catch (error) {

@@ -21,7 +21,9 @@ logger = logging.getLogger(__name__)
 from scoda_engine_core import get_db
 from scoda_engine import __version__ as ENGINE_VERSION
 
-app = FastAPI(title="SCODA Desktop")
+ENGINE_NAME = os.environ.get('SCODA_ENGINE_NAME', 'SCODA Desktop')
+
+app = FastAPI(title=ENGINE_NAME)
 
 # Admin/Viewer mode — set via SCODA_MODE env var or _set_scoda_mode()
 SCODA_MODE = os.environ.get('SCODA_MODE', 'viewer')
@@ -100,6 +102,7 @@ class ManifestResponse(BaseModel):
     created_at: str
     package: PackageInfo
     engine_version: str = ""
+    engine_name: str = "SCODA Desktop"
     mode: str = "viewer"
 
 class AnnotationItem(BaseModel):
@@ -227,6 +230,7 @@ def _fetch_manifest(conn):
                     'description': meta.get('description', ''),
                 },
                 'engine_version': ENGINE_VERSION,
+                'engine_name': ENGINE_NAME,
             }
 
     # Fallback: auto-generate manifest from DB schema
