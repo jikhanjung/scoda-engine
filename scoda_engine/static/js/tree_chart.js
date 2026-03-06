@@ -321,7 +321,7 @@ function computeCladogramLayout(root, view) {
     const tcOpts = view.tree_chart_options || {};
     const rankKey = view.hierarchy_options.rank_key || 'rank';
 
-    const LEAF_GAP = 24;       // minimum vertical gap between adjacent leaves
+    const LEAF_GAP = 6;        // minimum vertical gap between adjacent leaves
     const SUBTREE_GAP = 8;     // extra gap between sibling subtrees
 
     // Bottom-up layout: leaves first, then center parents among children.
