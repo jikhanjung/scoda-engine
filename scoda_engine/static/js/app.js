@@ -322,11 +322,13 @@ function switchToView(viewKey) {
     const tableContainer = document.getElementById('view-table');
     const chartContainer = document.getElementById('view-chart');
     const treeChartContainer = document.getElementById('view-tree-chart');
+    const sbsContainer = document.getElementById('view-side-by-side');
 
     treeContainer.style.display = 'none';
     tableContainer.style.display = 'none';
     chartContainer.style.display = 'none';
     treeChartContainer.style.display = 'none';
+    sbsContainer.style.display = 'none';
 
     if (view.type === 'hierarchy') {
         if (view.display === 'tree') {
@@ -339,6 +341,9 @@ function switchToView(viewKey) {
         } else if (view.display === 'tree_chart') {
             treeChartContainer.style.display = '';
             loadRadialView(viewKey);
+        } else if (view.display === 'side_by_side') {
+            sbsContainer.style.display = '';
+            loadSideBySideView(viewKey);
         }
     } else if (view.type === 'table') {
         tableContainer.style.display = '';

@@ -103,6 +103,27 @@
         </div>
     </div>
 
+    <!-- View: Side-by-Side Tree Chart -->
+    <div class="view-container" id="view-side-by-side" style="display: none;">
+        <div class="sbs-view-content">
+            <div class="tc-toolbar" id="sbs-toolbar"></div>
+            <div class="sbs-panels">
+                <div class="sbs-panel" id="sbs-left">
+                    <div class="sbs-panel-header" id="sbs-left-header"></div>
+                    <div class="tc-canvas-wrap" id="sbs-left-wrap"></div>
+                    <div class="tc-breadcrumb" id="sbs-left-breadcrumb"></div>
+                </div>
+                <div class="sbs-panel" id="sbs-right">
+                    <div class="sbs-panel-header" id="sbs-right-header"></div>
+                    <div class="tc-canvas-wrap" id="sbs-right-wrap"></div>
+                    <div class="tc-breadcrumb" id="sbs-right-breadcrumb"></div>
+                </div>
+            </div>
+            <div class="tc-tooltip" id="sbs-tooltip" style="display:none;"></div>
+            <div class="tc-context-menu" id="sbs-context-menu" style="display:none;"></div>
+        </div>
+    </div>
+
     <!-- Detail Modal -->
     <div class="modal fade" id="detailModal" tabindex="-1">
         <div class="modal-dialog modal-lg modal-dialog-scrollable">

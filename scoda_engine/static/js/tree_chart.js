@@ -1374,3 +1374,116 @@ async function loadRadialView(viewKey) {
 
     await _singletonTC.load(viewKey);
 }
+
+
+// --- Side-by-Side entry point ---
+
+let _sbsLeft = null;
+let _sbsRight = null;
+
+async function loadSideBySideView(viewKey) {
+    // Destroy previous instances
+    if (_sbsLeft) { _sbsLeft.destroy(); _sbsLeft = null; }
+    if (_sbsRight) { _sbsRight.destroy(); _sbsRight = null; }
+
+    const view = manifest.views[viewKey];
+    if (!view) return;
+
+    // Resolve the base tree chart view key (side_by_side references a tree_chart view)
+    const tcOpts = view.tree_chart_options || view.side_by_side_options || {};
+    const sourceViewKey = tcOpts.source_view || viewKey;
+
+    // Determine profile IDs
+    const leftProfileId = globalControls.profile_id;
+    const rightProfileId = globalControls.compare_profile_id;
+
+    // Set panel headers with profile names
+    const leftHeader = document.getElementById('sbs-left-header');
+    const rightHeader = document.getElementById('sbs-right-header');
+
+    // Fetch profile names for headers
+    try {
+        const profiles = await fetchQuery('classification_profiles_selector');
+        const leftProfile = profiles.find(p => p.id == leftProfileId);
+        const rightProfile = profiles.find(p => p.id == rightProfileId);
+        if (leftHeader) leftHeader.textContent = leftProfile ? leftProfile.name : `Profile ${leftProfileId}`;
+        if (rightHeader) rightHeader.textContent = rightProfile ? rightProfile.name : `Profile ${rightProfileId}`;
+    } catch (e) {
+        if (leftHeader) leftHeader.textContent = `Profile ${leftProfileId}`;
+        if (rightHeader) rightHeader.textContent = `Profile ${rightProfileId}`;
+    }
+
+    const sharedTooltip = document.getElementById('sbs-tooltip');
+    const sharedContextMenu = document.getElementById('sbs-context-menu');
+    const sharedToolbar = document.getElementById('sbs-toolbar');
+
+    // Create left instance (base profile — uses globalControls.profile_id as-is)
+    _sbsLeft = new TreeChartInstance({
+        wrapEl: document.getElementById('sbs-left-wrap'),
+        toolbarEl: sharedToolbar,
+        breadcrumbEl: document.getElementById('sbs-left-breadcrumb'),
+        tooltipEl: sharedTooltip,
+        contextMenuEl: sharedContextMenu,
+    });
+
+    // Create right instance (compare profile — override profile_id)
+    _sbsRight = new TreeChartInstance({
+        wrapEl: document.getElementById('sbs-right-wrap'),
+        toolbarEl: null,  // toolbar is shared, only left builds it
+        breadcrumbEl: document.getElementById('sbs-right-breadcrumb'),
+        tooltipEl: sharedTooltip,
+        contextMenuEl: sharedContextMenu,
+        overrideParams: { profile_id: rightProfileId },
+    });
+
+    // Load both trees in parallel
+    await Promise.all([
+        _sbsLeft.load(sourceViewKey),
+        _sbsRight.load(sourceViewKey),
+    ]);
+
+    // Phase D: sync zoom/pan between instances
+    _setupSbsSync(_sbsLeft, _sbsRight);
+}
+
+function _setupSbsSync(left, right) {
+    if (!left.zoom || !right.zoom) return;
+
+    let syncing = false;
+
+    function syncZoom(source, target) {
+        if (syncing) return;
+        syncing = true;
+        d3.select(target.canvas).call(target.zoom.transform, source.transform);
+        syncing = false;
+    }
+
+    // Override zoom handlers to add sync
+    const origLeftZoom = left.zoom.on('zoom');
+    left.zoom.on('zoom', (event) => {
+        left.transform = event.transform;
+        left.render();
+        syncZoom(left, right);
+    });
+
+    const origRightZoom = right.zoom.on('zoom');
+    right.zoom.on('zoom', (event) => {
+        right.transform = event.transform;
+        right.render();
+        syncZoom(right, left);
+    });
+
+    // Sync layout mode: override switchLayout on both
+    const origLeftSwitch = left.switchLayout.bind(left);
+    const origRightSwitch = right.switchLayout.bind(right);
+
+    left.switchLayout = function(mode) {
+        origLeftSwitch(mode);
+        if (right.layoutMode !== mode) origRightSwitch(mode);
+    };
+
+    right.switchLayout = function(mode) {
+        origRightSwitch(mode);
+        if (left.layoutMode !== mode) origLeftSwitch(mode);
+    };
+}

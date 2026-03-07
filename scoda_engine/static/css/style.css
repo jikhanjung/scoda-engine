@@ -834,6 +834,54 @@ html, body {
     margin: 4px 0;
 }
 
+/* Side-by-Side Tree Chart View */
+.sbs-view-content {
+    position: relative;
+    height: 100%;
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+}
+
+.sbs-panels {
+    display: flex;
+    flex: 1;
+    min-height: 0;
+}
+
+.sbs-panel {
+    flex: 1;
+    position: relative;
+    min-width: 0;
+    border-right: 1px solid #dee2e6;
+}
+
+.sbs-panel:last-child {
+    border-right: none;
+}
+
+.sbs-panel-header {
+    position: absolute;
+    top: 8px;
+    left: 16px;
+    z-index: 10;
+    font-size: 0.8rem;
+    font-weight: 600;
+    color: #495057;
+    background: rgba(255, 255, 255, 0.85);
+    padding: 2px 8px;
+    border-radius: 4px;
+}
+
+.sbs-panel .tc-canvas-wrap {
+    height: 100%;
+}
+
+.sbs-panel .tc-breadcrumb {
+    top: auto;
+    bottom: 8px;
+}
+
 /* Global Controls (e.g. classification profile selector) */
 .global-controls-container {
     display: flex;
