@@ -31,6 +31,9 @@ let queryCache = {};
 // Global controls state (populated from manifest.global_controls)
 let globalControls = {};
 
+// Compare mode state
+let compareMode = false;
+
 // Global search state
 let searchIndex = null;
 let searchIndexLoading = false;
@@ -125,15 +128,21 @@ async function loadManifest() {
 
 /**
  * Render global controls (e.g. classification profile selector) into the tab bar.
+ * Controls with compare_control: true are only shown when compareMode is active.
  */
 async function renderGlobalControls() {
     const container = document.getElementById('global-controls');
     if (!container || !manifest || !manifest.global_controls) return;
 
+    // Check if any compare_control exists in manifest
+    const hasCompareControls = manifest.global_controls.some(c => c.compare_control);
+
     let html = '';
     for (const ctrl of manifest.global_controls) {
         if (ctrl.type === 'select' && ctrl.source_query) {
-            html += `<div class="global-control-item">
+            const isCompare = ctrl.compare_control;
+            const hidden = isCompare && !compareMode ? ' style="display:none"' : '';
+            html += `<div class="global-control-item" data-compare-control="${isCompare ? 'true' : 'false'}"${hidden}>
                 <label class="global-control-label">${ctrl.label || ctrl.param}</label>
                 <select class="global-control-select" data-param="${ctrl.param}" id="gc-${ctrl.param}">
                     <option value="">Loading...</option>
@@ -141,7 +150,33 @@ async function renderGlobalControls() {
             </div>`;
         }
     }
+    // Compare toggle button (only if manifest declares compare controls)
+    if (hasCompareControls) {
+        html += `<div class="global-control-item">
+            <button class="btn btn-sm ${compareMode ? 'btn-primary' : 'btn-outline-secondary'}" id="compare-toggle-btn"
+                    title="Compare two profiles">
+                <i class="bi bi-arrow-left-right"></i> Compare
+            </button>
+        </div>`;
+    }
     container.innerHTML = html;
+
+    // Compare toggle handler
+    const compareBtn = document.getElementById('compare-toggle-btn');
+    if (compareBtn) {
+        compareBtn.addEventListener('click', () => {
+            compareMode = !compareMode;
+            compareBtn.className = `btn btn-sm ${compareMode ? 'btn-primary' : 'btn-outline-secondary'}`;
+            // Show/hide compare controls
+            container.querySelectorAll('[data-compare-control="true"]').forEach(el => {
+                el.style.display = compareMode ? '' : 'none';
+            });
+            // Show/hide compare-only views in tabs
+            updateCompareViewTabs();
+            queryCache = {};
+            switchToView(currentView);
+        });
+    }
 
     // Populate select options from source queries
     for (const ctrl of manifest.global_controls) {
@@ -172,6 +207,20 @@ async function renderGlobalControls() {
             }
         }
     }
+}
+
+/**
+ * Show/hide tab buttons for views with compare_view: true.
+ */
+function updateCompareViewTabs() {
+    if (!manifest || !manifest.views) return;
+    document.querySelectorAll('.view-tab').forEach(tab => {
+        const viewKey = tab.dataset.view;
+        const view = manifest.views[viewKey];
+        if (view && view.compare_view) {
+            tab.style.display = compareMode ? '' : 'none';
+        }
+    });
 }
 
 /**
@@ -272,9 +321,11 @@ function buildViewTabs() {
 
         const isActive = key === currentView;
         const icon = view.icon || 'bi-square';
+        // Hide compare_view tabs when not in compare mode
+        const hidden = view.compare_view && !compareMode ? ' style="display:none"' : '';
         html += `<button class="view-tab ${isActive ? 'active' : ''}"
                          data-view="${key}" onclick="switchToView('${key}')"
-                         title="${view.title}">
+                         title="${view.title}"${hidden}>
                     <i class="bi ${icon}"></i><span class="tab-label">${view.title}</span>
                  </button>`;
     }
@@ -425,12 +476,21 @@ function renderTableViewRows(viewKey) {
         ? (row) => `onclick="openDetail('${rowClick.detail_view}', ${row[rowClick.id_key]})"`
         : null;
 
+    // row_color_key: color rows based on a column value (e.g. diff_status)
+    const rowColorKey = view.row_color_key;
+    const rowColorMap = view.row_color_map || {};
+
     if (rows.length === 0) {
         html += `<tr><td colspan="${view.columns.length}" class="text-center text-muted py-4">No matching records</td></tr>`;
     } else {
         rows.forEach(row => {
             const clickAttr = getClick ? getClick(row) : '';
-            html += `<tr ${clickAttr}>`;
+            let rowClass = '';
+            if (rowColorKey && row[rowColorKey]) {
+                const colorName = rowColorMap[row[rowColorKey]];
+                if (colorName) rowClass = ` class="table-${colorName}"`;
+            }
+            html += `<tr${rowClass} ${clickAttr}>`;
             view.columns.forEach(col => {
                 let val = row[col.key];
                 if (col.type === 'color') {
