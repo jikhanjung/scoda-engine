@@ -93,6 +93,16 @@ class TreeChartInstance {
         this.cladoBoundsW = 0;
         this.cladoBoundsH = 0;
         this.contextTarget = null;
+        this.hoverNodeId = null;       // ID of hovered node (for cross-instance highlight)
+        this.onHoverSync = null;       // callback: (nodeId) => {} for cross-instance hover
+        this.onDepthToggleSync = null; // callback: (depthHidden) => {} for cross-instance depth
+        this.onCollapseSync = null;    // callback: (nodeId, collapsed) => {} for cross-instance collapse
+        this.onSubtreeSync = null;     // callback: (nodeId|null) => {} for cross-instance view-as-root
+        this._guideDepths = null;      // cached guide line depths
+        this._zooming = false;         // true during active zoom gesture
+        this._cacheCanvas = null;      // offscreen canvas for zoom bitmap cache
+        this._cacheCtx = null;
+        this._cacheTransform = null;   // transform used when cache was rendered
 
         _allInstances.push(this);
         _registerGlobalListeners();
@@ -278,6 +288,7 @@ class TreeChartInstance {
     // --- Layout Dispatcher ---
 
     computeLayout(root, view) {
+        this.invalidateGuideCache();
         if (this.layoutMode === 'rectangular') {
             this.computeCladogramLayout(root, view);
         } else {
@@ -585,6 +596,7 @@ class TreeChartInstance {
                     d3.select(this.canvas).call(this.zoom.transform, this.transform);
                     this.render();
                 }
+                if (this.onDepthToggleSync) this.onDepthToggleSync(this.depthHidden);
             });
         }
 
@@ -657,15 +669,33 @@ class TreeChartInstance {
     setupZoom() {
         this.zoom = d3.zoom()
             .scaleExtent([0.3, 30])
+            .on('start', () => {
+                this._zooming = true;
+                this._snapshotCache();
+            })
             .on('zoom', (event) => {
                 this.transform = event.transform;
                 this.render();
+            })
+            .on('end', () => {
+                this._zooming = false;
+                this._cacheTransform = null; // invalidate cache → next render is full
+                this.render();
+                this.updateLabels(this.transform || d3.zoomIdentity);
             });
 
         d3.select(this.canvas)
             .call(this.zoom)
             .on('dblclick.zoom', null)
             .on('mousemove', (event) => this.onMouseMove(event))
+            .on('mouseleave', () => {
+                if (this.hoverNodeId !== null) {
+                    this.hoverNodeId = null;
+                    if (this.tooltipEl) this.tooltipEl.style.display = 'none';
+                    this.render();
+                    if (this.onHoverSync) this.onHoverSync(null);
+                }
+            })
             .on('click', (event) => this.onClick(event))
             .on('contextmenu', (event) => this.onContextMenu(event));
     }
@@ -702,10 +732,12 @@ class TreeChartInstance {
         const searchRadius = 15 / this.transform.k;
         const nearest = this.quadtree.find(dataX, dataY, searchRadius);
 
-        const tooltip = this.tooltipEl;
-        if (!tooltip) return;
+        const newHoverId = (nearest && !this.isNodeHidden(nearest)) ? nearest.id : null;
+        const hoverChanged = newHoverId !== this.hoverNodeId;
+        this.hoverNodeId = newHoverId;
 
-        if (nearest && !this.isNodeHidden(nearest)) {
+        const tooltip = this.tooltipEl;
+        if (nearest && !this.isNodeHidden(nearest) && tooltip) {
             const labelKey = this.viewDef.hierarchy_options.label_key || 'name';
             const rankKey = this.viewDef.hierarchy_options.rank_key || 'rank';
             const tcOpts = this.viewDef.tree_chart_options || {};
@@ -733,8 +765,85 @@ class TreeChartInstance {
             if (rect.bottom > wrapRect.bottom) {
                 tooltip.style.top = (my - rect.height - 8) + 'px';
             }
-        } else {
+        } else if (tooltip) {
             tooltip.style.display = 'none';
+        }
+
+        if (hoverChanged) {
+            if (!this._zooming) this.render();
+            if (this.onHoverSync) this.onHoverSync(this.hoverNodeId);
+        }
+    }
+
+    setHoverNode(nodeId) {
+        if (nodeId === this.hoverNodeId) return;
+        this.hoverNodeId = nodeId;
+        if (!this._zooming) this.render();
+        this._showTooltipForNode(nodeId);
+    }
+
+    _showTooltipForNode(nodeId) {
+        const tooltip = this.tooltipEl;
+        if (!tooltip) return;
+
+        if (!nodeId) {
+            tooltip.style.display = 'none';
+            return;
+        }
+
+        // Find the node in the tree
+        let node = null;
+        if (this.root) this.root.each(d => { if (d.id === nodeId) node = d; });
+        if (!node) {
+            tooltip.style.display = 'none';
+            return;
+        }
+
+        const t = this.transform || d3.zoomIdentity;
+        const cx = this.width / 2;
+        const cy = this.height / 2;
+
+        // Convert node data coords to screen coords
+        const sx = t.x + (node.cx + cx) * t.k;
+        const sy = t.y + (node.cy + cy) * t.k;
+
+        const labelKey = this.viewDef.hierarchy_options.label_key || 'name';
+        const rankKey = this.viewDef.hierarchy_options.rank_key || 'rank';
+        const tcOpts = this.viewDef.tree_chart_options || {};
+        const countKey = tcOpts.count_key || this.viewDef.hierarchy_options.count_key;
+
+        let html = `<div class="tc-tt-name">${node.data[labelKey] || node.id}</div>`;
+        if (node.data[rankKey]) {
+            html += `<div class="tc-tt-rank">${node.data[rankKey]}</div>`;
+        }
+        if (countKey && node.value !== undefined) {
+            html += `<div class="tc-tt-count">${countKey}: ${node.value}</div>`;
+        }
+
+        tooltip.innerHTML = html;
+        tooltip.style.display = '';
+        tooltip.style.left = (sx + 12) + 'px';
+        tooltip.style.top = (sy - 10) + 'px';
+    }
+
+    setDepthHidden(hidden) {
+        if (hidden === this.depthHidden) return;
+        this.depthHidden = hidden;
+        // Update toolbar button state if present
+        if (this.toolbarEl) {
+            const depthBtn = this.toolbarEl.querySelector('.tc-depth-btn');
+            if (depthBtn) depthBtn.classList.toggle('active', this.depthHidden);
+        }
+        if (this.subtreeNode) {
+            this.navigateToSubtree(this.subtreeNode.id);
+        } else {
+            this.root = this.depthHidden && this.prunedRoot ? this.prunedRoot : this.fullRoot;
+            this.computeLayout(this.root, this.viewDef);
+            this.assignColors(this.root, this.viewDef);
+            this.buildQuadtree(this.root);
+            this.transform = this.computeFitTransform();
+            d3.select(this.canvas).call(this.zoom.transform, this.transform);
+            this.render();
         }
     }
 
@@ -774,7 +883,7 @@ class TreeChartInstance {
         this.toggleNode(nearest);
     }
 
-    toggleNode(node) {
+    toggleNode(node, _fromSync) {
         if (node._children) {
             node.children = node._children;
             node._children = null;
@@ -784,6 +893,8 @@ class TreeChartInstance {
         } else {
             return;
         }
+
+        const collapsed = !!node._children;
 
         const tcOpts = this.viewDef.tree_chart_options || {};
         const countKey = tcOpts.count_key || this.viewDef.hierarchy_options.count_key;
@@ -797,6 +908,40 @@ class TreeChartInstance {
         this.assignColors(this.root, this.viewDef);
         this.buildQuadtree(this.root);
         this.render();
+
+        if (!_fromSync && this.onCollapseSync) {
+            this.onCollapseSync(node.id, collapsed);
+        }
+    }
+
+    setNodeCollapsed(nodeId, collapsed) {
+        const target = this._findNodeById(nodeId);
+        if (!target) return;
+        const isCollapsed = !!target._children;
+        if (isCollapsed === collapsed) return;
+        this.toggleNode(target, true);
+    }
+
+    _findNodeById(nodeId) {
+        let found = null;
+        this.root.each(node => {
+            if (node.id === nodeId) found = node;
+        });
+        // Also search collapsed subtrees
+        if (!found) {
+            const search = (node) => {
+                if (node.id === nodeId) return node;
+                if (node._children) {
+                    for (const c of node._children) {
+                        const r = search(c);
+                        if (r) return r;
+                    }
+                }
+                return null;
+            };
+            found = search(this.root);
+        }
+        return found;
     }
 
     // --- Context Menu ---
@@ -932,7 +1077,7 @@ class TreeChartInstance {
         this.navigateToSubtree(node.id);
     }
 
-    navigateToSubtree(nodeId) {
+    navigateToSubtree(nodeId, _fromSync) {
         const sourceTree = this.depthHidden && this.prunedRoot ? this.prunedRoot : this.fullRoot;
 
         let targetNode = null;
@@ -953,6 +1098,8 @@ class TreeChartInstance {
         d3.select(this.canvas).call(this.zoom.transform, this.transform);
         this.render();
         if (this.breadcrumbEl) this.updateBreadcrumb();
+
+        if (!_fromSync && this.onSubtreeSync) this.onSubtreeSync(nodeId);
     }
 
     buildSubtreeFromNode(node) {
@@ -1003,7 +1150,7 @@ class TreeChartInstance {
         return root;
     }
 
-    clearSubtreeRoot() {
+    clearSubtreeRoot(_fromSync) {
         this.subtreeNode = null;
         this.root = this.depthHidden && this.prunedRoot ? this.prunedRoot : this.fullRoot;
         this.computeLayout(this.root, this.viewDef);
@@ -1013,6 +1160,8 @@ class TreeChartInstance {
         d3.select(this.canvas).call(this.zoom.transform, this.transform);
         this.render();
         if (this.breadcrumbEl) this.updateBreadcrumb();
+
+        if (!_fromSync && this.onSubtreeSync) this.onSubtreeSync(null);
     }
 
     // --- Breadcrumb ---
@@ -1082,11 +1231,52 @@ class TreeChartInstance {
         return node.data[rankKey] === leafRank;
     }
 
+    _snapshotCache() {
+        if (!this.canvas) return;
+        if (!this._cacheCanvas) {
+            this._cacheCanvas = document.createElement('canvas');
+        }
+        const cw = this.canvas.width;
+        const ch = this.canvas.height;
+        if (this._cacheCanvas.width !== cw || this._cacheCanvas.height !== ch) {
+            this._cacheCanvas.width = cw;
+            this._cacheCanvas.height = ch;
+        }
+        const cctx = this._cacheCanvas.getContext('2d');
+        cctx.clearRect(0, 0, cw, ch);
+        cctx.drawImage(this.canvas, 0, 0);
+        const t = this.transform || d3.zoomIdentity;
+        this._cacheTransform = { x: t.x, y: t.y, k: t.k };
+    }
+
     render() {
         if (!this.ctx || !this.root) return;
 
         const ctx = this.ctx;
         const t = this.transform || d3.zoomIdentity;
+
+        // During scale change (zoom in/out): blit cached bitmap (skip full redraw)
+        // Pan (translate only) is fast enough — render fully for crisp labels
+        if (this._zooming && this._cacheTransform && t.k !== this._cacheTransform.k) {
+            const ct = this._cacheTransform;
+            const dpr = this.dpr;
+            const ds = t.k / ct.k;
+
+            ctx.save();
+            ctx.setTransform(1, 0, 0, 1, 0, 0); // raw pixels
+            ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
+            ctx.setTransform(ds, 0, 0, ds,
+                (t.x - ct.x * ds) * dpr,
+                (t.y - ct.y * ds) * dpr);
+            ctx.drawImage(this._cacheCanvas, 0, 0);
+            ctx.restore();
+            ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+
+            // Hide labels during scale zoom — update only on zoom end
+            this.labelsSvg.style('visibility', 'hidden');
+            return;
+        }
+
         const cx = this.width / 2;
         const cy = this.height / 2;
 
@@ -1104,31 +1294,40 @@ class TreeChartInstance {
         this.updateLabels(t);
     }
 
+    invalidateGuideCache() {
+        this._guideDepths = null;
+    }
+
     drawGuideLines(ctx) {
         if (!this.root) return;
+
+        // Cache guide depths — only recompute when layout changes
+        if (!this._guideDepths) {
+            if (this.layoutMode === 'rectangular') {
+                const s = new Set();
+                this.root.each(d => { if (!this.isNodeHidden(d)) s.add(d.cx); });
+                this._guideDepths = [...s];
+            } else {
+                const s = new Set();
+                this.root.each(d => { if (!this.isNodeHidden(d)) s.add(d.y); });
+                s.delete(0);
+                this._guideDepths = [...s];
+            }
+        }
 
         ctx.strokeStyle = 'rgba(0, 0, 0, 0.06)';
         ctx.lineWidth = 0.5;
         ctx.setLineDash([4, 4]);
 
         if (this.layoutMode === 'rectangular') {
-            const depths = new Set();
-            this.root.each(d => { if (!this.isNodeHidden(d)) depths.add(d.cx); });
-
-            for (const x of depths) {
+            for (const x of this._guideDepths) {
                 ctx.beginPath();
                 ctx.moveTo(x, -this.cladoBoundsH / 2 - 20);
                 ctx.lineTo(x, this.cladoBoundsH / 2 + 20);
                 ctx.stroke();
             }
         } else {
-            const depths = new Set();
-            this.root.each(d => {
-                if (!this.isNodeHidden(d)) depths.add(d.y);
-            });
-
-            for (const r of depths) {
-                if (r === 0) continue;
+            for (const r of this._guideDepths) {
                 ctx.beginPath();
                 ctx.arc(0, 0, r, 0, Math.PI * 2);
                 ctx.stroke();
@@ -1187,6 +1386,15 @@ class TreeChartInstance {
                 ctx.stroke();
             }
 
+            // Hover highlight ring
+            if (this.hoverNodeId && node.id === this.hoverNodeId) {
+                ctx.beginPath();
+                ctx.arc(node.cx, node.cy, radius + 5, 0, Math.PI * 2);
+                ctx.strokeStyle = '#00bcd4';
+                ctx.lineWidth = 2.5;
+                ctx.stroke();
+            }
+
             // Collapsed indicator
             if (node._children) {
                 ctx.beginPath();
@@ -1224,6 +1432,7 @@ class TreeChartInstance {
 
     updateLabels(t) {
         if (!this.labelsSvg || !this.root) return;
+        this.labelsSvg.style('visibility', 'visible');
 
         const k = t.k;
         const cx = this.width / 2;
@@ -1413,7 +1622,6 @@ async function loadSideBySideView(viewKey) {
         if (rightHeader) rightHeader.textContent = `Profile ${rightProfileId}`;
     }
 
-    const sharedTooltip = document.getElementById('sbs-tooltip');
     const sharedContextMenu = document.getElementById('sbs-context-menu');
     const sharedToolbar = document.getElementById('sbs-toolbar');
 
@@ -1422,7 +1630,7 @@ async function loadSideBySideView(viewKey) {
         wrapEl: document.getElementById('sbs-left-wrap'),
         toolbarEl: sharedToolbar,
         breadcrumbEl: document.getElementById('sbs-left-breadcrumb'),
-        tooltipEl: sharedTooltip,
+        tooltipEl: document.getElementById('sbs-left-tooltip'),
         contextMenuEl: sharedContextMenu,
     });
 
@@ -1431,7 +1639,7 @@ async function loadSideBySideView(viewKey) {
         wrapEl: document.getElementById('sbs-right-wrap'),
         toolbarEl: null,  // toolbar is shared, only left builds it
         breadcrumbEl: document.getElementById('sbs-right-breadcrumb'),
-        tooltipEl: sharedTooltip,
+        tooltipEl: document.getElementById('sbs-right-tooltip'),
         contextMenuEl: sharedContextMenu,
         overrideParams: { profile_id: rightProfileId },
     });
@@ -1451,27 +1659,69 @@ function _setupSbsSync(left, right) {
 
     let syncing = false;
 
-    function syncZoom(source, target) {
+    function syncTransform(source, target) {
         if (syncing) return;
         syncing = true;
-        d3.select(target.canvas).call(target.zoom.transform, source.transform);
+        // Directly set transform + render without triggering zoom events
+        target.transform = source.transform;
+        target.render();
+        // Update d3 zoom internal state silently (no events fired)
+        target.canvas.__zoom = source.transform;
         syncing = false;
     }
 
     // Override zoom handlers to add sync
-    const origLeftZoom = left.zoom.on('zoom');
-    left.zoom.on('zoom', (event) => {
-        left.transform = event.transform;
-        left.render();
-        syncZoom(left, right);
-    });
+    left.zoom
+        .on('start', () => {
+            if (syncing) return;
+            left._zooming = true;
+            left._snapshotCache();
+            right._zooming = true;
+            right._snapshotCache();
+        })
+        .on('zoom', (event) => {
+            if (syncing) return;
+            left.transform = event.transform;
+            left.render();
+            syncTransform(left, right);
+        })
+        .on('end', () => {
+            if (syncing) return;
+            left._zooming = false;
+            left._cacheTransform = null;
+            left.render();
+            left.updateLabels(left.transform || d3.zoomIdentity);
+            right._zooming = false;
+            right._cacheTransform = null;
+            right.render();
+            right.updateLabels(right.transform || d3.zoomIdentity);
+        });
 
-    const origRightZoom = right.zoom.on('zoom');
-    right.zoom.on('zoom', (event) => {
-        right.transform = event.transform;
-        right.render();
-        syncZoom(right, left);
-    });
+    right.zoom
+        .on('start', () => {
+            if (syncing) return;
+            right._zooming = true;
+            right._snapshotCache();
+            left._zooming = true;
+            left._snapshotCache();
+        })
+        .on('zoom', (event) => {
+            if (syncing) return;
+            right.transform = event.transform;
+            right.render();
+            syncTransform(right, left);
+        })
+        .on('end', () => {
+            if (syncing) return;
+            right._zooming = false;
+            right._cacheTransform = null;
+            right.render();
+            right.updateLabels(right.transform || d3.zoomIdentity);
+            left._zooming = false;
+            left._cacheTransform = null;
+            left.render();
+            left.updateLabels(left.transform || d3.zoomIdentity);
+        });
 
     // Sync layout mode: override switchLayout on both
     const origLeftSwitch = left.switchLayout.bind(left);
@@ -1485,5 +1735,27 @@ function _setupSbsSync(left, right) {
     right.switchLayout = function(mode) {
         origRightSwitch(mode);
         if (left.layoutMode !== mode) origLeftSwitch(mode);
+    };
+
+    // Sync hover highlight
+    left.onHoverSync = (nodeId) => right.setHoverNode(nodeId);
+    right.onHoverSync = (nodeId) => left.setHoverNode(nodeId);
+
+    // Sync depth toggle
+    left.onDepthToggleSync = (hidden) => right.setDepthHidden(hidden);
+    right.onDepthToggleSync = (hidden) => left.setDepthHidden(hidden);
+
+    // Sync collapse/expand
+    left.onCollapseSync = (nodeId, collapsed) => right.setNodeCollapsed(nodeId, collapsed);
+    right.onCollapseSync = (nodeId, collapsed) => left.setNodeCollapsed(nodeId, collapsed);
+
+    // Sync view-as-root (subtree navigation)
+    left.onSubtreeSync = (nodeId) => {
+        if (nodeId) right.navigateToSubtree(nodeId, true);
+        else right.clearSubtreeRoot(true);
+    };
+    right.onSubtreeSync = (nodeId) => {
+        if (nodeId) left.navigateToSubtree(nodeId, true);
+        else left.clearSubtreeRoot(true);
     };
 }

@@ -853,6 +853,7 @@ html, body {
     flex: 1;
     position: relative;
     min-width: 0;
+    overflow: hidden;
     border-right: 1px solid #dee2e6;
 }
 
