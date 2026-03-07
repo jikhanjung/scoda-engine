@@ -100,6 +100,8 @@ class TreeChartInstance {
         this.onSubtreeSync = null;     // callback: (nodeId|null) => {} for cross-instance view-as-root
         this._guideDepths = null;      // cached guide line depths
         this._zooming = false;         // true during active zoom gesture
+        this.diffMode = false;         // true when rendering diff tree
+        this.diffNodeMap = null;       // Map<nodeId, {cx, cy}> for ghost edges (old parent positions)
         this._cacheCanvas = null;      // offscreen canvas for zoom bitmap cache
         this._cacheCtx = null;
         this._cacheTransform = null;   // transform used when cache was rendered
@@ -202,28 +204,56 @@ class TreeChartInstance {
 
         if (!rows || rows.length === 0) return null;
 
-        // If edge_query is specified, load edges separately
-        if (tcOpts.edge_query) {
+        // Determine edge source: diff_mode or normal edge_query
+        const diffCfg = tcOpts.diff_mode || null;
+        const edgeQuery = diffCfg ? diffCfg.edge_query : tcOpts.edge_query;
+        const edgeParamsDef = diffCfg ? diffCfg.edge_params : tcOpts.edge_params;
+        this.diffMode = !!diffCfg;
+
+        if (edgeQuery) {
             // Resolve $variable references using effective controls (globalControls + overrides)
             const effectiveControls = { ...globalControls, ...this.overrideParams };
             const resolvedParams = {};
-            for (const [k, v] of Object.entries(tcOpts.edge_params || {})) {
+            for (const [k, v] of Object.entries(edgeParamsDef || {})) {
                 resolvedParams[k] = (typeof v === 'string' && v.startsWith('$'))
                     ? (effectiveControls[v.slice(1)] ?? v) : v;
             }
-            const edges = await fetchQuery(tcOpts.edge_query, { ...this.overrideParams, ...resolvedParams });
-            console.log(`[tree_chart] edge_query="${tcOpts.edge_query}" returned ${edges.length} edges`);
+            console.log(`[tree_chart] edge_query="${edgeQuery}" resolvedParams=`, JSON.stringify(resolvedParams), 'overrideParams=', JSON.stringify(this.overrideParams));
+            const edges = await fetchQuery(edgeQuery, { ...this.overrideParams, ...resolvedParams });
+            console.log(`[tree_chart] edge_query="${edgeQuery}" returned ${edges.length} edges`);
             const childKey = tcOpts.edge_child_key || 'child_id';
             const parentKey = tcOpts.edge_parent_key || 'parent_id';
-            if (edges.length > 0) {
-                console.log(`[tree_chart] edge[0] keys:`, Object.keys(edges[0]), JSON.stringify(edges[0]));
+
+            // For diff mode, build diff status map
+            const diffStatusMap = diffCfg ? new Map() : null;
+            if (diffCfg) {
+                for (const e of edges) {
+                    diffStatusMap.set(String(e[childKey]), {
+                        diff_status: e.diff_status || 'same',
+                        parent_id_a: e.parent_id_a,
+                        parent_id_b: e.parent_id_b,
+                    });
+                }
             }
+
             // Use String keys to avoid number/string type mismatch between queries
             const parentMap = new Map(edges.map(e => [String(e[childKey]), e[parentKey]]));
             const edgeChildIds = new Set(edges.map(e => String(e[childKey])));
             rows.forEach(n => {
-                const mapped = parentMap.get(String(n[hOpts.id_key]));
+                const nid = String(n[hOpts.id_key]);
+                const mapped = parentMap.get(nid);
                 n[hOpts.parent_key] = mapped !== undefined ? mapped : null;
+                // Attach diff info to row data
+                if (diffStatusMap) {
+                    const info = diffStatusMap.get(nid);
+                    n._diff_status = info ? info.diff_status : 'same';
+                    n._parent_id_a = info ? info.parent_id_a : null;
+                    n._parent_id_b = info ? info.parent_id_b : null;
+                    // Re-parent moved nodes to their compare profile parent
+                    if (info && info.diff_status === 'moved' && info.parent_id_b != null) {
+                        n[hOpts.parent_key] = info.parent_id_b;
+                    }
+                }
             });
 
             // Remove orphan nodes (not part of the classification tree)
@@ -486,6 +516,17 @@ class TreeChartInstance {
 
     assignColors(root, view) {
         const tcOpts = view.tree_chart_options || {};
+
+        // Diff mode: use diff status colors
+        if (this.diffMode && tcOpts.diff_mode) {
+            const colors = tcOpts.diff_mode.colors || {};
+            root.each(node => {
+                const status = node.data._diff_status || 'same';
+                node._color = colors[status] || colors.same || '#adb5bd';
+            });
+            return;
+        }
+
         const colorKey = tcOpts.color_key;
         this.colorMap = {};
 
@@ -750,6 +791,17 @@ class TreeChartInstance {
             if (countKey && nearest.value !== undefined) {
                 html += `<div class="tc-tt-count">${countKey}: ${nearest.value}</div>`;
             }
+            // Diff mode: show diff status + moved parent info
+            if (this.diffMode && nearest.data._diff_status && nearest.data._diff_status !== 'same') {
+                const status = nearest.data._diff_status;
+                const statusLabel = { moved: 'Moved', added: 'Added', removed: 'Removed' }[status] || status;
+                html += `<div class="tc-tt-diff" style="color:${(tcOpts.diff_mode?.colors?.[status]) || '#666'};font-weight:bold;">${statusLabel}</div>`;
+                if (status === 'moved' && nearest.data._parent_id_b) {
+                    const baseParentName = nearest.parent ? (nearest.parent.data[labelKey] || nearest.parent.id) : '?';
+                    const compareParentName = this._getNodeLabel(String(nearest.data._parent_id_b), labelKey) || '?';
+                    html += `<div class="tc-tt-diff-detail" style="font-size:0.85em;color:#888;">${baseParentName} → ${compareParentName}</div>`;
+                }
+            }
 
             tooltip.innerHTML = html;
             tooltip.style.display = '';
@@ -818,6 +870,16 @@ class TreeChartInstance {
         }
         if (countKey && node.value !== undefined) {
             html += `<div class="tc-tt-count">${countKey}: ${node.value}</div>`;
+        }
+        if (this.diffMode && node.data._diff_status && node.data._diff_status !== 'same') {
+            const status = node.data._diff_status;
+            const statusLabel = { moved: 'Moved', added: 'Added', removed: 'Removed' }[status] || status;
+            html += `<div style="color:${(tcOpts.diff_mode?.colors?.[status]) || '#666'};font-weight:bold;">${statusLabel}</div>`;
+            if (status === 'moved' && node.data._parent_id_b) {
+                const baseParentName = node.parent ? (node.parent.data[labelKey] || node.parent.id) : '?';
+                const compareParentName = this._getNodeLabel(String(node.data._parent_id_b), labelKey) || '?';
+                html += `<div style="font-size:0.85em;color:#888;">${baseParentName} → ${compareParentName}</div>`;
+            }
         }
 
         tooltip.innerHTML = html;
@@ -920,6 +982,11 @@ class TreeChartInstance {
         const isCollapsed = !!target._children;
         if (isCollapsed === collapsed) return;
         this.toggleNode(target, true);
+    }
+
+    _getNodeLabel(nodeId, labelKey) {
+        const node = this._findNodeById(nodeId);
+        return node ? (node.data[labelKey] || node.id) : null;
     }
 
     _findNodeById(nodeId) {
@@ -1291,7 +1358,69 @@ class TreeChartInstance {
 
         ctx.restore();
 
+        if (this.diffMode) this.drawDiffLegend(ctx);
         this.updateLabels(t);
+    }
+
+    drawDiffLegend(ctx) {
+        const tcOpts = this.viewDef.tree_chart_options || {};
+        const colors = tcOpts.diff_mode?.colors;
+        if (!colors) return;
+
+        // Count nodes per diff status
+        const counts = { same: 0, moved: 0, added: 0, removed: 0 };
+        this.root.each(node => {
+            if (this.isNodeHidden(node)) return;
+            const s = node.data._diff_status || 'same';
+            if (counts[s] !== undefined) counts[s]++;
+        });
+
+        const items = [
+            { label: `Same (${counts.same})`, color: colors.same, type: 'dot' },
+            { label: `Moved (${counts.moved})`, color: colors.moved, type: 'dot' },
+            { label: `Added (${counts.added})`, color: colors.added, type: 'dot' },
+            { label: `Removed (${counts.removed})`, color: colors.removed, type: 'dot' },
+        ];
+        if (tcOpts.diff_mode.show_ghost_edges && counts.moved > 0) {
+            items.push({ label: 'Original position', color: 'rgba(220, 53, 69, 0.5)', type: 'dash' });
+        }
+
+        const x = 12, y = 12;
+        const lineH = 18, padX = 12, padY = 8;
+        const boxW = 170, boxH = padY * 2 + items.length * lineH;
+
+        ctx.save();
+        ctx.fillStyle = 'rgba(255, 255, 255, 0.9)';
+        ctx.strokeStyle = '#dee2e6';
+        ctx.lineWidth = 1;
+        ctx.beginPath();
+        ctx.roundRect(x, y, boxW, boxH, 4);
+        ctx.fill();
+        ctx.stroke();
+
+        ctx.font = '11px sans-serif';
+        items.forEach((item, i) => {
+            const iy = y + padY + i * lineH + 12;
+            if (item.type === 'dot') {
+                ctx.fillStyle = item.color;
+                ctx.beginPath();
+                ctx.arc(x + padX, iy - 4, 5, 0, Math.PI * 2);
+                ctx.fill();
+            } else {
+                ctx.setLineDash([4, 4]);
+                ctx.strokeStyle = item.color;
+                ctx.lineWidth = 1.5;
+                ctx.beginPath();
+                ctx.moveTo(x + padX - 5, iy - 4);
+                ctx.lineTo(x + padX + 5, iy - 4);
+                ctx.stroke();
+                ctx.setLineDash([]);
+            }
+            ctx.fillStyle = '#333';
+            ctx.fillText(item.label, x + padX + 10, iy);
+        });
+
+        ctx.restore();
     }
 
     invalidateGuideCache() {
@@ -1337,30 +1466,71 @@ class TreeChartInstance {
         ctx.setLineDash([]);
     }
 
+    _drawLink(ctx, source, target) {
+        ctx.beginPath();
+        if (this.layoutMode === 'rectangular') {
+            ctx.moveTo(source.cx, source.cy);
+            ctx.lineTo(source.cx, target.cy);
+            ctx.lineTo(target.cx, target.cy);
+        } else {
+            ctx.moveTo(source.cx, source.cy);
+            const midAngle = (source.x + target.x) / 2;
+            const midR = (source.y + target.y) / 2;
+            const midA = (midAngle - 90) * Math.PI / 180;
+            const midX = midR * Math.cos(midA);
+            const midY = midR * Math.sin(midA);
+            ctx.quadraticCurveTo(midX, midY, target.cx, target.cy);
+        }
+        ctx.stroke();
+    }
+
     drawLinks(ctx) {
-        ctx.strokeStyle = 'rgba(0, 0, 0, 0.1)';
-        ctx.lineWidth = 0.8;
+        const tcOpts = this.viewDef.tree_chart_options || {};
+        const isDiff = this.diffMode && tcOpts.diff_mode;
+        const diffColors = isDiff ? tcOpts.diff_mode.colors : null;
+
+        if (!isDiff) {
+            ctx.strokeStyle = 'rgba(0, 0, 0, 0.1)';
+            ctx.lineWidth = 0.8;
+        }
 
         this.root.links().forEach(link => {
             if (this.isNodeHidden(link.source) || this.isNodeHidden(link.target)) return;
 
-            ctx.beginPath();
-
-            if (this.layoutMode === 'rectangular') {
-                ctx.moveTo(link.source.cx, link.source.cy);
-                ctx.lineTo(link.source.cx, link.target.cy);
-                ctx.lineTo(link.target.cx, link.target.cy);
-            } else {
-                ctx.moveTo(link.source.cx, link.source.cy);
-                const midAngle = (link.source.x + link.target.x) / 2;
-                const midR = (link.source.y + link.target.y) / 2;
-                const midA = (midAngle - 90) * Math.PI / 180;
-                const midX = midR * Math.cos(midA);
-                const midY = midR * Math.sin(midA);
-                ctx.quadraticCurveTo(midX, midY, link.target.cx, link.target.cy);
+            if (isDiff) {
+                const status = link.target.data._diff_status || 'same';
+                const color = diffColors[status] || diffColors.same;
+                ctx.strokeStyle = status === 'same' ? 'rgba(0, 0, 0, 0.08)' : color;
+                ctx.lineWidth = status === 'same' ? 0.6 : 1.5;
             }
-            ctx.stroke();
+
+            this._drawLink(ctx, link.source, link.target);
         });
+
+        // Ghost edges: show original parent for "moved" nodes
+        if (isDiff && tcOpts.diff_mode.show_ghost_edges) {
+            // Build node position map for ghost edge lookup
+            const nodeMap = new Map();
+            this.root.each(n => nodeMap.set(String(n.id), n));
+
+            ctx.save();
+            ctx.setLineDash([4, 4]);
+            ctx.strokeStyle = 'rgba(220, 53, 69, 0.3)';
+            ctx.lineWidth = 1.0;
+
+            this.root.each(node => {
+                if (this.isNodeHidden(node)) return;
+                if (node.data._diff_status === 'moved' && node.data._parent_id_a) {
+                    const oldParent = nodeMap.get(String(node.data._parent_id_a));
+                    if (oldParent && !this.isNodeHidden(oldParent)) {
+                        this._drawLink(ctx, oldParent, node);
+                    }
+                }
+            });
+
+            ctx.setLineDash([]);
+            ctx.restore();
+        }
     }
 
     drawNodes(ctx, k) {
