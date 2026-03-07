@@ -134,9 +134,6 @@ async function renderGlobalControls() {
     const container = document.getElementById('global-controls');
     if (!container || !manifest || !manifest.global_controls) return;
 
-    // Check if any compare_control exists in manifest
-    const hasCompareControls = manifest.global_controls.some(c => c.compare_control);
-
     let html = '';
     for (const ctrl of manifest.global_controls) {
         if (ctrl.type === 'select' && ctrl.source_query) {
@@ -150,33 +147,7 @@ async function renderGlobalControls() {
             </div>`;
         }
     }
-    // Compare toggle button (only if manifest declares compare controls)
-    if (hasCompareControls) {
-        html += `<div class="global-control-item">
-            <button class="btn btn-sm ${compareMode ? 'btn-primary' : 'btn-outline-secondary'}" id="compare-toggle-btn"
-                    title="Compare two profiles">
-                <i class="bi bi-arrow-left-right"></i> Compare
-            </button>
-        </div>`;
-    }
     container.innerHTML = html;
-
-    // Compare toggle handler
-    const compareBtn = document.getElementById('compare-toggle-btn');
-    if (compareBtn) {
-        compareBtn.addEventListener('click', () => {
-            compareMode = !compareMode;
-            compareBtn.className = `btn btn-sm ${compareMode ? 'btn-primary' : 'btn-outline-secondary'}`;
-            // Show/hide compare controls
-            container.querySelectorAll('[data-compare-control="true"]').forEach(el => {
-                el.style.display = compareMode ? '' : 'none';
-            });
-            // Show/hide compare-only views in tabs
-            updateCompareViewTabs();
-            queryCache = {};
-            switchToView(currentView);
-        });
-    }
 
     // Populate select options from source queries
     for (const ctrl of manifest.global_controls) {
@@ -209,19 +180,6 @@ async function renderGlobalControls() {
     }
 }
 
-/**
- * Show/hide tab buttons for views with compare_view: true.
- */
-function updateCompareViewTabs() {
-    if (!manifest || !manifest.views) return;
-    document.querySelectorAll('.view-tab').forEach(tab => {
-        const viewKey = tab.dataset.view;
-        const view = manifest.views[viewKey];
-        if (view && view.compare_view) {
-            tab.style.display = compareMode ? '' : 'none';
-        }
-    });
-}
 
 /**
  * Fetch a named query with caching. Returns cached rows if available.
@@ -321,11 +279,9 @@ function buildViewTabs() {
 
         const isActive = key === currentView;
         const icon = view.icon || 'bi-square';
-        // Hide compare_view tabs when not in compare mode
-        const hidden = view.compare_view && !compareMode ? ' style="display:none"' : '';
         html += `<button class="view-tab ${isActive ? 'active' : ''}"
                          data-view="${key}" onclick="switchToView('${key}')"
-                         title="${view.title}"${hidden}>
+                         title="${view.title}">
                     <i class="bi ${icon}"></i><span class="tab-label">${view.title}</span>
                  </button>`;
     }
@@ -346,6 +302,20 @@ function switchToView(viewKey) {
     document.querySelectorAll('.view-tab').forEach(tab => {
         tab.classList.toggle('active', tab.dataset.view === viewKey);
     });
+
+    // Auto-toggle compare mode based on view
+    const isCompareView = !!view.compare_view;
+    if (compareMode !== isCompareView) {
+        compareMode = isCompareView;
+        // Show/hide compare controls in global controls bar
+        const gcContainer = document.getElementById('global-controls');
+        if (gcContainer) {
+            gcContainer.querySelectorAll('[data-compare-control="true"]').forEach(el => {
+                el.style.display = compareMode ? '' : 'none';
+            });
+        }
+        queryCache = {};
+    }
 
     // Show/hide view containers
     const treeContainer = document.getElementById('view-tree');
