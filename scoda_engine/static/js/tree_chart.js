@@ -797,7 +797,7 @@ class TreeChartInstance {
                 const statusLabel = { moved: 'Moved', added: 'Added', removed: 'Removed' }[status] || status;
                 html += `<div class="tc-tt-diff" style="color:${(tcOpts.diff_mode?.colors?.[status]) || '#666'};font-weight:bold;">${statusLabel}</div>`;
                 if (status === 'moved' && nearest.data._parent_id_b) {
-                    const baseParentName = nearest.parent ? (nearest.parent.data[labelKey] || nearest.parent.id) : '?';
+                    const baseParentName = nearest.data._parent_id_a ? (this._getNodeLabel(String(nearest.data._parent_id_a), labelKey) || '?') : '?';
                     const compareParentName = this._getNodeLabel(String(nearest.data._parent_id_b), labelKey) || '?';
                     html += `<div class="tc-tt-diff-detail" style="font-size:0.85em;color:#888;">${baseParentName} → ${compareParentName}</div>`;
                 }
@@ -876,7 +876,7 @@ class TreeChartInstance {
             const statusLabel = { moved: 'Moved', added: 'Added', removed: 'Removed' }[status] || status;
             html += `<div style="color:${(tcOpts.diff_mode?.colors?.[status]) || '#666'};font-weight:bold;">${statusLabel}</div>`;
             if (status === 'moved' && node.data._parent_id_b) {
-                const baseParentName = node.parent ? (node.parent.data[labelKey] || node.parent.id) : '?';
+                const baseParentName = node.data._parent_id_a ? (this._getNodeLabel(String(node.data._parent_id_a), labelKey) || '?') : '?';
                 const compareParentName = this._getNodeLabel(String(node.data._parent_id_b), labelKey) || '?';
                 html += `<div style="font-size:0.85em;color:#888;">${baseParentName} → ${compareParentName}</div>`;
             }
