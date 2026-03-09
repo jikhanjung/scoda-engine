@@ -18,10 +18,74 @@ Environment variables:
     SCODA_PORT      — Server port (default: 8000)
     SCODA_WORKERS   — Number of worker processes (default: 2)
     SCODA_LOG_LEVEL — Log level (default: info)
+    SCODA_HUB_SYNC  — Set to "1" to sync packages from Hub on startup
 """
 
+import logging
 import os
 import sys
+
+logger = logging.getLogger(__name__)
+
+
+def _sync_hub_packages(scoda_path):
+    """Sync .scoda packages from Hub before starting the server.
+
+    Fetches the Hub index, compares with local packages in scoda_path,
+    and downloads any new or updated packages.
+
+    Only runs when SCODA_HUB_SYNC=1 and scoda_path is a directory.
+    """
+    from scoda_engine_core.hub_client import (
+        fetch_hub_index,
+        compare_with_local,
+        download_package,
+        HubError,
+    )
+    from scoda_engine_core import get_registry
+
+    ssl_noverify = os.environ.get('SCODA_HUB_SSL_VERIFY', '1').strip() == '0'
+
+    try:
+        index = fetch_hub_index(ssl_noverify=ssl_noverify)
+    except HubError as e:
+        logger.warning("Hub sync: failed to fetch index — %s", e)
+        return
+
+    # Scan local packages for comparison
+    registry = get_registry()
+    registry.scan(scoda_path)
+    local_packages = registry.list_packages()
+
+    comparison = compare_with_local(index, local_packages)
+    to_download = comparison['available'] + comparison['updatable']
+
+    if not to_download:
+        logger.info("Hub sync: all packages up to date")
+        return
+
+    for pkg in to_download:
+        name = pkg['name']
+        version = pkg['hub_version']
+        entry = pkg['hub_entry']
+        download_url = entry.get('download_url')
+        if not download_url:
+            continue
+        local_ver = pkg.get('local_version', '(new)')
+        logger.info("Hub sync: downloading %s %s → %s", name, local_ver, version)
+        try:
+            download_package(
+                download_url=download_url,
+                dest_dir=scoda_path,
+                expected_sha256=entry.get('sha256'),
+                ssl_noverify=ssl_noverify,
+            )
+        except HubError as e:
+            logger.warning("Hub sync: failed to download %s — %s", name, e)
+
+    # Re-scan after downloads so registry picks up new files
+    registry.scan(scoda_path)
+    logger.info("Hub sync: done — %d package(s) synced", len(to_download))
 
 
 def create_app():
@@ -41,6 +105,9 @@ def create_app():
     scoda_path = os.environ.get('SCODA_PATH')
     if scoda_path:
         if os.path.isdir(scoda_path):
+            # Hub sync: download new/updated packages before scanning
+            if os.environ.get('SCODA_HUB_SYNC', '0').strip() == '1':
+                _sync_hub_packages(scoda_path)
             # Directory mode: scan all .scoda files, select one as active
             from scoda_engine_core import get_registry, set_active_package
             registry = get_registry()
