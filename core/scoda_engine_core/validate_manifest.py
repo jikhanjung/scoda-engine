@@ -16,7 +16,7 @@ import os
 import sqlite3
 
 # Known view types
-KNOWN_VIEW_TYPES = {'table', 'tree', 'chart', 'hierarchy', 'detail'}
+KNOWN_VIEW_TYPES = {'table', 'tree', 'chart', 'hierarchy', 'detail', 'compound'}
 
 # Known section types (custom types produce warning, not error)
 KNOWN_SECTION_TYPES = {
@@ -92,6 +92,28 @@ def _validate_view(view_name, view_def, views, named_queries, errors, warnings):
         _validate_hierarchy_view(view_name, view_def, views, named_queries, errors, warnings)
     elif view_type == 'detail':
         _validate_detail_view(view_name, view_def, views, named_queries, errors, warnings)
+    elif view_type == 'compound':
+        _validate_compound_view(view_name, view_def, views, named_queries, errors, warnings)
+
+
+def _validate_compound_view(view_name, view_def, views, named_queries, errors, warnings):
+    """Validate a compound view with sub-views and local controls."""
+    sub_views = view_def.get('sub_views', {})
+    if not sub_views:
+        warnings.append(f"view '{view_name}': compound view has no sub_views")
+    # Validate each sub-view's source_query references
+    for sub_key, sub_def in sub_views.items():
+        sq = sub_def.get('source_query')
+        if sq and sq not in named_queries:
+            errors.append(
+                f"view '{view_name}.sub_views.{sub_key}': source_query '{sq}' not found in ui_queries")
+        # Validate diff_mode edge_query if present
+        tc_opts = sub_def.get('tree_chart_options', {})
+        diff_mode = tc_opts.get('diff_mode', {})
+        eq = diff_mode.get('edge_query')
+        if eq and eq not in named_queries:
+            errors.append(
+                f"view '{view_name}.sub_views.{sub_key}': edge_query '{eq}' not found in ui_queries")
 
 
 def _validate_table_view(view_name, view_def, views, named_queries, errors, warnings):

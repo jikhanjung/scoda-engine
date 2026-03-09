@@ -71,7 +71,6 @@ class TreeChartInstance {
         // State
         this.root = null;
         this.fullRoot = null;
-        this.prunedRoot = null;
         this.subtreeNode = null;
         this.viewDef = null;
         this.viewKey = null;
@@ -79,7 +78,6 @@ class TreeChartInstance {
         this.quadtree = null;
         this.colorMap = {};
         this.focusNode = null;
-        this.depthHidden = true;
         this.searchMatches = [];
         this.canvas = null;
         this.ctx = null;
@@ -89,22 +87,33 @@ class TreeChartInstance {
         this.width = 0;
         this.height = 0;
         this.outerRadius = 0;
+        this.textScale = 1.0;
         this.layoutMode = 'radial';
         this.cladoBoundsW = 0;
         this.cladoBoundsH = 0;
         this.contextTarget = null;
         this.hoverNodeId = null;       // ID of hovered node (for cross-instance highlight)
         this.onHoverSync = null;       // callback: (nodeId) => {} for cross-instance hover
-        this.onDepthToggleSync = null; // callback: (depthHidden) => {} for cross-instance depth
         this.onCollapseSync = null;    // callback: (nodeId, collapsed) => {} for cross-instance collapse
         this.onSubtreeSync = null;     // callback: (nodeId|null) => {} for cross-instance view-as-root
         this._guideDepths = null;      // cached guide line depths
         this._zooming = false;         // true during active zoom gesture
         this.diffMode = false;         // true when rendering diff tree
         this.diffNodeMap = null;       // Map<nodeId, {cx, cy}> for ghost edges (old parent positions)
-        this._cacheCanvas = null;      // offscreen canvas for zoom bitmap cache
-        this._cacheCtx = null;
-        this._cacheTransform = null;   // transform used when cache was rendered
+
+        // Morph animation state
+        this._morphAnimId = null;
+        this._morphing = false;
+        this._morphBasePositions = null;   // Map<nodeId, {cx, cy, color, r}>
+        this._morphComparePositions = null;
+        this._morphBaseLinks = null;       // [{sourceId, targetId}, ...]
+        this._morphCompareLinks = null;
+        this._morphAllNodeIds = null;      // Set of all node IDs in union
+        this._morphReversed = false;
+        this._morphBaseRoot = null;
+        this._morphCompareRoot = null;
+        this._morphFullBaseRoot = null;    // full tree roots (preserved for clearSubtreeRoot)
+        this._morphFullCompareRoot = null;
 
         _allInstances.push(this);
         _registerGlobalListeners();
@@ -124,7 +133,7 @@ class TreeChartInstance {
 
     // --- Main Entry ---
 
-    async load(viewKey) {
+    async load(viewKey, viewDefOverride) {
         this.wrapEl.innerHTML = '<div class="loading">Loading D3.js...</div>';
 
         try {
@@ -137,12 +146,11 @@ class TreeChartInstance {
         // Create canvas + SVG inside wrap
         this.wrapEl.innerHTML = '<canvas></canvas><svg></svg>';
 
-        const view = manifest.views[viewKey];
+        const view = viewDefOverride || manifest.views[viewKey];
         if (!view) return;
 
         this.viewDef = view;
         this.viewKey = viewKey;
-        this.depthHidden = true;
         this.searchMatches = [];
         this.focusNode = null;
         this.subtreeNode = null;
@@ -169,8 +177,7 @@ class TreeChartInstance {
             return;
         }
 
-        // Start with pruned tree if available, otherwise full
-        this.root = this.prunedRoot || this.fullRoot;
+        this.root = this.fullRoot;
         if (!this.root) {
             this.wrapEl.innerHTML = '<div class="text-muted" style="padding:20px;text-align:center;">No hierarchy data found.</div>';
             return;
@@ -193,6 +200,374 @@ class TreeChartInstance {
         d3.select(this.canvas).call(this.zoom.transform, this.transform);
         this.render();
         if (this.breadcrumbEl) this.updateBreadcrumb();
+    }
+
+    // --- Morph Animation ---
+
+    /**
+     * Snapshot positions from a d3 hierarchy root.
+     * Returns Map<nodeId, {cx, cy, color, r}>.
+     */
+    snapshotPositions(root) {
+        const map = new Map();
+        if (!root) return map;
+        root.each(n => {
+            map.set(String(n.id), {
+                cx: n.cx || 0, cy: n.cy || 0,
+                x: n.x || 0, y: n.y || 0,
+                color: n._color || '#adb5bd',
+                r: 8,
+            });
+        });
+        // Also include collapsed children recursively
+        function walkCollapsed(node) {
+            if (node._children) {
+                for (const child of node._children) {
+                    if (!map.has(String(child.id))) {
+                        // Use parent position as fallback
+                        map.set(String(child.id), {
+                            cx: node.cx || 0, cy: node.cy || 0,
+                            x: node.x || 0, y: node.y || 0,
+                            color: node._color || '#adb5bd',
+                            r: 0,
+                        });
+                    }
+                    walkCollapsed(child);
+                }
+            }
+            if (node.children) {
+                for (const child of node.children) walkCollapsed(child);
+            }
+        }
+        walkCollapsed(root);
+        return map;
+    }
+
+    /**
+     * Capture link list from a d3 hierarchy root.
+     * Returns [{sourceId, targetId}, ...]
+     */
+    snapshotLinks(root) {
+        if (!root) return [];
+        const links = [];
+        root.links().forEach(l => {
+            links.push({ sourceId: String(l.source.id), targetId: String(l.target.id) });
+        });
+        return links;
+    }
+
+    /**
+     * Load morph view: builds two trees (base + compare) and snapshots their positions.
+     * Renders the base tree initially.
+     */
+    async loadMorph(sourceViewKey, sourceView, baseProfileId, compareProfileId) {
+        this.wrapEl.innerHTML = '<canvas></canvas><svg></svg>';
+
+        this.viewDef = sourceView;
+        this.viewKey = sourceViewKey;
+        this.searchMatches = [];
+        this.focusNode = null;
+        this.subtreeNode = null;
+
+        const tcOpts = sourceView.tree_chart_options || {};
+        this.layoutMode = tcOpts.default_layout || 'radial';
+
+        this.canvas = this.wrapEl.querySelector('canvas');
+        this.ctx = this.canvas.getContext('2d');
+        this.labelsSvg = d3.select(this.wrapEl.querySelector('svg'));
+        this.dpr = window.devicePixelRatio || 1;
+        this.resizeCanvas();
+
+        if (this.toolbarEl) this.buildToolbar(sourceView);
+
+        // --- Build base tree ---
+        this.overrideParams = { profile_id: baseProfileId };
+        await this.buildHierarchy(sourceView);
+        this.root = this.fullRoot;
+        if (!this.root) return;
+        this.computeLayout(this.root, sourceView);
+        this.assignColors(this.root, sourceView);
+        const baseBW = this.cladoBoundsW, baseBH = this.cladoBoundsH;
+        this._morphBasePositions = this.snapshotPositions(this.root);
+        this._morphBaseLinks = this.snapshotLinks(this.root);
+        this._morphBaseRoot = this.root;
+        this._morphFullBaseRoot = this.root;  // preserve full tree
+
+        // --- Build compare tree ---
+        this.overrideParams = { profile_id: compareProfileId };
+        await this.buildHierarchy(sourceView);
+        const compareRoot = this.fullRoot;
+        if (!compareRoot) return;
+        this.computeLayout(compareRoot, sourceView);
+        this.assignColors(compareRoot, sourceView);
+        // Use max bounds from both trees for fit
+        this.cladoBoundsW = Math.max(baseBW, this.cladoBoundsW);
+        this.cladoBoundsH = Math.max(baseBH, this.cladoBoundsH);
+        this._morphComparePositions = this.snapshotPositions(compareRoot);
+        this._morphCompareLinks = this.snapshotLinks(compareRoot);
+        this._morphCompareRoot = compareRoot;
+        this._morphFullCompareRoot = compareRoot;  // preserve full tree
+
+        // Build union of all node IDs
+        this._morphAllNodeIds = new Set([
+            ...this._morphBasePositions.keys(),
+            ...this._morphComparePositions.keys(),
+        ]);
+
+        // Reset to base tree for initial display
+        this.root = this._morphBaseRoot;
+        this.buildQuadtree(this.root);
+        this.setupZoom();
+        this.transform = this.computeFitTransform();
+        d3.select(this.canvas).call(this.zoom.transform, this.transform);
+        this._morphing = true;
+        this.renderMorphFrame(0);
+    }
+
+    /**
+     * Render a single morph frame at time t (0 = base, 1 = compare).
+     */
+    renderMorphFrame(t) {
+        if (!this._morphBasePositions || !this._morphComparePositions) return;
+        this._morphT = t;  // store current t for re-renders (zoom/pan)
+
+        const fromPos = this._morphReversed ? this._morphComparePositions : this._morphBasePositions;
+        const toPos = this._morphReversed ? this._morphBasePositions : this._morphComparePositions;
+        const fromLinks = this._morphReversed ? this._morphCompareLinks : this._morphBaseLinks;
+        const toLinks = this._morphReversed ? this._morphBaseLinks : this._morphCompareLinks;
+
+        // Easing: cubic ease-in-out
+        const ease = t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2;
+
+        const ctx = this.ctx;
+        const dpr = this.dpr;
+        const w = this.width;
+        const h = this.height;
+
+        ctx.clearRect(0, 0, w * dpr, h * dpr);
+        ctx.save();
+
+        const tf = this.transform || d3.zoomIdentity;
+        const centerX = w / 2;
+        const centerY = h / 2;
+        ctx.setTransform(tf.k * dpr, 0, 0, tf.k * dpr,
+            (tf.x + centerX * tf.k) * dpr,
+            (tf.y + centerY * tf.k) * dpr);
+
+        // --- Draw edges ---
+        // Build link sets for fast lookup
+        const fromLinkSet = new Set(fromLinks.map(l => l.sourceId + '→' + l.targetId));
+        const toLinkSet = new Set(toLinks.map(l => l.sourceId + '→' + l.targetId));
+        const allLinkKeys = new Set([...fromLinkSet, ...toLinkSet]);
+
+        ctx.lineWidth = 2;
+        for (const key of allLinkKeys) {
+            const [srcId, tgtId] = key.split('→');
+            const inFrom = fromLinkSet.has(key);
+            const inTo = toLinkSet.has(key);
+
+            // Interpolate source and target positions
+            const srcFrom = fromPos.get(srcId);
+            const srcTo = toPos.get(srcId);
+            const tgtFrom = fromPos.get(tgtId);
+            const tgtTo = toPos.get(tgtId);
+            if (!srcFrom && !srcTo) continue;
+            if (!tgtFrom && !tgtTo) continue;
+
+            const sx = this._lerpVal(srcFrom?.cx, srcTo?.cx, ease, srcFrom?.cx || srcTo?.cx);
+            const sy = this._lerpVal(srcFrom?.cy, srcTo?.cy, ease, srcFrom?.cy || srcTo?.cy);
+            const tx = this._lerpVal(tgtFrom?.cx, tgtTo?.cx, ease, tgtFrom?.cx || tgtTo?.cx);
+            const ty = this._lerpVal(tgtFrom?.cy, tgtTo?.cy, ease, tgtFrom?.cy || tgtTo?.cy);
+
+            let alpha;
+            if (inFrom && inTo) alpha = 0.15;           // shared — subtle
+            else if (inFrom && !inTo) alpha = 0.15 * Math.max(0, 1 - t * 2);      // fade out in first half (raw t)
+            else alpha = 0.15 * Math.max(0, (t - 0.5) * 2);                        // fade in in second half (raw t)
+
+            if (alpha < 0.01) continue;
+            ctx.strokeStyle = `rgba(0, 0, 0, ${alpha})`;
+            ctx.beginPath();
+            ctx.moveTo(sx, sy);
+            if (this.layoutMode === 'rectangular') {
+                ctx.lineTo(sx, ty);
+                ctx.lineTo(tx, ty);
+            } else {
+                // Radial curved link: interpolate angle/radius for midpoint
+                const srcAngle = this._lerpVal(srcFrom?.x, srcTo?.x, ease, srcFrom?.x || srcTo?.x || 0);
+                const srcR = this._lerpVal(srcFrom?.y, srcTo?.y, ease, srcFrom?.y || srcTo?.y || 0);
+                const tgtAngle = this._lerpVal(tgtFrom?.x, tgtTo?.x, ease, tgtFrom?.x || tgtTo?.x || 0);
+                const tgtR = this._lerpVal(tgtFrom?.y, tgtTo?.y, ease, tgtFrom?.y || tgtTo?.y || 0);
+                const midAngle = (srcAngle + tgtAngle) / 2;
+                const midR = (srcR + tgtR) / 2;
+                const midA = (midAngle - 90) * Math.PI / 180;
+                const midX = midR * Math.cos(midA);
+                const midY = midR * Math.sin(midA);
+                ctx.quadraticCurveTo(midX, midY, tx, ty);
+            }
+            ctx.stroke();
+        }
+
+        // --- Draw nodes ---
+        for (const nodeId of this._morphAllNodeIds) {
+            const fp = fromPos.get(nodeId);
+            const tp = toPos.get(nodeId);
+            if (!fp && !tp) continue;
+
+            const cx = this._lerpVal(fp?.cx, tp?.cx, ease, fp?.cx || tp?.cx);
+            const cy = this._lerpVal(fp?.cy, tp?.cy, ease, fp?.cy || tp?.cy);
+
+            let r, alpha, color;
+            if (fp && tp) {
+                // Exists in both: interpolate
+                r = fp.r + (tp.r - fp.r) * ease;
+                alpha = 1;
+                color = this._lerpColor(fp.color, tp.color, ease);
+            } else if (fp && !tp) {
+                // Removed: fade out in first half of animation (use raw t for linear timing)
+                const remT = Math.max(0, 1 - t * 2);  // 1..0 mapped from t 0..0.5
+                r = fp.r * remT;
+                alpha = remT;
+                color = fp.color;
+            } else {
+                // Added: delayed fade in in second half (use raw t for linear timing)
+                const addT = Math.max(0, (t - 0.5) * 2);  // 0..1 mapped from t 0.5..1
+                r = tp.r * addT;
+                alpha = addT;
+                color = tp.color;
+            }
+
+            r *= this.textScale;
+            if (r < 0.3 || alpha < 0.02) continue;
+            ctx.globalAlpha = alpha;
+            ctx.fillStyle = color;
+            ctx.beginPath();
+            ctx.arc(cx, cy, Math.max(r, 0.5), 0, 2 * Math.PI);
+            ctx.fill();
+        }
+
+        ctx.globalAlpha = 1;
+        ctx.restore();
+
+        // Update active root's node positions to interpolated values
+        const activeRoot = (ease < 0.5) ? this._morphBaseRoot : this._morphCompareRoot;
+        if (activeRoot && activeRoot !== this.root) this.root = activeRoot;
+        if (this.root) {
+            this.root.each(n => {
+                const nid = String(n.id);
+                const fp = fromPos.get(nid);
+                const tp = toPos.get(nid);
+                if (fp || tp) {
+                    n.cx = this._lerpVal(fp?.cx, tp?.cx, ease, fp?.cx || tp?.cx);
+                    n.cy = this._lerpVal(fp?.cy, tp?.cy, ease, fp?.cy || tp?.cy);
+                }
+            });
+            // Quadtree only when not animating (for hover/context menu)
+            if (!this._morphAnimId) this.buildQuadtree(this.root);
+            // Draw labels on canvas (need to re-enter transform)
+            ctx.save();
+            ctx.setTransform(tf.k * dpr, 0, 0, tf.k * dpr,
+                (tf.x + centerX * tf.k) * dpr,
+                (tf.y + centerY * tf.k) * dpr);
+            this._drawMorphLabels(ctx, fromPos, toPos, t);
+            ctx.restore();
+        }
+        if (this.labelsSvg) this.labelsSvg.style('visibility', 'hidden');
+    }
+
+    /**
+     * Interpolate a numeric value with fallback for missing endpoints.
+     */
+    _lerpVal(from, to, t, fallback) {
+        if (from != null && to != null) return from + (to - from) * t;
+        if (from != null) return from;
+        if (to != null) return to;
+        return fallback || 0;
+    }
+
+    /**
+     * Linearly interpolate between two CSS color strings.
+     */
+    _lerpColor(colorA, colorB, t) {
+        const a = this._parseColor(colorA);
+        const b = this._parseColor(colorB);
+        const r = Math.round(a.r + (b.r - a.r) * t);
+        const g = Math.round(a.g + (b.g - a.g) * t);
+        const bl = Math.round(a.b + (b.b - a.b) * t);
+        return `rgb(${r},${g},${bl})`;
+    }
+
+    /**
+     * Parse hex or rgb color to {r, g, b}.
+     */
+    _parseColor(str) {
+        if (!str) return { r: 173, g: 181, b: 189 }; // #adb5bd
+        if (str.startsWith('#')) {
+            let hex = str.slice(1);
+            if (hex.length === 3) hex = hex[0]+hex[0]+hex[1]+hex[1]+hex[2]+hex[2];
+            return {
+                r: parseInt(hex.slice(0, 2), 16),
+                g: parseInt(hex.slice(2, 4), 16),
+                b: parseInt(hex.slice(4, 6), 16),
+            };
+        }
+        const m = str.match(/(\d+)/g);
+        if (m && m.length >= 3) return { r: +m[0], g: +m[1], b: +m[2] };
+        return { r: 173, g: 181, b: 189 };
+    }
+
+    /**
+     * Start morph animation loop.
+     */
+    startMorphAnimation(speed, reversed, onProgress, onDone) {
+        this.stopMorphAnimation();
+        this._morphReversed = false;  // always interpolate base→compare; direction is handled below
+
+        const duration = 3200 / speed;
+        const startT = performance.now();
+        // Start from current scrubber position
+        const scrubber = document.getElementById('morph-scrubber');
+        const startVal = scrubber ? parseInt(scrubber.value, 10) / 1000 : (reversed ? 1 : 0);
+
+        const animate = (now) => {
+            const elapsed = now - startT;
+            const frac = Math.min(elapsed / duration, 1);
+            let t;
+            if (reversed) {
+                t = Math.max(startVal - startVal * frac, 0);
+            } else {
+                t = Math.min(startVal + (1 - startVal) * frac, 1);
+            }
+
+            this.renderMorphFrame(t);
+            if (onProgress) onProgress(t);
+
+            const done = reversed ? (t <= 0) : (t >= 1);
+            if (!done) {
+                this._morphAnimId = requestAnimationFrame(animate);
+            } else {
+                this._morphAnimId = null;
+                this.renderMorphFrame(reversed ? 0 : 1);
+                if (onDone) onDone();
+            }
+        };
+        this._morphAnimId = requestAnimationFrame(animate);
+    }
+
+    /**
+     * Stop morph animation.
+     */
+    stopMorphAnimation() {
+        if (this._morphAnimId) {
+            cancelAnimationFrame(this._morphAnimId);
+            this._morphAnimId = null;
+        }
+    }
+
+    /**
+     * Set morph direction (reversed or not).
+     */
+    setMorphReversed(reversed) {
+        this._morphReversed = reversed;
     }
 
     // --- Data Loading ---
@@ -304,14 +679,6 @@ class TreeChartInstance {
         // Full tree (all nodes)
         this.fullRoot = buildTree(rows);
 
-        // Pruned tree (leaf rank removed) — for depth toggle
-        if (leafRank) {
-            const prunedRows = rows.filter(r => r[rankKey] !== leafRank);
-            if (prunedRows.length > 0) {
-                this.prunedRoot = buildTree(prunedRows);
-            }
-        }
-
         return this.fullRoot;
     }
 
@@ -331,7 +698,7 @@ class TreeChartInstance {
     computeRadialLayout(root, view) {
         const tcOpts = view.tree_chart_options || {};
         const rankKey = view.hierarchy_options.rank_key || 'rank';
-        this.outerRadius = Math.min(this.width, this.height) * 0.42;
+        this.outerRadius = Math.min(this.width, this.height) * 1.68;
 
         const LEAF_GAP_DEG = 2;
         const SUBTREE_GAP_DEG = 1;
@@ -362,35 +729,7 @@ class TreeChartInstance {
             node.y = node.depth * (this.outerRadius / (root.height || 1));
         });
 
-        // Dynamic radius: ensure minimum arc spacing between adjacent leaves
-        const MIN_SPACING = 20;
-        const leaves = [];
-        root.each(d => {
-            if (!d.children && !d._children) leaves.push(d);
-        });
-
-        if (leaves.length >= 2) {
-            leaves.sort((a, b) => a.x - b.x);
-            let minDeltaTheta = Infinity;
-            for (let i = 1; i < leaves.length; i++) {
-                const delta = leaves[i].x - leaves[i - 1].x;
-                if (delta > 0 && delta < minDeltaTheta) minDeltaTheta = delta;
-            }
-            const wrapDelta = 360 - leaves[leaves.length - 1].x + leaves[0].x;
-            if (wrapDelta > 0 && wrapDelta < minDeltaTheta) minDeltaTheta = wrapDelta;
-
-            if (minDeltaTheta > 0 && minDeltaTheta < Infinity) {
-                const minDeltaRad = minDeltaTheta * Math.PI / 180;
-                const minArc = this.outerRadius * minDeltaRad;
-                if (minArc < MIN_SPACING) {
-                    const scaleFactor = MIN_SPACING / minArc;
-                    this.outerRadius *= scaleFactor;
-                    root.each(d => { d.y *= scaleFactor; });
-                }
-            }
-        }
-
-        // Override radii by rank if specified
+        // Align same-rank nodes to the same radius
         const rankRadius = tcOpts.rank_radius;
         if (rankRadius) {
             root.each(node => {
@@ -399,6 +738,31 @@ class TreeChartInstance {
                     node.y = rankRadius[rank] * this.outerRadius;
                 }
             });
+        } else {
+            // Auto-align: compute average depth per rank, then assign evenly spaced radii
+            const rankSum = {};
+            const rankCount = {};
+            root.each(node => {
+                if (this.isNodeHidden(node)) return;
+                const rank = node.data[rankKey];
+                if (!rank) return;
+                rankSum[rank] = (rankSum[rank] || 0) + node.depth;
+                rankCount[rank] = (rankCount[rank] || 0) + 1;
+            });
+            const ranks = Object.keys(rankSum)
+                .sort((a, b) => (rankSum[a] / rankCount[a]) - (rankSum[b] / rankCount[b]));
+            if (ranks.length > 1) {
+                const rankY = {};
+                ranks.forEach((rank, i) => {
+                    rankY[rank] = (i / (ranks.length - 1)) * this.outerRadius;
+                });
+                root.each(node => {
+                    const rank = node.data[rankKey];
+                    if (rank && rankY[rank] !== undefined) {
+                        node.y = rankY[rank];
+                    }
+                });
+            }
         }
 
         // Store cartesian coordinates for each node
@@ -415,8 +779,8 @@ class TreeChartInstance {
         const tcOpts = view.tree_chart_options || {};
         const rankKey = view.hierarchy_options.rank_key || 'rank';
 
-        const LEAF_GAP = 6;
-        const SUBTREE_GAP = 8;
+        const LEAF_GAP = 12;
+        const SUBTREE_GAP = 16;
         let nextY = 0;
 
         function layoutSubtree(node) {
@@ -439,22 +803,34 @@ class TreeChartInstance {
         layoutSubtree(root);
 
         const treeH = Math.max(nextY, LEAF_GAP);
-        const maxDepth = root.height || 1;
         const depthSpacing = 120;
-        const treeW = maxDepth * depthSpacing;
+        const maxDepth = root.height || 1;
 
         root.each(node => {
             node.x = node._ly;
             node.y = node.depth * depthSpacing;
         });
 
-        // Align same-rank nodes to the same X position
+        // Align same-rank nodes to the same fixed Y position.
+        // Use depthSpacing * rank_index so spacing stays consistent regardless of subtree depth.
         const rankRadius = tcOpts.rank_radius;
         if (rankRadius) {
+            // rank_radius values are 0..1 fractions; find min/max among ranks present in this tree
+            const presentRanks = new Set();
+            root.each(node => {
+                const rank = node.data[rankKey];
+                if (rank && rankRadius[rank] !== undefined) presentRanks.add(rank);
+            });
+            // Map fraction range to depthSpacing-based positions
+            const fractions = [...presentRanks].map(r => rankRadius[r]);
+            const minF = Math.min(...fractions);
+            const maxF = Math.max(...fractions);
+            const rangeF = maxF - minF || 1;
+            const totalW = presentRanks.size * depthSpacing;
             root.each(node => {
                 const rank = node.data[rankKey];
                 if (rank && rankRadius[rank] !== undefined) {
-                    node.y = rankRadius[rank] * treeW;
+                    node.y = ((rankRadius[rank] - minF) / rangeF) * totalW;
                 }
             });
         } else {
@@ -469,9 +845,10 @@ class TreeChartInstance {
             });
             const ranks = Object.keys(rankSum)
                 .sort((a, b) => (rankSum[a] / rankCount[a]) - (rankSum[b] / rankCount[b]));
+            const totalW = ranks.length * depthSpacing;
             const rankY = {};
             ranks.forEach((rank, i) => {
-                rankY[rank] = (ranks.length > 1) ? (i / (ranks.length - 1)) * treeW : 0;
+                rankY[rank] = (ranks.length > 1) ? (i / (ranks.length - 1)) * totalW : 0;
             });
             root.each(node => {
                 const rank = node.data[rankKey];
@@ -480,6 +857,11 @@ class TreeChartInstance {
                 }
             });
         }
+
+        // Compute actual treeW from node positions
+        let treeW = 0;
+        root.each(node => { if (node.y > treeW) treeW = node.y; });
+        treeW = Math.max(treeW, depthSpacing);
 
         this.cladoBoundsW = treeW;
         this.cladoBoundsH = treeH;
@@ -495,21 +877,28 @@ class TreeChartInstance {
     // --- Fit Transform ---
 
     computeFitTransform() {
+        // Canvas render applies: translate(t.x + cx*t.k, t.y + cy*t.k) then scale(t.k)
+        // For data origin (0,0) to land at canvas center (cx, cy):
+        //   t.x + cx*t.k = cx  →  t.x = cx*(1-k)
+        //   t.y + cy*t.k = cy  →  t.y = cy*(1-k)
+        const cx = this.width / 2;
+        const cy = this.height / 2;
+        let fitScale;
+
         if (this.layoutMode === 'rectangular') {
             const padding = 120;
             const scaleX = this.width / (this.cladoBoundsW + padding);
             const scaleY = this.height / (this.cladoBoundsH + padding);
-            const fitScale = Math.min(scaleX, scaleY);
-            if (fitScale < 1) return d3.zoomIdentity.scale(fitScale);
-            return d3.zoomIdentity;
+            fitScale = Math.min(scaleX, scaleY, 1);
+        } else {
+            const margin = 0.1; // 10% margin for labels
+            fitScale = Math.min(this.width, this.height) * (1 - margin * 2) / (2 * this.outerRadius);
+            fitScale = Math.min(fitScale, 1);
         }
-        // Radial mode
-        const padding = 40;
-        const fitScale = Math.min(this.width, this.height) / (2 * this.outerRadius + padding);
-        if (fitScale < 1) {
-            return d3.zoomIdentity.scale(fitScale);
-        }
-        return d3.zoomIdentity;
+
+        return d3.zoomIdentity
+            .translate(cx * (1 - fitScale), cy * (1 - fitScale))
+            .scale(fitScale);
     }
 
     // --- Colors ---
@@ -590,12 +979,11 @@ class TreeChartInstance {
         html += `<button class="tc-layout-btn tc-layout-radial${radialActive}" title="Radial layout"><i class="bi bi-bullseye"></i></button>`;
         html += `<button class="tc-layout-btn tc-layout-rect${rectActive}" title="Rectangular layout"><i class="bi bi-diagram-3"></i></button>`;
 
-        // Depth toggle (starts active = pruned)
-        if (tcOpts.depth_toggle && tcOpts.leaf_rank) {
-            html += `<button class="tc-depth-btn active" title="Toggle leaf nodes">
-                        <i class="bi bi-layers"></i> ${tcOpts.leaf_rank}
-                     </button>`;
-        }
+        // Radius scale slider (radial mode only)
+        html += `<span class="tc-radius-scale">
+            <button class="tc-text-smaller" title="Smaller text"><i class="bi bi-fonts"></i>−</button>
+            <button class="tc-text-larger" title="Larger text"><i class="bi bi-fonts"></i>+</button>
+        </span>`;
 
         // Reset zoom
         html += '<button class="tc-reset-btn" title="Reset zoom"><i class="bi bi-arrows-fullscreen"></i></button>';
@@ -620,26 +1008,6 @@ class TreeChartInstance {
             rectBtn.addEventListener('click', () => this.switchLayout('rectangular'));
         }
 
-        // Event: depth toggle
-        const depthBtn = toolbar.querySelector('.tc-depth-btn');
-        if (depthBtn) {
-            depthBtn.addEventListener('click', () => {
-                this.depthHidden = !this.depthHidden;
-                depthBtn.classList.toggle('active', this.depthHidden);
-                if (this.subtreeNode) {
-                    this.navigateToSubtree(this.subtreeNode.id);
-                } else {
-                    this.root = this.depthHidden && this.prunedRoot ? this.prunedRoot : this.fullRoot;
-                    this.computeLayout(this.root, this.viewDef);
-                    this.assignColors(this.root, this.viewDef);
-                    this.buildQuadtree(this.root);
-                    this.transform = this.computeFitTransform();
-                    d3.select(this.canvas).call(this.zoom.transform, this.transform);
-                    this.render();
-                }
-                if (this.onDepthToggleSync) this.onDepthToggleSync(this.depthHidden);
-            });
-        }
 
         // Event: reset
         const resetBtn = toolbar.querySelector('.tc-reset-btn');
@@ -654,6 +1022,24 @@ class TreeChartInstance {
                         .call(this.zoom.transform, this.computeFitTransform());
                 }
             });
+        }
+
+        // Event: text size buttons
+        const textSmaller = toolbar.querySelector('.tc-text-smaller');
+        const textLarger = toolbar.querySelector('.tc-text-larger');
+
+        const applyTextScale = (val) => {
+            val = Math.round(val * 10) / 10;
+            val = Math.max(0.3, Math.min(5, val));
+            this.setTextScale(val);
+            if (this.onTextScaleSync) this.onTextScaleSync(val);
+        };
+
+        if (textSmaller) {
+            textSmaller.addEventListener('click', () => applyTextScale(this.textScale - 0.1));
+        }
+        if (textLarger) {
+            textLarger.addEventListener('click', () => applyTextScale(this.textScale + 0.1));
         }
     }
 
@@ -670,10 +1056,42 @@ class TreeChartInstance {
         }
 
         if (this.root) {
-            this.computeLayout(this.root, this.viewDef);
-            this.buildQuadtree(this.root);
-            this.transform = this.computeFitTransform();
-            d3.select(this.canvas).call(this.zoom.transform, this.transform);
+            if (this._morphing) {
+                // Re-layout and re-snapshot both morph trees for new layout mode
+                const view = this.viewDef;
+                this.computeLayout(this._morphBaseRoot, view);
+                const baseBW = this.cladoBoundsW, baseBH = this.cladoBoundsH;
+                this._morphBasePositions = this.snapshotPositions(this._morphBaseRoot);
+                this._morphBaseLinks = this.snapshotLinks(this._morphBaseRoot);
+
+                this.computeLayout(this._morphCompareRoot, view);
+                // Use max bounds from both trees for fit
+                this.cladoBoundsW = Math.max(baseBW, this.cladoBoundsW);
+                this.cladoBoundsH = Math.max(baseBH, this.cladoBoundsH);
+                this._morphComparePositions = this.snapshotPositions(this._morphCompareRoot);
+                this._morphCompareLinks = this.snapshotLinks(this._morphCompareRoot);
+
+                this.buildQuadtree(this.root);
+                this.transform = this.computeFitTransform();
+                d3.select(this.canvas).call(this.zoom.transform, this.transform);
+                this.renderMorphFrame(this._morphT || 0);
+            } else {
+                this.computeLayout(this.root, this.viewDef);
+                this.buildQuadtree(this.root);
+                this.transform = this.computeFitTransform();
+                d3.select(this.canvas).call(this.zoom.transform, this.transform);
+                this.render();
+            }
+        }
+    }
+
+    setTextScale(val) {
+        this.textScale = val;
+        if (!this.root) return;
+
+        if (this._morphing) {
+            this.renderMorphFrame(this._morphT || 0);
+        } else {
             this.render();
         }
     }
@@ -709,10 +1127,9 @@ class TreeChartInstance {
 
     setupZoom() {
         this.zoom = d3.zoom()
-            .scaleExtent([0.3, 30])
+            .scaleExtent([0.001, 100])
             .on('start', () => {
                 this._zooming = true;
-                this._snapshotCache();
             })
             .on('zoom', (event) => {
                 this.transform = event.transform;
@@ -720,9 +1137,7 @@ class TreeChartInstance {
             })
             .on('end', () => {
                 this._zooming = false;
-                this._cacheTransform = null; // invalidate cache → next render is full
                 this.render();
-                this.updateLabels(this.transform || d3.zoomIdentity);
             });
 
         d3.select(this.canvas)
@@ -822,7 +1237,7 @@ class TreeChartInstance {
         }
 
         if (hoverChanged) {
-            if (!this._zooming) this.render();
+            if (!this._zooming && !this._morphing) this.render();
             if (this.onHoverSync) this.onHoverSync(this.hoverNodeId);
         }
     }
@@ -888,26 +1303,6 @@ class TreeChartInstance {
         tooltip.style.top = (sy - 10) + 'px';
     }
 
-    setDepthHidden(hidden) {
-        if (hidden === this.depthHidden) return;
-        this.depthHidden = hidden;
-        // Update toolbar button state if present
-        if (this.toolbarEl) {
-            const depthBtn = this.toolbarEl.querySelector('.tc-depth-btn');
-            if (depthBtn) depthBtn.classList.toggle('active', this.depthHidden);
-        }
-        if (this.subtreeNode) {
-            this.navigateToSubtree(this.subtreeNode.id);
-        } else {
-            this.root = this.depthHidden && this.prunedRoot ? this.prunedRoot : this.fullRoot;
-            this.computeLayout(this.root, this.viewDef);
-            this.assignColors(this.root, this.viewDef);
-            this.buildQuadtree(this.root);
-            this.transform = this.computeFitTransform();
-            d3.select(this.canvas).call(this.zoom.transform, this.transform);
-            this.render();
-        }
-    }
 
     onClick(event) {
         if (!this.quadtree || !this.transform) return;
@@ -1145,7 +1540,16 @@ class TreeChartInstance {
     }
 
     navigateToSubtree(nodeId, _fromSync) {
-        const sourceTree = this.depthHidden && this.prunedRoot ? this.prunedRoot : this.fullRoot;
+        // Morph mode: rebuild morph data for subtree
+        if (this._morphing) {
+            this.stopMorphAnimation();
+            this._navigateMorphSubtree(nodeId);
+            if (this.breadcrumbEl) this.updateBreadcrumb();
+            if (!_fromSync && this.onSubtreeSync) this.onSubtreeSync(nodeId);
+            return;
+        }
+
+        const sourceTree = this.fullRoot;
 
         let targetNode = null;
         sourceTree.each(d => { if (d.id === nodeId) targetNode = d; });
@@ -1167,6 +1571,77 @@ class TreeChartInstance {
         if (this.breadcrumbEl) this.updateBreadcrumb();
 
         if (!_fromSync && this.onSubtreeSync) this.onSubtreeSync(nodeId);
+    }
+
+    /**
+     * Navigate to subtree while preserving morph mode.
+     * Rebuilds morph data (positions/links) from both base and compare subtrees.
+     */
+    _navigateMorphSubtree(nodeId) {
+        // Find target node in base root
+        let baseTarget = null;
+        this._morphBaseRoot.each(d => { if (d.id === nodeId) baseTarget = d; });
+
+        // Find target node in compare root
+        let compareTarget = null;
+        this._morphCompareRoot.each(d => { if (d.id === nodeId) compareTarget = d; });
+
+        // At least one must exist and not be a leaf
+        const target = baseTarget || compareTarget;
+        if (!target || this.isLeafByRank(target)) return;
+        this.subtreeNode = target;
+
+        // Build subtree from base root
+        let subBaseBW = 0, subBaseBH = 0;
+        if (baseTarget) {
+            const baseSubtree = this.buildSubtreeFromNode(baseTarget);
+            if (baseSubtree) {
+                this.computeLayout(baseSubtree, this.viewDef);
+                subBaseBW = this.cladoBoundsW; subBaseBH = this.cladoBoundsH;
+                this.assignColors(baseSubtree, this.viewDef);
+                this._morphBasePositions = this.snapshotPositions(baseSubtree);
+                this._morphBaseLinks = this.snapshotLinks(baseSubtree);
+                this._morphBaseRoot = baseSubtree;
+            }
+        } else {
+            // Node doesn't exist in base — empty
+            this._morphBasePositions = new Map();
+            this._morphBaseLinks = [];
+        }
+
+        // Build subtree from compare root
+        if (compareTarget) {
+            const compareSubtree = this.buildSubtreeFromNode(compareTarget);
+            if (compareSubtree) {
+                this.computeLayout(compareSubtree, this.viewDef);
+                this.assignColors(compareSubtree, this.viewDef);
+                this._morphComparePositions = this.snapshotPositions(compareSubtree);
+                this._morphCompareLinks = this.snapshotLinks(compareSubtree);
+                this._morphCompareRoot = compareSubtree;
+            }
+        } else {
+            this._morphComparePositions = new Map();
+            this._morphCompareLinks = [];
+        }
+        // Use max bounds from both subtrees
+        this.cladoBoundsW = Math.max(subBaseBW, this.cladoBoundsW);
+        this.cladoBoundsH = Math.max(subBaseBH, this.cladoBoundsH);
+
+        // Rebuild node ID union
+        this._morphAllNodeIds = new Set([
+            ...this._morphBasePositions.keys(),
+            ...this._morphComparePositions.keys(),
+        ]);
+
+        // Reset to base tree, fit zoom, render at current scrubber position
+        this.root = this._morphBaseRoot || this._morphCompareRoot;
+        this.buildQuadtree(this.root);
+        this.transform = this.computeFitTransform();
+        d3.select(this.canvas).call(this.zoom.transform, this.transform);
+
+        const scrubber = document.getElementById('morph-scrubber');
+        const t = scrubber ? parseInt(scrubber.value, 10) / 1000 : 0;
+        this.renderMorphFrame(t);
     }
 
     buildSubtreeFromNode(node) {
@@ -1219,7 +1694,16 @@ class TreeChartInstance {
 
     clearSubtreeRoot(_fromSync) {
         this.subtreeNode = null;
-        this.root = this.depthHidden && this.prunedRoot ? this.prunedRoot : this.fullRoot;
+
+        if (this._morphing) {
+            this.stopMorphAnimation();
+            this._rebuildMorphFromFullTree();
+            if (this.breadcrumbEl) this.updateBreadcrumb();
+            if (!_fromSync && this.onSubtreeSync) this.onSubtreeSync(null);
+            return;
+        }
+
+        this.root = this.fullRoot;
         this.computeLayout(this.root, this.viewDef);
         this.assignColors(this.root, this.viewDef);
         this.buildQuadtree(this.root);
@@ -1229,6 +1713,57 @@ class TreeChartInstance {
         if (this.breadcrumbEl) this.updateBreadcrumb();
 
         if (!_fromSync && this.onSubtreeSync) this.onSubtreeSync(null);
+    }
+
+    /**
+     * Rebuild morph data from full trees (when clearing subtree root).
+     */
+    _rebuildMorphFromFullTree() {
+        // Rebuild base
+        const baseRoot = this._morphBaseRoot;
+        // Walk up to find full root
+        let baseFullRoot = baseRoot;
+        while (baseFullRoot.parent) baseFullRoot = baseFullRoot.parent;
+
+        let compareFullRoot = this._morphCompareRoot;
+        while (compareFullRoot.parent) compareFullRoot = compareFullRoot.parent;
+
+        // Need to re-fetch full trees from stored data — simplest: use loadMorph's stored full roots
+        // But we didn't store them. Instead, rebuild from fullRoot data.
+        // Actually, the full roots were modified during subtree navigation. We need the originals.
+        // Store full roots on first loadMorph.
+        let clearBaseBW = 0, clearBaseBH = 0;
+        if (this._morphFullBaseRoot) {
+            this._morphBaseRoot = this._morphFullBaseRoot;
+            this.computeLayout(this._morphBaseRoot, this.viewDef);
+            clearBaseBW = this.cladoBoundsW; clearBaseBH = this.cladoBoundsH;
+            this.assignColors(this._morphBaseRoot, this.viewDef);
+            this._morphBasePositions = this.snapshotPositions(this._morphBaseRoot);
+            this._morphBaseLinks = this.snapshotLinks(this._morphBaseRoot);
+        }
+        if (this._morphFullCompareRoot) {
+            this._morphCompareRoot = this._morphFullCompareRoot;
+            this.computeLayout(this._morphCompareRoot, this.viewDef);
+            this.assignColors(this._morphCompareRoot, this.viewDef);
+            this._morphComparePositions = this.snapshotPositions(this._morphCompareRoot);
+            this._morphCompareLinks = this.snapshotLinks(this._morphCompareRoot);
+        }
+        this.cladoBoundsW = Math.max(clearBaseBW, this.cladoBoundsW);
+        this.cladoBoundsH = Math.max(clearBaseBH, this.cladoBoundsH);
+
+        this._morphAllNodeIds = new Set([
+            ...this._morphBasePositions.keys(),
+            ...this._morphComparePositions.keys(),
+        ]);
+
+        this.root = this._morphBaseRoot;
+        this.buildQuadtree(this.root);
+        this.transform = this.computeFitTransform();
+        d3.select(this.canvas).call(this.zoom.transform, this.transform);
+
+        const scrubber = document.getElementById('morph-scrubber');
+        const t = scrubber ? parseInt(scrubber.value, 10) / 1000 : 0;
+        this.renderMorphFrame(t);
     }
 
     // --- Breadcrumb ---
@@ -1298,51 +1833,16 @@ class TreeChartInstance {
         return node.data[rankKey] === leafRank;
     }
 
-    _snapshotCache() {
-        if (!this.canvas) return;
-        if (!this._cacheCanvas) {
-            this._cacheCanvas = document.createElement('canvas');
-        }
-        const cw = this.canvas.width;
-        const ch = this.canvas.height;
-        if (this._cacheCanvas.width !== cw || this._cacheCanvas.height !== ch) {
-            this._cacheCanvas.width = cw;
-            this._cacheCanvas.height = ch;
-        }
-        const cctx = this._cacheCanvas.getContext('2d');
-        cctx.clearRect(0, 0, cw, ch);
-        cctx.drawImage(this.canvas, 0, 0);
-        const t = this.transform || d3.zoomIdentity;
-        this._cacheTransform = { x: t.x, y: t.y, k: t.k };
-    }
-
     render() {
+        // In morph mode, delegate to morph renderer
+        if (this._morphing && this._morphBasePositions) {
+            this.renderMorphFrame(this._morphT != null ? this._morphT : 0);
+            return;
+        }
         if (!this.ctx || !this.root) return;
 
         const ctx = this.ctx;
         const t = this.transform || d3.zoomIdentity;
-
-        // During scale change (zoom in/out): blit cached bitmap (skip full redraw)
-        // Pan (translate only) is fast enough — render fully for crisp labels
-        if (this._zooming && this._cacheTransform && t.k !== this._cacheTransform.k) {
-            const ct = this._cacheTransform;
-            const dpr = this.dpr;
-            const ds = t.k / ct.k;
-
-            ctx.save();
-            ctx.setTransform(1, 0, 0, 1, 0, 0); // raw pixels
-            ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
-            ctx.setTransform(ds, 0, 0, ds,
-                (t.x - ct.x * ds) * dpr,
-                (t.y - ct.y * ds) * dpr);
-            ctx.drawImage(this._cacheCanvas, 0, 0);
-            ctx.restore();
-            ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-
-            // Hide labels during scale zoom — update only on zoom end
-            this.labelsSvg.style('visibility', 'hidden');
-            return;
-        }
 
         const cx = this.width / 2;
         const cy = this.height / 2;
@@ -1354,12 +1854,13 @@ class TreeChartInstance {
 
         this.drawGuideLines(ctx);
         this.drawLinks(ctx);
-        this.drawNodes(ctx, t.k);
+        this.drawNodes(ctx);
+        this.drawLabels(ctx);
 
         ctx.restore();
 
         if (this.diffMode) this.drawDiffLegend(ctx);
-        this.updateLabels(t);
+        if (this.labelsSvg) this.labelsSvg.style('visibility', 'hidden');
     }
 
     drawDiffLegend(ctx) {
@@ -1445,8 +1946,8 @@ class TreeChartInstance {
         }
 
         ctx.strokeStyle = 'rgba(0, 0, 0, 0.06)';
-        ctx.lineWidth = 0.5;
-        ctx.setLineDash([4, 4]);
+        ctx.lineWidth = 2;
+        ctx.setLineDash([8, 8]);
 
         if (this.layoutMode === 'rectangular') {
             for (const x of this._guideDepths) {
@@ -1491,7 +1992,7 @@ class TreeChartInstance {
 
         if (!isDiff) {
             ctx.strokeStyle = 'rgba(0, 0, 0, 0.1)';
-            ctx.lineWidth = 0.8;
+            ctx.lineWidth = 2;
         }
 
         this.root.links().forEach(link => {
@@ -1501,7 +2002,7 @@ class TreeChartInstance {
                 const status = link.target.data._diff_status || 'same';
                 const color = diffColors[status] || diffColors.same;
                 ctx.strokeStyle = status === 'same' ? 'rgba(0, 0, 0, 0.08)' : color;
-                ctx.lineWidth = status === 'same' ? 0.6 : 1.5;
+                ctx.lineWidth = status === 'same' ? 2 : 4;
             }
 
             this._drawLink(ctx, link.source, link.target);
@@ -1514,9 +2015,9 @@ class TreeChartInstance {
             this.root.each(n => nodeMap.set(String(n.id), n));
 
             ctx.save();
-            ctx.setLineDash([4, 4]);
+            ctx.setLineDash([8, 8]);
             ctx.strokeStyle = 'rgba(220, 53, 69, 0.3)';
-            ctx.lineWidth = 1.0;
+            ctx.lineWidth = 2;
 
             this.root.each(node => {
                 if (this.isNodeHidden(node)) return;
@@ -1533,7 +2034,7 @@ class TreeChartInstance {
         }
     }
 
-    drawNodes(ctx, k) {
+    drawNodes(ctx) {
         const searchIds = new Set(this.searchMatches.map(d => d.id));
 
         this.root.each(node => {
@@ -1542,8 +2043,8 @@ class TreeChartInstance {
             const leaf = this.isLeafByRank(node);
             const isSearch = searchIds.has(node.id);
 
-            let radius = leaf ? 2 : Math.max(3, 6 - node.depth);
-            if (isSearch) radius = Math.max(radius, 5);
+            let radius = 8 * this.textScale;
+            if (isSearch) radius = 12 * this.textScale;
 
             ctx.beginPath();
             ctx.arc(node.cx, node.cy, radius, 0, Math.PI * 2);
@@ -1552,29 +2053,29 @@ class TreeChartInstance {
 
             if (isSearch) {
                 ctx.strokeStyle = '#ff6b35';
-                ctx.lineWidth = 2;
+                ctx.lineWidth = 4;
                 ctx.stroke();
             }
 
             // Hover highlight ring
             if (this.hoverNodeId && node.id === this.hoverNodeId) {
                 ctx.beginPath();
-                ctx.arc(node.cx, node.cy, radius + 5, 0, Math.PI * 2);
+                ctx.arc(node.cx, node.cy, radius + 10 * this.textScale, 0, Math.PI * 2);
                 ctx.strokeStyle = '#00bcd4';
-                ctx.lineWidth = 2.5;
+                ctx.lineWidth = 4;
                 ctx.stroke();
             }
 
             // Collapsed indicator
             if (node._children) {
                 ctx.beginPath();
-                ctx.arc(node.cx, node.cy, radius + 3, 0, Math.PI * 2);
+                ctx.arc(node.cx, node.cy, radius + 6, 0, Math.PI * 2);
                 ctx.strokeStyle = node._color || '#6c757d';
-                ctx.lineWidth = 2;
+                ctx.lineWidth = 4;
                 ctx.stroke();
-                const s = radius + 1;
+                const s = radius + 2;
                 ctx.strokeStyle = '#fff';
-                ctx.lineWidth = 1.5;
+                ctx.lineWidth = 3;
                 ctx.beginPath();
                 ctx.moveTo(node.cx - s, node.cy);
                 ctx.lineTo(node.cx + s, node.cy);
@@ -1583,7 +2084,7 @@ class TreeChartInstance {
                 ctx.stroke();
             }
             // Arc for internal nodes with value (count)
-            else if (!leaf && node.value > 0 && k > 1) {
+            else if (!leaf && node.value > 0) {
                 const arcThickness = Math.min(node.value / (this.root.value || 1) * 8, 4);
                 if (arcThickness > 0.3) {
                     ctx.beginPath();
@@ -1598,127 +2099,103 @@ class TreeChartInstance {
         });
     }
 
-    // --- SVG Labels (LOD) ---
+    // --- Canvas Labels (drawn in data space, scales with zoom) ---
 
-    updateLabels(t) {
-        if (!this.labelsSvg || !this.root) return;
-        this.labelsSvg.style('visibility', 'visible');
+    drawLabels(ctx) {
+        if (!this.root || !this.viewDef) return;
 
-        const k = t.k;
-        const cx = this.width / 2;
-        const cy = this.height / 2;
         const labelKey = this.viewDef.hierarchy_options.label_key || 'name';
-        const rankKey = this.viewDef.hierarchy_options.rank_key || 'rank';
+        const isRect = this.layoutMode === 'rectangular';
 
-        const labelsToShow = [];
-        const maxLabels = 500;
-        const tcOpts = this.viewDef.tree_chart_options || {};
-        const leafRank = tcOpts.leaf_rank;
-
-        // Viewport bounds in data coordinates
-        const vpLeft = (-t.x - cx * t.k) / t.k;
-        const vpTop = (-t.y - cy * t.k) / t.k;
-        const vpRight = vpLeft + this.width / t.k;
-        const vpBottom = vpTop + this.height / t.k;
-
-        function isLeafRankFn(node) {
-            return leafRank && node.data[rankKey] === leafRank;
-        }
+        const fontSize = Math.round(20 * this.textScale);
+        const offset = Math.round(20 * this.textScale);
+        ctx.fillStyle = '#212529';
+        ctx.textBaseline = 'middle';
+        ctx.font = `${fontSize}px sans-serif`;
 
         this.root.each(node => {
             if (this.isNodeHidden(node)) return;
+            const label = node.data[labelKey] || '';
+            if (!label) return;
 
-            let show = false;
-            if (!isLeafRankFn(node)) {
-                show = true;
+            if (isRect) {
+                ctx.textAlign = 'left';
+                ctx.fillText(label, node.cx + offset, node.cy);
             } else {
-                if (k >= 2) {
-                    show = node.cx >= vpLeft && node.cx <= vpRight &&
-                           node.cy >= vpTop && node.cy <= vpBottom;
-                }
-            }
-
-            if (show) labelsToShow.push(node);
-        });
-
-        const limited = labelsToShow.slice(0, maxLabels);
-
-        // Font size by rank — scales at 50% of zoom rate
-        const zoomScale = Math.min(0.5 + 0.5 * k, 4);
-        function fontSize(d) {
-            const rank = d.data[rankKey];
-            let base;
-            if (rank === leafRank) { base = 9; }
-            else {
-                const rr = tcOpts.rank_radius;
-                if (rr && rr[rank] !== undefined) {
-                    base = rr[rank] <= 0.25 ? 12 : 10;
+                // Radial: place label outside the node along the radial direction
+                const angle = node.x || 0;
+                const radAngle = (angle - 90) * Math.PI / 180; // radial outward direction
+                ctx.save();
+                // Always offset outward from center
+                ctx.translate(node.cx + offset * Math.cos(radAngle),
+                              node.cy + offset * Math.sin(radAngle));
+                // Rotate text to be readable (right half: angle-90, left half: angle+90 to flip)
+                if (angle > 0 && angle < 180) {
+                    ctx.rotate((angle - 90) * Math.PI / 180);
+                    ctx.textAlign = 'left';
                 } else {
-                    base = d.depth <= 1 ? 12 : 10;
+                    ctx.rotate((angle + 90) * Math.PI / 180);
+                    ctx.textAlign = 'right';
                 }
+                ctx.fillText(label, 0, 0);
+                ctx.restore();
             }
-            return (base * zoomScale) + 'px';
-        }
+        });
+    }
 
-        // Update SVG
-        const sel = this.labelsSvg.selectAll('text')
-            .data(limited, d => d.id);
+    /**
+     * Draw labels during morph with fade for added/removed nodes.
+     */
+    _drawMorphLabels(ctx, fromPos, toPos, t) {
+        if (!this.root || !this.viewDef) return;
 
-        sel.exit().remove();
-
+        const labelKey = this.viewDef.hierarchy_options.label_key || 'name';
         const isRect = this.layoutMode === 'rectangular';
 
-        function isRectLeaf(d) {
-            return isLeafRankFn(d) || (!d.children && !d._children);
-        }
+        const fontSize = Math.round(20 * this.textScale);
+        const offset = Math.round(20 * this.textScale);
+        ctx.fillStyle = '#212529';
+        ctx.textBaseline = 'middle';
+        ctx.font = `${fontSize}px sans-serif`;
 
-        const enter = sel.enter().append('text')
-            .attr('font-size', fontSize)
-            .attr('fill', '#212529')
-            .attr('text-anchor', d => {
-                if (isRect) {
-                    return isRectLeaf(d) ? 'start' : 'end';
-                }
-                const angle = d.x || 0;
-                return (angle > 0 && angle < 180) ? 'start' : 'end';
-            })
-            .attr('dominant-baseline', 'central');
+        this.root.each(node => {
+            if (this.isNodeHidden(node)) return;
+            const label = node.data[labelKey] || '';
+            if (!label) return;
 
-        const merged = enter.merge(sel);
+            // Compute opacity for added/removed
+            let alpha = 1;
+            const nid = String(node.id);
+            const inBase = this._morphBasePositions && this._morphBasePositions.has(nid);
+            const inComp = this._morphComparePositions && this._morphComparePositions.has(nid);
+            if (inBase && !inComp) alpha = Math.max(0, 1 - t * 2);
+            else if (!inBase && inComp) alpha = Math.max(0, (t - 0.5) * 2);
+            if (alpha < 0.02) return;
+            ctx.globalAlpha = alpha;
 
-        const labelOffset = 8 * zoomScale;
-        merged
-            .attr('transform', d => {
-                const sx = t.x + (d.cx + cx) * t.k;
-                const sy = t.y + (d.cy + cy) * t.k;
-                if (isRect) {
-                    if (isRectLeaf(d)) {
-                        return `translate(${sx + labelOffset}, ${sy})`;
-                    }
-                    return `translate(${sx - labelOffset * 0.5}, ${sy - labelOffset})`;
+            if (isRect) {
+                ctx.textAlign = 'left';
+                ctx.fillText(label, node.cx + offset, node.cy);
+            } else {
+                const angle = node.x || 0;
+                const radAngle = (angle - 90) * Math.PI / 180;
+                ctx.save();
+                ctx.translate(node.cx + offset * Math.cos(radAngle),
+                              node.cy + offset * Math.sin(radAngle));
+                if (angle > 0 && angle < 180) {
+                    ctx.rotate((angle - 90) * Math.PI / 180);
+                    ctx.textAlign = 'left';
+                } else {
+                    ctx.rotate((angle + 90) * Math.PI / 180);
+                    ctx.textAlign = 'right';
                 }
-                const angle = d.x || 0;
-                let rotation = angle > 180 ? angle - 270 : angle - 90;
-                return `translate(${sx + labelOffset * (angle > 0 && angle < 180 ? 1 : -1)}, ${sy}) rotate(${rotation})`;
-            })
-            .attr('text-anchor', d => {
-                if (isRect) {
-                    return isRectLeaf(d) ? 'start' : 'end';
-                }
-                const angle = d.x || 0;
-                return (angle > 0 && angle < 180) ? 'start' : 'end';
-            })
-            .attr('font-size', fontSize)
-            .attr('opacity', d => {
-                if (!isLeafRankFn(d)) return 1;
-                return Math.min(1, (k - 1.5) * 0.5);
-            })
-            .text(d => {
-                const label = d.data[labelKey] || d.id || '';
-                const maxLen = isLeafRankFn(d) ? 20 : 30;
-                return label.length > maxLen ? label.substring(0, maxLen) + '...' : label;
-            });
+                ctx.fillText(label, 0, 0);
+                ctx.restore();
+            }
+        });
+        ctx.globalAlpha = 1;
     }
+
 
     // --- Resize ---
 
@@ -1845,9 +2322,7 @@ function _setupSbsSync(left, right) {
         .on('start', () => {
             if (syncing) return;
             left._zooming = true;
-            left._snapshotCache();
             right._zooming = true;
-            right._snapshotCache();
         })
         .on('zoom', (event) => {
             if (syncing) return;
@@ -1858,22 +2333,16 @@ function _setupSbsSync(left, right) {
         .on('end', () => {
             if (syncing) return;
             left._zooming = false;
-            left._cacheTransform = null;
             left.render();
-            left.updateLabels(left.transform || d3.zoomIdentity);
             right._zooming = false;
-            right._cacheTransform = null;
             right.render();
-            right.updateLabels(right.transform || d3.zoomIdentity);
         });
 
     right.zoom
         .on('start', () => {
             if (syncing) return;
             right._zooming = true;
-            right._snapshotCache();
             left._zooming = true;
-            left._snapshotCache();
         })
         .on('zoom', (event) => {
             if (syncing) return;
@@ -1884,13 +2353,9 @@ function _setupSbsSync(left, right) {
         .on('end', () => {
             if (syncing) return;
             right._zooming = false;
-            right._cacheTransform = null;
             right.render();
-            right.updateLabels(right.transform || d3.zoomIdentity);
             left._zooming = false;
-            left._cacheTransform = null;
             left.render();
-            left.updateLabels(left.transform || d3.zoomIdentity);
         });
 
     // Sync layout mode: override switchLayout on both
@@ -1907,13 +2372,15 @@ function _setupSbsSync(left, right) {
         if (left.layoutMode !== mode) origLeftSwitch(mode);
     };
 
+    // Sync radius scale
+    left.onTextScaleSync = (val) => right.setTextScale(val);
+    right.onTextScaleSync = (val) => left.setTextScale(val);
+
     // Sync hover highlight
     left.onHoverSync = (nodeId) => right.setHoverNode(nodeId);
     right.onHoverSync = (nodeId) => left.setHoverNode(nodeId);
 
     // Sync depth toggle
-    left.onDepthToggleSync = (hidden) => right.setDepthHidden(hidden);
-    right.onDepthToggleSync = (hidden) => left.setDepthHidden(hidden);
 
     // Sync collapse/expand
     left.onCollapseSync = (nodeId, collapsed) => right.setNodeCollapsed(nodeId, collapsed);

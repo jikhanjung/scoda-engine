@@ -31,8 +31,13 @@ let queryCache = {};
 // Global controls state (populated from manifest.global_controls)
 let globalControls = {};
 
-// Compare mode state
+// Compare mode state (legacy, kept for backward compat — unused by compound views)
 let compareMode = false;
+
+// Compound view state
+let compoundControls = {};         // local control values for active compound view
+let compoundCurrentSubView = null; // active sub-view key
+let compoundViewKey = null;        // active compound view key
 
 // Global search state
 let searchIndex = null;
@@ -186,20 +191,43 @@ async function renderGlobalControls() {
  * @param {string} queryName - Named query to execute
  * @param {Object} [params] - Optional URL query parameters
  */
+let _activeFetches = 0;
+function _showLoading() {
+    _activeFetches++;
+    if (_activeFetches === 1) {
+        document.body.classList.add('loading-active');
+        const bar = document.getElementById('global-loading-bar');
+        if (bar) bar.classList.add('active');
+    }
+}
+function _hideLoading() {
+    _activeFetches = Math.max(0, _activeFetches - 1);
+    if (_activeFetches === 0) {
+        document.body.classList.remove('loading-active');
+        const bar = document.getElementById('global-loading-bar');
+        if (bar) bar.classList.remove('active');
+    }
+}
+
 async function fetchQuery(queryName, params) {
     const mergedParams = { ...globalControls, ...params };
     const hasParams = Object.keys(mergedParams).length > 0;
     const cacheKey = hasParams ? `${queryName}?${new URLSearchParams(mergedParams)}` : queryName;
     if (queryCache[cacheKey]) return queryCache[cacheKey];
-    let url = `/api/queries/${queryName}/execute`;
-    if (hasParams) {
-        url += '?' + new URLSearchParams(mergedParams);
+    _showLoading();
+    try {
+        let url = `/api/queries/${queryName}/execute`;
+        if (hasParams) {
+            url += '?' + new URLSearchParams(mergedParams);
+        }
+        const response = await fetch(url);
+        if (!response.ok) throw new Error(`Query failed: ${queryName}`);
+        const data = await response.json();
+        queryCache[cacheKey] = data.rows || [];
+        return queryCache[cacheKey];
+    } finally {
+        _hideLoading();
     }
-    const response = await fetch(url);
-    if (!response.ok) throw new Error(`Query failed: ${queryName}`);
-    const data = await response.json();
-    queryCache[cacheKey] = data.rows || [];
-    return queryCache[cacheKey];
 }
 
 /**
@@ -286,7 +314,17 @@ function buildViewTabs() {
                  </button>`;
     }
 
+    html += `<button class="view-tab-toggle" id="view-tab-show-text"
+                     title="Show/hide all tab labels">Show Text</button>`;
+
     tabsContainer.innerHTML = html;
+
+    const toggleBtn = document.getElementById('view-tab-show-text');
+    toggleBtn.addEventListener('click', () => {
+        const expanded = tabsContainer.classList.toggle('show-all-text');
+        toggleBtn.classList.toggle('active', expanded);
+        toggleBtn.textContent = expanded ? 'Hide Text' : 'Show Text';
+    });
 }
 
 /**
@@ -318,39 +356,512 @@ function switchToView(viewKey) {
     }
 
     // Show/hide view containers
-    const treeContainer = document.getElementById('view-tree');
-    const tableContainer = document.getElementById('view-table');
-    const chartContainer = document.getElementById('view-chart');
-    const treeChartContainer = document.getElementById('view-tree-chart');
-    const sbsContainer = document.getElementById('view-side-by-side');
+    const allContainers = ['view-tree', 'view-table', 'view-chart', 'view-tree-chart', 'view-side-by-side', 'view-compound'];
+    allContainers.forEach(id => {
+        const el = document.getElementById(id);
+        if (el) el.style.display = 'none';
+    });
 
-    treeContainer.style.display = 'none';
-    tableContainer.style.display = 'none';
-    chartContainer.style.display = 'none';
-    treeChartContainer.style.display = 'none';
-    sbsContainer.style.display = 'none';
-
-    if (view.type === 'hierarchy') {
+    if (view.type === 'compound') {
+        document.getElementById('view-compound').style.display = '';
+        loadCompoundView(viewKey, view);
+    } else if (view.type === 'hierarchy') {
         if (view.display === 'tree') {
             currentTreeViewKey = viewKey;
-            treeContainer.style.display = '';
+            document.getElementById('view-tree').style.display = '';
             loadTree();
         } else if (view.display === 'nested_table') {
-            chartContainer.style.display = '';
+            document.getElementById('view-chart').style.display = '';
             renderNestedTableView(viewKey);
         } else if (view.display === 'tree_chart') {
-            treeChartContainer.style.display = '';
+            document.getElementById('view-tree-chart').style.display = '';
             loadRadialView(viewKey);
         } else if (view.display === 'side_by_side') {
-            sbsContainer.style.display = '';
+            document.getElementById('view-side-by-side').style.display = '';
             loadSideBySideView(viewKey);
         }
     } else if (view.type === 'table') {
-        tableContainer.style.display = '';
+        document.getElementById('view-table').style.display = '';
         tableViewSort = view.default_sort || null;
         tableViewSearchTerm = '';
         renderTableView(viewKey);
     }
+}
+
+/**
+ * Load a compound view — renders local controls + sub-tabs + delegates to sub-view renderers.
+ * Compound views contain their own controls (e.g. from/to profile selectors) and multiple sub-views.
+ */
+async function loadCompoundView(viewKey, view) {
+    compoundViewKey = viewKey;
+    const controlsEl = document.getElementById('compound-controls');
+    const subTabsEl = document.getElementById('compound-sub-tabs');
+    const contentEl = document.getElementById('compound-sub-content');
+
+    // --- Render local controls ---
+    const controls = view.controls || [];
+    let controlsHtml = '';
+    for (const ctrl of controls) {
+        if (ctrl.type === 'select' && ctrl.source_query) {
+            controlsHtml += `<div class="compound-control-item">
+                <label class="compound-control-label">${ctrl.label || ctrl.param}</label>
+                <select class="compound-control-select" data-param="${ctrl.param}" id="cc-${ctrl.param}">
+                    <option value="">Loading...</option>
+                </select>
+            </div>`;
+        }
+    }
+    controlsEl.innerHTML = controlsHtml;
+
+    // Initialize compound control values with defaults
+    for (const ctrl of controls) {
+        if (!(ctrl.param in compoundControls)) {
+            compoundControls[ctrl.param] = ctrl.default;
+        }
+    }
+
+    // Populate select options
+    for (const ctrl of controls) {
+        if (ctrl.type === 'select' && ctrl.source_query) {
+            try {
+                const rows = await fetchQuery(ctrl.source_query);
+                const sel = document.getElementById(`cc-${ctrl.param}`);
+                if (!sel) continue;
+                const valueKey = ctrl.value_key || 'id';
+                const labelKey = ctrl.label_key || 'name';
+                sel.innerHTML = rows.map(r =>
+                    `<option value="${r[valueKey]}" ${r[valueKey] == compoundControls[ctrl.param] ? 'selected' : ''}>${r[labelKey]}</option>`
+                ).join('');
+                sel.addEventListener('change', () => {
+                    const val = parseInt(sel.value, 10);
+                    compoundControls[ctrl.param] = isNaN(val) ? sel.value : val;
+                    queryCache = {};
+                    // Refresh current sub-view
+                    if (compoundCurrentSubView) {
+                        switchCompoundSubView(compoundCurrentSubView);
+                    }
+                });
+            } catch (e) {
+                console.warn(`Compound control load failed for ${ctrl.param}:`, e);
+            }
+        }
+    }
+
+    // --- Render sub-tabs ---
+    const subViews = view.sub_views || {};
+    const subKeys = Object.keys(subViews);
+    let tabsHtml = '';
+    for (const sk of subKeys) {
+        const sv = subViews[sk];
+        tabsHtml += `<li><button class="compound-sub-tab" data-sub-view="${sk}"
+                        onclick="switchCompoundSubView('${sk}')">${sv.title || sk}</button></li>`;
+    }
+    subTabsEl.innerHTML = tabsHtml;
+
+    // Activate default sub-view
+    const defaultSub = view.default_sub_view || subKeys[0];
+    compoundCurrentSubView = null;
+    switchCompoundSubView(defaultSub);
+}
+
+/**
+ * Switch compound sub-view. Renders the sub-view into #compound-sub-content.
+ * Merges compoundControls into query params for sub-view data fetching.
+ */
+async function switchCompoundSubView(subKey) {
+    const view = manifest.views[compoundViewKey];
+    if (!view || !view.sub_views || !view.sub_views[subKey]) return;
+
+    compoundCurrentSubView = subKey;
+    const subView = view.sub_views[subKey];
+
+    // Update sub-tab active state
+    document.querySelectorAll('.compound-sub-tab').forEach(btn => {
+        btn.classList.toggle('active', btn.dataset.subView === subKey);
+    });
+
+    const contentEl = document.getElementById('compound-sub-content');
+
+    // Determine display type
+    const display = subView.display || (subView.type === 'table' ? 'table' : 'tree_chart');
+
+    if (display === 'table') {
+        await renderCompoundTableSubView(subKey, subView, contentEl);
+    } else if (display === 'tree_chart') {
+        await renderCompoundTreeChartSubView(subKey, subView, contentEl);
+    } else if (display === 'side_by_side') {
+        await renderCompoundSbsSubView(subKey, subView, contentEl);
+    } else if (display === 'tree_chart_morph') {
+        await renderCompoundMorphSubView(subKey, subView, contentEl);
+    }
+}
+
+/**
+ * Fetch query with compound controls merged as params.
+ * Resolves $variable references in param values.
+ */
+async function fetchCompoundQuery(queryName, extraParams) {
+    const extra = extraParams || {};
+    const merged = { ...globalControls, ...compoundControls, ...extra };
+    // Alias base_profile_id → profile_id for SQL queries that expect :profile_id
+    if ('base_profile_id' in merged && !('profile_id' in extra)) {
+        merged.profile_id = merged.base_profile_id;
+    }
+    // Resolve $variable references
+    for (const [k, v] of Object.entries(merged)) {
+        if (typeof v === 'string' && v.startsWith('$')) {
+            const ref = v.substring(1);
+            if (ref in merged) merged[k] = merged[ref];
+        }
+    }
+    return fetchQuery(queryName, merged);
+}
+
+/**
+ * Render a table sub-view within compound view
+ */
+async function renderCompoundTableSubView(subKey, subView, containerEl) {
+    containerEl.innerHTML = `<div class="table-view-content" style="height:100%;">
+        <div class="table-view-header" id="compound-table-header"></div>
+        <div class="table-view-toolbar" id="compound-table-toolbar"></div>
+        <div class="table-view-body" id="compound-table-body">
+            <div class="loading">Loading...</div>
+        </div>
+    </div>`;
+
+    const header = document.getElementById('compound-table-header');
+    const toolbar = document.getElementById('compound-table-toolbar');
+    const body = document.getElementById('compound-table-body');
+
+    header.innerHTML = `<h5>${subView.title || subKey}</h5>
+        <p class="text-muted mb-0">${subView.description || ''}</p>`;
+
+    // Search toolbar
+    let _compoundTableSearchTerm = '';
+    if (subView.searchable) {
+        toolbar.innerHTML = `<div class="table-view-search">
+            <i class="bi bi-search"></i>
+            <input type="text" class="form-control form-control-sm"
+                   placeholder="Search..." id="compound-table-search">
+        </div>`;
+        document.getElementById('compound-table-search').addEventListener('input', (e) => {
+            _compoundTableSearchTerm = e.target.value;
+            renderRows();
+        });
+    }
+
+    try {
+        const data = await fetchCompoundQuery(subView.source_query);
+        let sort = subView.default_sort || null;
+
+        function renderRows() {
+            let rows = [...data];
+            // Search
+            if (_compoundTableSearchTerm) {
+                const term = _compoundTableSearchTerm.toLowerCase();
+                const searchableCols = (subView.columns || []).filter(c => c.searchable).map(c => c.key);
+                rows = rows.filter(row => searchableCols.some(key => {
+                    const val = row[key];
+                    return val && String(val).toLowerCase().includes(term);
+                }));
+            }
+            // Sort
+            if (sort) {
+                const { key, direction } = sort;
+                rows.sort((a, b) => {
+                    let va = a[key] ?? '', vb = b[key] ?? '';
+                    if (typeof va === 'number' && typeof vb === 'number')
+                        return direction === 'asc' ? va - vb : vb - va;
+                    va = String(va).toLowerCase(); vb = String(vb).toLowerCase();
+                    return direction === 'asc' ? va.localeCompare(vb) : vb.localeCompare(va);
+                });
+            }
+            // Build table
+            let html = `<div class="table-view-stats text-muted mb-2">${rows.length} of ${data.length} records</div>`;
+            html += '<table class="manifest-table"><thead><tr>';
+            (subView.columns || []).forEach(col => {
+                const isSorted = sort && sort.key === col.key;
+                const sortIcon = isSorted ? (sort.direction === 'asc' ? '<i class="bi bi-caret-up-fill"></i>' : '<i class="bi bi-caret-down-fill"></i>') : '';
+                const sortableClass = col.sortable ? 'sortable' : '';
+                const onclick = col.sortable ? `onclick="document.dispatchEvent(new CustomEvent('compound-sort', {detail:'${col.key}'}))"` : '';
+                html += `<th class="${sortableClass}" ${onclick}>${col.label} ${sortIcon}</th>`;
+            });
+            html += '</tr></thead><tbody>';
+            const rowClick = subView.on_row_click;
+            const rowColorKey = subView.row_color_key;
+            const rowColorMap = subView.row_color_map || {};
+            rows.forEach(row => {
+                const clickAttr = rowClick ? `onclick="openDetail('${rowClick.detail_view}', ${row[rowClick.id_key]})"` : '';
+                let rowClass = '';
+                if (rowColorKey && row[rowColorKey]) {
+                    const colorName = rowColorMap[row[rowColorKey]];
+                    if (colorName) rowClass = ` class="table-${colorName}"`;
+                }
+                html += `<tr${rowClass} ${clickAttr}>`;
+                (subView.columns || []).forEach(col => {
+                    let val = row[col.key];
+                    if (col.type === 'boolean') val = val ? (col.true_label || BOOLEAN_TRUE_LABEL) : (col.false_label || BOOLEAN_FALSE_LABEL);
+                    else if (val == null) val = '';
+                    const italic = col.italic ? `<i>${val}</i>` : val;
+                    html += `<td>${italic}</td>`;
+                });
+                html += '</tr>';
+            });
+            html += '</tbody></table>';
+            body.innerHTML = html;
+        }
+
+        document.addEventListener('compound-sort', function handler(e) {
+            // Remove listener when sub-view changes
+            if (compoundCurrentSubView !== subKey) {
+                document.removeEventListener('compound-sort', handler);
+                return;
+            }
+            const key = e.detail;
+            if (sort && sort.key === key) sort.direction = sort.direction === 'asc' ? 'desc' : 'asc';
+            else sort = { key, direction: 'asc' };
+            renderRows();
+        });
+
+        renderRows();
+    } catch (error) {
+        body.innerHTML = `<div class="text-danger">Error: ${error.message}</div>`;
+    }
+}
+
+/**
+ * Render a tree_chart sub-view within compound view
+ */
+async function renderCompoundTreeChartSubView(subKey, subView, containerEl) {
+    // Build dynamic DOM for tree chart
+    containerEl.innerHTML = `<div class="tc-view-content" style="height:100%;">
+        <div class="tc-toolbar" id="compound-tc-toolbar"></div>
+        <div class="tc-canvas-wrap" id="compound-tc-wrap"></div>
+        <div class="tc-breadcrumb" id="compound-tc-breadcrumb"></div>
+        <div class="tc-tooltip" id="compound-tc-tooltip" style="display:none;"></div>
+        <div class="tc-context-menu" id="compound-tc-context-menu" style="display:none;"></div>
+    </div>`;
+
+    await ensureD3Loaded();
+
+    // Destroy previous singleton if exists
+    if (_singletonTC) { _singletonTC.destroy(); _singletonTC = null; }
+
+    const inst = new TreeChartInstance({
+        wrapEl: document.getElementById('compound-tc-wrap'),
+        toolbarEl: document.getElementById('compound-tc-toolbar'),
+        breadcrumbEl: document.getElementById('compound-tc-breadcrumb'),
+        tooltipEl: document.getElementById('compound-tc-tooltip'),
+        contextMenuEl: document.getElementById('compound-tc-context-menu'),
+        overrideParams: { ...compoundControls },
+    });
+    _singletonTC = inst;
+
+    // Resolve the source view: use tree_chart_options.source_view or build inline view
+    const tcOpts = subView.tree_chart_options || {};
+    const resolvedView = { ...subView };
+    // If diff_mode params use $variables, resolve them
+    if (tcOpts.diff_mode && tcOpts.diff_mode.edge_params) {
+        const resolved = { ...tcOpts.diff_mode.edge_params };
+        for (const [k, v] of Object.entries(resolved)) {
+            if (typeof v === 'string' && v.startsWith('$')) {
+                const ref = v.substring(1);
+                resolved[k] = compoundControls[ref] ?? globalControls[ref] ?? v;
+            }
+        }
+        resolvedView.tree_chart_options = { ...tcOpts, diff_mode: { ...tcOpts.diff_mode, edge_params: resolved } };
+    }
+
+    // Load with compound params as overrides (alias base_profile_id → profile_id for queries)
+    const overrides = { ...compoundControls };
+    if (overrides.base_profile_id) overrides.profile_id = overrides.base_profile_id;
+    inst.overrideParams = overrides;
+    await inst.load(subKey, resolvedView);
+}
+
+/**
+ * Render a side-by-side sub-view within compound view
+ */
+async function renderCompoundSbsSubView(subKey, subView, containerEl) {
+    containerEl.innerHTML = `<div class="sbs-view-content" style="height:100%;">
+        <div class="tc-toolbar" id="compound-sbs-toolbar"></div>
+        <div class="sbs-panels">
+            <div class="sbs-panel" id="compound-sbs-left">
+                <div class="sbs-panel-header" id="compound-sbs-left-header"></div>
+                <div class="tc-canvas-wrap" id="compound-sbs-left-wrap"></div>
+                <div class="tc-breadcrumb" id="compound-sbs-left-breadcrumb"></div>
+                <div class="tc-tooltip" id="compound-sbs-left-tooltip" style="display:none;"></div>
+            </div>
+            <div class="sbs-panel" id="compound-sbs-right">
+                <div class="sbs-panel-header" id="compound-sbs-right-header"></div>
+                <div class="tc-canvas-wrap" id="compound-sbs-right-wrap"></div>
+                <div class="tc-breadcrumb" id="compound-sbs-right-breadcrumb"></div>
+                <div class="tc-tooltip" id="compound-sbs-right-tooltip" style="display:none;"></div>
+            </div>
+        </div>
+        <div class="tc-context-menu" id="compound-sbs-context-menu" style="display:none;"></div>
+    </div>`;
+
+    await ensureD3Loaded();
+
+    // Destroy previous instances
+    if (_singletonTC) { _singletonTC.destroy(); _singletonTC = null; }
+
+    const baseProfileId = compoundControls.base_profile_id ?? globalControls.profile_id;
+    const compareProfileId = compoundControls.compare_profile_id ?? globalControls.compare_profile_id;
+
+    // Resolve source view key for the tree chart
+    const tcOpts = subView.tree_chart_options || {};
+    const sourceViewKey = tcOpts.source_view || 'tree_chart';
+    const sourceView = manifest.views[sourceViewKey];
+    if (!sourceView) {
+        containerEl.innerHTML = `<div class="text-danger">Source view "${sourceViewKey}" not found</div>`;
+        return;
+    }
+
+    const leftInst = new TreeChartInstance({
+        wrapEl: document.getElementById('compound-sbs-left-wrap'),
+        toolbarEl: document.getElementById('compound-sbs-toolbar'),
+        breadcrumbEl: document.getElementById('compound-sbs-left-breadcrumb'),
+        tooltipEl: document.getElementById('compound-sbs-left-tooltip'),
+        contextMenuEl: document.getElementById('compound-sbs-context-menu'),
+        overrideParams: { profile_id: baseProfileId },
+    });
+
+    const rightInst = new TreeChartInstance({
+        wrapEl: document.getElementById('compound-sbs-right-wrap'),
+        toolbarEl: null,
+        breadcrumbEl: document.getElementById('compound-sbs-right-breadcrumb'),
+        tooltipEl: document.getElementById('compound-sbs-right-tooltip'),
+        contextMenuEl: null,
+        overrideParams: { profile_id: compareProfileId },
+    });
+
+    // Load profile names for headers
+    try {
+        const profiles = await fetchQuery('classification_profiles_selector');
+        const leftName = profiles.find(p => p.id == baseProfileId)?.name || `Profile ${baseProfileId}`;
+        const rightName = profiles.find(p => p.id == compareProfileId)?.name || `Profile ${compareProfileId}`;
+        document.getElementById('compound-sbs-left-header').textContent = leftName;
+        document.getElementById('compound-sbs-right-header').textContent = rightName;
+    } catch (e) {}
+
+    await Promise.all([leftInst.load(sourceViewKey), rightInst.load(sourceViewKey)]);
+    if (typeof _setupSbsSync === 'function') _setupSbsSync(leftInst, rightInst);
+}
+
+/**
+ * Render morph (animated morphing) sub-view within compound view.
+ * Shows base profile tree, then animates transition to compare profile.
+ */
+async function renderCompoundMorphSubView(subKey, subView, containerEl) {
+    containerEl.innerHTML = `<div class="tc-view-content" style="height:100%;">
+        <div class="tc-toolbar" id="compound-morph-toolbar"></div>
+        <div class="tc-canvas-wrap" id="compound-morph-wrap"></div>
+        <div class="tc-breadcrumb" id="compound-morph-breadcrumb"></div>
+        <div class="tc-tooltip" id="compound-morph-tooltip" style="display:none;"></div>
+        <div class="tc-context-menu" id="compound-morph-context-menu" style="display:none;"></div>
+        <div class="morph-controls" id="compound-morph-controls">
+            <button id="morph-rewind-btn" title="Rewind to From"><i class="bi bi-skip-start-fill"></i></button>
+            <button id="morph-play-rev-btn" title="Play backward"><i class="bi bi-caret-left-fill"></i></button>
+            <button id="morph-pause-btn" title="Pause"><i class="bi bi-pause-fill"></i></button>
+            <button id="morph-play-fwd-btn" title="Play forward"><i class="bi bi-caret-right-fill"></i></button>
+            <button id="morph-ff-btn" title="Fast forward to To"><i class="bi bi-skip-end-fill"></i></button>
+            <span class="morph-time" id="morph-time-label">0%</span>
+            <input type="range" id="morph-scrubber" min="0" max="1000" value="0">
+            <select id="morph-speed">
+                <option value="0.5">0.5x</option>
+                <option value="1" selected>1x</option>
+                <option value="2">2x</option>
+            </select>
+        </div>
+    </div>`;
+
+    await ensureD3Loaded();
+
+    if (_singletonTC) { _singletonTC.destroy(); _singletonTC = null; }
+
+    const inst = new TreeChartInstance({
+        wrapEl: document.getElementById('compound-morph-wrap'),
+        toolbarEl: document.getElementById('compound-morph-toolbar'),
+        breadcrumbEl: document.getElementById('compound-morph-breadcrumb'),
+        tooltipEl: document.getElementById('compound-morph-tooltip'),
+        contextMenuEl: document.getElementById('compound-morph-context-menu'),
+    });
+    _singletonTC = inst;
+
+    const baseProfileId = compoundControls.base_profile_id ?? globalControls.profile_id;
+    const compareProfileId = compoundControls.compare_profile_id ?? globalControls.compare_profile_id;
+
+    // Resolve source view for tree structure
+    const tcOpts = subView.tree_chart_options || {};
+    const sourceViewKey = tcOpts.source_view || 'tree_chart';
+    const sourceView = manifest.views[sourceViewKey];
+    if (!sourceView) {
+        containerEl.innerHTML = `<div class="text-danger">Source view "${sourceViewKey}" not found</div>`;
+        return;
+    }
+
+    // Load morph: builds two trees and sets up animation
+    await inst.loadMorph(sourceViewKey, sourceView, baseProfileId, compareProfileId);
+
+    // Wire up morph UI controls
+    const rewindBtn = document.getElementById('morph-rewind-btn');
+    const playRevBtn = document.getElementById('morph-play-rev-btn');
+    const pauseBtn = document.getElementById('morph-pause-btn');
+    const playFwdBtn = document.getElementById('morph-play-fwd-btn');
+    const ffBtn = document.getElementById('morph-ff-btn');
+    const scrubber = document.getElementById('morph-scrubber');
+    const timeLabel = document.getElementById('morph-time-label');
+    const speedSel = document.getElementById('morph-speed');
+    let playing = false;
+
+    function updateScrubber(t) {
+        scrubber.value = Math.round(t * 1000);
+        timeLabel.textContent = Math.round(t * 100) + '%';
+    }
+
+    function stopPlaying() {
+        if (playing) {
+            playing = false;
+            inst.stopMorphAnimation();
+        }
+    }
+
+    function startPlaying(reverse) {
+        stopPlaying();
+        playing = true;
+        inst.startMorphAnimation(
+            parseFloat(speedSel.value),
+            reverse,
+            updateScrubber,
+            () => { playing = false; }
+        );
+    }
+
+    rewindBtn.addEventListener('click', () => {
+        stopPlaying();
+        inst.renderMorphFrame(0);
+        updateScrubber(0);
+    });
+
+    playRevBtn.addEventListener('click', () => startPlaying(true));
+    pauseBtn.addEventListener('click', () => stopPlaying());
+    playFwdBtn.addEventListener('click', () => startPlaying(false));
+
+    ffBtn.addEventListener('click', () => {
+        stopPlaying();
+        inst.renderMorphFrame(1);
+        updateScrubber(1);
+    });
+
+    scrubber.addEventListener('input', () => {
+        stopPlaying();
+        const t = parseInt(scrubber.value, 10) / 1000;
+        timeLabel.textContent = Math.round(t * 100) + '%';
+        inst.renderMorphFrame(t);
+    });
+
 }
 
 /**
@@ -784,6 +1295,28 @@ async function loadTree() {
         } else {
             throw new Error('No manifest tree definition found');
         }
+
+        // Compute genera_count dynamically: fetch direct genus counts per parent,
+        // then propagate up the tree so each node shows total descendant genera.
+        const tOpts = (viewDef && viewDef.tree_display) || {};
+        if (tOpts.count_key === 'genera_count') {
+            try {
+                const countRows = await fetchQuery('taxonomy_tree_genera_counts');
+                const directCounts = {};
+                countRows.forEach(r => { directCounts[r.parent_id] = r.genera_count; });
+                const idKey = viewDef.hierarchy_options.id_key || 'id';
+                function propagateCounts(node) {
+                    let sum = directCounts[node[idKey]] || 0;
+                    if (node.children) {
+                        node.children.forEach(child => { sum += propagateCounts(child); });
+                    }
+                    node.genera_count = sum;
+                    return sum;
+                }
+                tree.forEach(propagateCounts);
+            } catch (e) { /* genera counts unavailable — ignore */ }
+        }
+
         container.innerHTML = '';
 
         tree.forEach(node => {
