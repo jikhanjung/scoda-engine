@@ -1,6 +1,6 @@
 # SCODA Engine — Project Handoff Document
 
-**Last updated:** 2026-03-03
+**Last updated:** 2026-03-09
 
 ---
 
@@ -53,6 +53,18 @@
 | Collapsible view tab labels | Done | `9cc7c2d` |
 | P23: Tree chart — radial + rectangular layout | Done | `devlog/20260302_P23_tree_chart_layout_mode.md` |
 | Desktop v0.1.5 버전 업 | Done | `scoda_engine/__init__.py`, `pyproject.toml` |
+| Docker nginx 제거, gunicorn 직접 서빙 | Done | `devlog/20260306_034_remove_nginx_from_docker.md` |
+| Docker SSL 우회 + 엔진 이름 표시 | Done | `devlog/20260306_035_docker_ssl_and_engine_name.md` |
+| Rectangular tree leaf 간격 축소 | Done | `devlog/20260306_036_tree_leaf_gap_reduction.md` |
+| Desktop v0.1.6 ~ v0.1.9 버전 업 | Done | Docker Hub CI, bump_version 스크립트 등 |
+| CI: Release workflow Docker Hub 빌드·push | Done | `devlog/20260306_037_release_docker_hub.md` |
+| bump_version 스크립트 추가 | Done | `devlog/20260306_038_bump_version_script.md` |
+| Compare mode UI (toggle, row color) | Done | `c4063f5` |
+| P24: Side-by-Side Tree (TreeChartInstance 리팩토링) | Done | `devlog/20260307_P24_side_by_side_tree_refactoring.md` |
+| Side-by-Side Tree — 듀얼 렌더링 + zoom/layout 동기화 | Done | `devlog/20260307_039_side_by_side_tree.md` |
+| Side-by-Side sync 보강 + 성능 최적화 | Done | `devlog/20260307_040_sbs_sync_and_perf.md` |
+| Diff Tree 시각화 (색상, 범례, 툴팁, moved re-parent) | Done | `devlog/20260307_041_diff_tree.md` |
+| Desktop v0.2.0 버전 업 | Done | `scoda_engine/__init__.py`, `pyproject.toml` |
 
 ### Test Status
 
@@ -65,11 +77,12 @@
 
 - 없음
 
-### Recent Session (2026-03-03) Summary
+### Recent Session (2026-03-07) Summary
 
-1. **P23: Tree Chart Layout**: D3 기반 tree chart에 radial + rectangular 레이아웃 모드 추가. bottom-up 엔진으로 노드 크기 기반 레이아웃 계산. 레이아웃 전환 토글 UI.
-2. **Collapsible view tabs**: 뷰 탭 라벨을 기본 아이콘만 표시, hover/active 시 확장.
-3. **P22: Production Web Viewer**: Docker Compose 기반 프로덕션 배포. `serve_web.py` (create_app factory + CLI), `/healthz` 헬스체크, MCP 조건부 mount (`SCODA_DISABLE_MCP`), gunicorn + uvicorn workers, nginx 리버스 프록시 (정적 파일 직접 서빙, MCP 차단, gzip, 보안 헤더). `pyproject.toml`에 `web` extras + `scoda-web` 스크립트.
+1. **Docker 개선**: nginx 제거 → gunicorn 직접 서빙 (포트 8081). Docker Hub 자동 빌드·push CI. SSL 우회 환경변수.
+2. **Compare Mode**: Profile Diff 탭 전환 시 자동 compare mode. toggle UI, row 색상 지원.
+3. **P24: Side-by-Side Tree**: `tree_chart.js`를 `TreeChartInstance` 클래스로 리팩토링. 듀얼 렌더링 + zoom/layout 동기화. hover/depth/collapse/subtree/tooltip 동기화 + 성능 최적화.
+4. **Diff Tree 시각화**: diff mode 색상(added/removed/moved/modified), 범례, 툴팁, moved 노드 re-parent.
 
 ---
 
@@ -117,7 +130,7 @@ scoda-engine contains no domain-specific code. All domain logic comes from `.sco
 - `ui_queries` table: named SQL queries
 - `/api/query/<name>`: query execution endpoint
 - `/api/composite/<view>?id=N`: multi-query composite response
-- Generic viewer supports: hierarchy (tree/nested_table/tree_chart with radial+rectangular layout), table, detail modal, global search, annotations
+- Generic viewer supports: hierarchy (tree/nested_table/tree_chart with radial+rectangular+side-by-side+diff layout), table, detail modal, global search, annotations, compare mode
 - Boolean columns: customizable via `true_label`/`false_label`, defaults `BOOLEAN_TRUE_LABEL`/`BOOLEAN_FALSE_LABEL`
 - `label_map` 동적 컬럼 label: 행 데이터의 특정 필드 값에 따라 테이블 헤더를 동적으로 결정 (혼합 시 fallback)
 - `editable_entities`: admin 모드에서 CRUD UI 자동 생성 (FK autocomplete, readonly_on_edit, post-mutation hooks)
@@ -136,7 +149,7 @@ core/scoda_engine_core/     # PyPI: scoda-engine-core v0.1.1 (pure stdlib, zero 
 ├── hub_client.py           # Hub: fetch index, compare, download, SSL fallback
 └── validate_manifest.py    # Manifest validator/linter (pure functions)
 
-scoda_engine/               # PyPI: scoda-engine v0.1.5 (desktop/server)
+scoda_engine/               # PyPI: scoda-engine v0.2.0 (desktop/server)
 ├── scoda_package.py        # Backward-compat shim → scoda_engine_core
 ├── app.py                  # FastAPI web server (+ CRUD endpoints)
 ├── entity_schema.py        # P21: FieldDef/EntitySchema parser + validation
@@ -227,3 +240,5 @@ pytest tests/
 | CRUD framework (P21) | `devlog/20260301_028_crud_framework.md` |
 | Production web viewer (P22) | `devlog/20260302_P22_production_web_viewer.md` |
 | Tree chart layout mode (P23) | `devlog/20260302_P23_tree_chart_layout_mode.md` |
+| Side-by-Side Tree refactoring (P24) | `devlog/20260307_P24_side_by_side_tree_refactoring.md` |
+| Diff Tree 시각화 | `devlog/20260307_041_diff_tree.md` |

@@ -37,28 +37,36 @@ scoda-engine/
 │   └── scoda_engine_core/
 │       ├── __init__.py         # Public API re-exports
 │       ├── scoda_package.py    # Core: .scoda ZIP, DB access, PackageRegistry
+│       ├── hub_client.py       # Hub: fetch index, compare, download, SSL fallback
 │       └── validate_manifest.py # Manifest validator/linter (pure functions)
 ├── scoda_engine/               # Desktop/server package
 │   ├── __init__.py
 │   ├── scoda_package.py        # Backward-compat shim → scoda_engine_core
-│   ├── app.py                  # FastAPI web server
+│   ├── app.py                  # FastAPI web server (+ CRUD endpoints)
+│   ├── entity_schema.py        # FieldDef/EntitySchema parser + validation
+│   ├── crud_engine.py          # Generic CRUD engine (FK, constraints, hooks)
 │   ├── mcp_server.py           # MCP server (stdio/SSE)
 │   ├── gui.py                  # Tkinter GUI
 │   ├── serve.py                # uvicorn launcher
+│   ├── serve_web.py            # Production web launcher (gunicorn/Docker)
 │   ├── templates/index.html    # Generic viewer template
-│   └── static/{css,js}/        # Generic viewer assets
+│   └── static/{css,js}/        # Generic viewer assets (+ tree_chart.js)
 ├── design/                     # Design & concept documents (originals)
 ├── scripts/
 │   ├── build.py                # PyInstaller EXE builder
 │   ├── validate_manifest.py    # Manifest validator CLI (thin wrapper → core)
 │   ├── init_overlay_db.py      # Overlay DB initializer
-│   └── release.py              # Release packager
+│   ├── release.py              # Release packager
+│   ├── bump_version.py         # Version bump utility
+│   └── generate_hub_index.py   # Hub index generator
 ├── examples/genus-explorer/    # Example SPA
 ├── tests/
 │   ├── conftest.py             # Shared fixtures
 │   ├── test_runtime.py         # Runtime tests
 │   ├── test_mcp.py             # MCP integration tests
-│   └── test_mcp_basic.py       # MCP basic test
+│   ├── test_mcp_basic.py       # MCP basic test
+│   ├── test_hub_client.py      # Hub client tests
+│   └── test_crud.py            # CRUD framework tests
 └── docs/                       # Guides & operational docs (+ symlinks to design/)
 ```
 
