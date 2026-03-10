@@ -19,13 +19,20 @@ Environment variables:
     SCODA_WORKERS   — Number of worker processes (default: 2)
     SCODA_LOG_LEVEL — Log level (default: info)
     SCODA_HUB_SYNC  — Set to "1" to sync packages from Hub on startup
+    SCODA_HUB_SYNC_INTERVAL — Periodic sync interval in seconds (default: 0 = disabled)
+                               Example: 86400 = once a day
 """
 
 import logging
 import os
 import sys
+import threading
+import time as _time
 
 logger = logging.getLogger(__name__)
+
+# Background scheduler state
+_hub_sync_timer = None
 
 
 def _sync_hub_packages(scoda_path):
@@ -50,7 +57,7 @@ def _sync_hub_packages(scoda_path):
         index = fetch_hub_index(ssl_noverify=ssl_noverify)
     except HubError as e:
         logger.warning("Hub sync: failed to fetch index — %s", e)
-        return
+        return 0
 
     # Scan local packages for comparison
     registry = get_registry()
@@ -62,7 +69,7 @@ def _sync_hub_packages(scoda_path):
 
     if not to_download:
         logger.info("Hub sync: all packages up to date")
-        return
+        return 0
 
     for pkg in to_download:
         name = pkg['name']
@@ -86,6 +93,29 @@ def _sync_hub_packages(scoda_path):
     # Re-scan after downloads so registry picks up new files
     registry.scan(scoda_path)
     logger.info("Hub sync: done — %d package(s) synced", len(to_download))
+    return len(to_download)
+
+
+def _start_periodic_sync(scoda_path, interval):
+    """Start a background thread that runs Hub sync at the given interval."""
+    global _hub_sync_timer
+
+    def _run():
+        global _hub_sync_timer
+        logger.info("Hub sync (scheduled): running periodic check")
+        try:
+            _sync_hub_packages(scoda_path)
+        except Exception as e:
+            logger.warning("Hub sync (scheduled): error — %s", e)
+        # Re-schedule
+        _hub_sync_timer = threading.Timer(interval, _run)
+        _hub_sync_timer.daemon = True
+        _hub_sync_timer.start()
+
+    _hub_sync_timer = threading.Timer(interval, _run)
+    _hub_sync_timer.daemon = True
+    _hub_sync_timer.start()
+    logger.info("Hub sync: periodic sync enabled — every %d seconds", interval)
 
 
 def create_app():
@@ -132,7 +162,30 @@ def create_app():
             from scoda_engine_core import register_scoda_path
             register_scoda_path(scoda_path)
 
+    # Start periodic Hub sync if interval is set
+    sync_interval = int(os.environ.get('SCODA_HUB_SYNC_INTERVAL', '0'))
+    if sync_interval > 0 and scoda_path and os.path.isdir(scoda_path):
+        _start_periodic_sync(scoda_path, sync_interval)
+
     from scoda_engine.app import app
+
+    # Register /api/hub/sync endpoint for on-demand sync
+    if scoda_path and os.path.isdir(scoda_path):
+        _scoda_path = scoda_path  # capture for closure
+
+        @app.post('/api/hub/sync')
+        def hub_sync_endpoint():
+            """Trigger Hub sync on demand."""
+            try:
+                synced = _sync_hub_packages(_scoda_path)
+                return {"status": "ok", "synced": synced or 0}
+            except Exception as e:
+                from fastapi.responses import JSONResponse
+                return JSONResponse(
+                    {"status": "error", "detail": str(e)},
+                    status_code=500,
+                )
+
     return app
 
 
