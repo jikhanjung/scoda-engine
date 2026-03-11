@@ -310,6 +310,12 @@ class ScodaDesktopGUI:
                                      relief="raised", bd=2)
         self.browser_btn.pack(pady=3)
 
+        # Check Hub button
+        self.hub_check_btn = tk.Button(control_frame, text="\u21bb Check Hub", width=26,
+                                       command=self._on_hub_refresh,
+                                       relief="raised", bd=2)
+        self.hub_check_btn.pack(pady=3)
+
         # Clear log button
         self.clear_log_btn = tk.Button(control_frame, text="Clear Log", width=26,
                                        command=self.clear_log,
@@ -604,6 +610,11 @@ class ScodaDesktopGUI:
     # ------------------------------------------------------------------
     # Hub methods
     # ------------------------------------------------------------------
+
+    def _on_hub_refresh(self):
+        """Re-check Hub for new/updated packages."""
+        self._append_log("Hub: refreshing...", "INFO")
+        threading.Thread(target=self._fetch_hub_index, daemon=True).start()
 
     def _fetch_hub_index(self):
         """Background thread: fetch Hub index and compare with local packages."""

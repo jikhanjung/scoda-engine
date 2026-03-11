@@ -1458,3 +1458,101 @@ html, body {
 .search-status i {
     margin-right: 4px;
 }
+
+/* Hub Refresh Button */
+#hub-refresh-btn {
+    font-size: 0.78rem;
+    padding: 2px 8px;
+}
+#hub-refresh-btn.syncing i {
+    animation: spin 1s linear infinite;
+}
+@keyframes spin {
+    from { transform: rotate(0deg); }
+    to { transform: rotate(360deg); }
+}
+
+/* Hamburger Toggle (hidden on desktop) */
+.hamburger-toggle {
+    display: none;
+    border: none;
+    background: none;
+    padding: 6px 10px;
+    font-size: 1.2rem;
+    color: #495057;
+    cursor: pointer;
+    flex-shrink: 0;
+    align-self: center;
+}
+.hamburger-toggle:hover {
+    color: #212529;
+    background: #e9ecef;
+    border-radius: 4px;
+}
+
+/* Mobile Responsive (<= 768px) */
+@media (max-width: 768px) {
+    .hamburger-toggle {
+        display: block;
+    }
+
+    .view-tabs-bar {
+        flex-wrap: wrap;
+        height: auto;
+        min-height: var(--tabs-height);
+        position: relative;
+    }
+
+    .view-tabs {
+        display: none;
+        flex-direction: column;
+        width: 100%;
+        order: 10;
+        padding: 4px 0;
+        border-top: 1px solid var(--border-color);
+        overflow-x: visible;
+        flex: none;
+    }
+
+    .view-tabs.mobile-open {
+        display: flex;
+    }
+
+    .view-tabs .view-tab {
+        text-align: left;
+        padding: 8px 16px;
+        border-bottom: none;
+        border-left: 3px solid transparent;
+    }
+
+    .view-tabs .view-tab.active {
+        border-left-color: #0d6efd;
+        border-bottom-color: transparent;
+    }
+
+    .view-tabs .view-tab .tab-label {
+        max-width: 200px;
+        margin-left: 8px;
+    }
+
+    .view-tabs .view-tab-toggle {
+        margin: 4px 16px;
+        align-self: flex-start;
+    }
+
+    .global-search-container {
+        padding: 0 8px;
+    }
+
+    .global-search-wrapper {
+        width: 180px;
+    }
+
+    .global-search-shortcut {
+        display: none;
+    }
+
+    .global-search-results {
+        width: 320px;
+    }
+}

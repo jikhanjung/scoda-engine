@@ -126,6 +126,12 @@ async function loadManifest() {
             if (subtitleEl) subtitleEl.textContent = `Powered by ${engineName}${engineVer}`;
             document.title = `${data.package.name} v${data.package.version}`;
         }
+
+        // Hide Hub Refresh button in Desktop mode (no /api/hub/sync endpoint)
+        if ((data.engine_name || 'SCODA Desktop') === 'SCODA Desktop') {
+            const hubBtn = document.getElementById('hub-refresh-btn');
+            if (hubBtn) hubBtn.style.display = 'none';
+        }
     } catch (error) {
         // Graceful degradation: manifest unavailable, use existing UI
     }
@@ -2994,3 +3000,78 @@ function renderAddButton(entityType) {
     if (!ops.includes('create')) return '';
     return `<button class="btn btn-sm btn-success ms-2" onclick="openCreateForm('${entityType}')"><i class="bi bi-plus-lg"></i> Add</button>`;
 }
+
+/**
+ * Hub Refresh — trigger server-side hub sync.
+ * Button visibility is set after manifest loads (see initApp).
+ */
+
+async function hubRefresh() {
+    const btn = document.getElementById('hub-refresh-btn');
+    if (!btn || btn.disabled) return;
+
+    btn.disabled = true;
+    btn.querySelector('i').classList.add('syncing');
+
+    try {
+        const res = await fetch('/api/hub/sync', { method: 'POST' });
+        if (res.status === 404 || res.status === 405) {
+            btn.title = 'Hub sync not available in this mode';
+            return;
+        }
+        const data = await res.json();
+        if (data.status === 'ok') {
+            const n = data.synced || 0;
+            const msg = n > 0 ? `${n} package(s) synced. Reloading...` : 'Already up to date.';
+            btn.title = msg;
+            if (n > 0) {
+                // Reload to pick up new/updated packages
+                setTimeout(() => location.reload(), 800);
+            }
+        } else {
+            btn.title = `Sync error: ${data.detail || 'unknown'}`;
+        }
+    } catch (e) {
+        btn.title = `Sync failed: ${e.message}`;
+    } finally {
+        btn.disabled = false;
+        const icon = btn.querySelector('i');
+        if (icon) icon.classList.remove('syncing');
+    }
+}
+
+/**
+ * Hamburger menu toggle for mobile
+ */
+(function initHamburger() {
+    document.addEventListener('DOMContentLoaded', () => {
+        const toggle = document.getElementById('hamburger-toggle');
+        const tabs = document.getElementById('view-tabs');
+        if (!toggle || !tabs) return;
+
+        toggle.addEventListener('click', (e) => {
+            e.stopPropagation();
+            const open = tabs.classList.toggle('mobile-open');
+            toggle.innerHTML = open
+                ? '<i class="bi bi-x-lg"></i>'
+                : '<i class="bi bi-list"></i>';
+        });
+
+        // Close menu when a tab is clicked
+        tabs.addEventListener('click', (e) => {
+            if (e.target.closest('.view-tab') && tabs.classList.contains('mobile-open')) {
+                tabs.classList.remove('mobile-open');
+                toggle.innerHTML = '<i class="bi bi-list"></i>';
+            }
+        });
+
+        // Close menu when clicking outside
+        document.addEventListener('click', (e) => {
+            if (tabs.classList.contains('mobile-open') &&
+                !tabs.contains(e.target) && e.target !== toggle) {
+                tabs.classList.remove('mobile-open');
+                toggle.innerHTML = '<i class="bi bi-list"></i>';
+            }
+        });
+    });
+})();

@@ -16,12 +16,19 @@
                 <i class="bi bi-diagram-3"></i> <span id="navbar-title">SCODA Desktop</span>
                 <small id="navbar-subtitle" class="text-white-50" style="font-size: 0.6em; margin-left: 8px;"></small>
             </span>
+            <button class="btn btn-outline-light btn-sm" id="hub-refresh-btn"
+                    title="Refresh Hub packages" onclick="hubRefresh()">
+                <i class="bi bi-arrow-clockwise"></i>
+            </button>
         </div>
     </nav>
     <!-- Global loading bar -->
     <div class="global-loading-bar" id="global-loading-bar"></div>
     <!-- View Tabs + Global Search -->
     <div class="view-tabs-bar">
+        <button class="hamburger-toggle" id="hamburger-toggle" aria-label="Toggle menu">
+            <i class="bi bi-list"></i>
+        </button>
         <div class="view-tabs" id="view-tabs"></div>
         <div class="global-controls-container" id="global-controls"></div>
         <div class="global-search-container">
