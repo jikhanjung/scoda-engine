@@ -1245,6 +1245,22 @@ html, body {
     cursor: pointer;
 }
 
+#morph-record-btn {
+    margin-left: 4px;
+}
+
+#morph-record-btn.active {
+    background: #dc3545;
+    color: #fff;
+    border-color: #dc3545;
+    animation: record-pulse 1s ease-in-out infinite;
+}
+
+@keyframes record-pulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.6; }
+}
+
 /* Global Controls (e.g. classification profile selector) */
 .global-controls-container {
     display: flex;

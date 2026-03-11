@@ -782,6 +782,7 @@ async function renderCompoundMorphSubView(subKey, subView, containerEl) {
                 <option value="1" selected>1x</option>
                 <option value="2">2x</option>
             </select>
+            <button id="morph-record-btn" title="Record animation as video"><i class="bi bi-record-circle"></i></button>
         </div>
     </div>`;
 
@@ -869,6 +870,194 @@ async function renderCompoundMorphSubView(subKey, subView, containerEl) {
         timeLabel.textContent = Math.round(t * 100) + '%';
         inst.renderMorphFrame(t);
     });
+
+    // --- Record animation as video ---
+    const recordBtn = document.getElementById('morph-record-btn');
+    let recording = false;
+    const isSafari = /^((?!chrome|android).)*safari/i.test(navigator.userAgent);
+
+    recordBtn.addEventListener('click', async () => {
+        if (recording) return;
+
+        const canvas = inst.canvas;
+        if (!canvas) { alert('No canvas found.'); return; }
+
+        if (isSafari || typeof WebMWriter === 'undefined') {
+            // Fallback: real-time recording via MediaRecorder (Safari, or WebMWriter unavailable)
+            await recordRealtime(canvas);
+        } else {
+            // Preferred: offline frame-by-frame via WebMWriter (Chrome, Edge, Firefox)
+            await recordOffline(canvas);
+        }
+    });
+
+    /** Set up canvas for recording: resize to fixed resolution + fit tree */
+    function setupRecordCanvas(canvas, recW, recH) {
+        inst.dpr = 1;
+        inst.width = recW;
+        inst.height = recH;
+        canvas.width = recW;
+        canvas.height = recH;
+        inst.ctx = canvas.getContext('2d');
+        inst.ctx.setTransform(1, 0, 0, 1, 0, 0);
+        inst._recordBg = '#ffffff';
+
+        // Compute bounding box of all morph node positions and fit to canvas
+        const basePos = inst._morphBasePositions;
+        const compPos = inst._morphComparePositions;
+        if (basePos && compPos) {
+            let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
+            for (const pos of [basePos, compPos]) {
+                for (const p of pos.values()) {
+                    if (p.cx < minX) minX = p.cx;
+                    if (p.cx > maxX) maxX = p.cx;
+                    if (p.cy < minY) minY = p.cy;
+                    if (p.cy > maxY) maxY = p.cy;
+                }
+            }
+            const bboxW = maxX - minX;
+            const bboxH = maxY - minY;
+            const bboxCx = (minX + maxX) / 2;
+            const bboxCy = (minY + maxY) / 2;
+            const padding = 120;
+            let scale = 1;
+            if (bboxW > 1 || bboxH > 1) {
+                const scaleX = (recW - padding) / bboxW;
+                const scaleY = (recH - padding) / bboxH;
+                scale = Math.min(scaleX, scaleY, 10);
+            }
+            scale = Math.max(scale, 0.1);
+            const cx = recW / 2, cy = recH / 2;
+            inst.transform = d3.zoomIdentity
+                .translate(cx, cy)
+                .scale(scale)
+                .translate(-cx - bboxCx, -cy - bboxCy);
+        }
+    }
+
+    /** Restore canvas to original state after recording */
+    function restoreCanvas(origW, origH, origDpr, origTransform) {
+        inst._recordBg = null;
+        inst.dpr = origDpr;
+        inst.width = origW;
+        inst.height = origH;
+        inst.transform = origTransform;
+        inst.resizeCanvas();
+        inst.renderMorphFrame(inst._morphT || 0);
+    }
+
+    /** Offline frame-by-frame recording (no stutter, WebMWriter required) */
+    async function recordOffline(canvas) {
+        recording = true;
+        recordBtn.classList.add('active');
+        recordBtn.title = 'Rendering frames...';
+        stopPlaying();
+
+        const fps = 30;
+        const speed = parseFloat(speedSel.value);
+        const durationMs = 3200 / speed;
+        const totalFrames = Math.ceil(durationMs / 1000 * fps);
+        const recW = 1920, recH = 1080;
+
+        // Save original state
+        const origW = inst.width, origH = inst.height, origDpr = inst.dpr;
+        const origTransform = inst.transform;
+
+        // Resize canvas to fixed recording resolution
+        setupRecordCanvas(canvas, recW, recH);
+
+        const writer = new WebMWriter({ quality: 0.95, frameRate: fps });
+
+        for (let i = 0; i <= totalFrames; i++) {
+            const t = Math.min(i / totalFrames, 1);
+            inst.renderMorphFrame(t);
+            updateScrubber(t);
+            writer.addFrame(canvas);
+            if (i % 5 === 0) await new Promise(r => setTimeout(r, 0));
+        }
+
+        // Restore original state
+        restoreCanvas(origW, origH, origDpr, origTransform);
+
+        recordBtn.title = 'Encoding video...';
+        try {
+            const blob = await writer.complete();
+            downloadBlob(blob, 'morph-animation.webm');
+        } catch (e) {
+            alert(`Video encoding failed: ${e.message}`);
+        }
+        finishRecording();
+    }
+
+    /** Real-time recording via MediaRecorder (Safari fallback, may stutter) */
+    async function recordRealtime(canvas) {
+        if (!canvas.captureStream) {
+            alert('Video recording is not supported in this browser.');
+            return;
+        }
+        const mimeTypes = ['video/webm;codecs=vp9', 'video/webm;codecs=vp8', 'video/webm', 'video/mp4'];
+        let mimeType = '';
+        for (const mt of mimeTypes) {
+            if (MediaRecorder.isTypeSupported(mt)) { mimeType = mt; break; }
+        }
+        if (!mimeType) { alert('No supported video format found.'); return; }
+
+        recording = true;
+        recordBtn.classList.add('active');
+        recordBtn.title = 'Recording... (real-time)';
+        stopPlaying();
+
+        const recW = 1920, recH = 1080;
+        const origW = inst.width, origH = inst.height, origDpr = inst.dpr;
+        const origTransform = inst.transform;
+
+        setupRecordCanvas(canvas, recW, recH);
+        inst.renderMorphFrame(0);
+        updateScrubber(0);
+
+        const stream = canvas.captureStream(30);
+        const recorder = new MediaRecorder(stream, { mimeType, videoBitsPerSecond: 5000000 });
+        const chunks = [];
+
+        recorder.ondataavailable = (e) => {
+            if (e.data && e.data.size > 0) chunks.push(e.data);
+        };
+
+        recorder.onstop = () => {
+            restoreCanvas(origW, origH, origDpr, origTransform);
+
+            const ext = mimeType.startsWith('video/mp4') ? 'mp4' : 'webm';
+            const blob = new Blob(chunks, { type: mimeType });
+            downloadBlob(blob, `morph-animation.${ext}`);
+            finishRecording();
+        };
+
+        recorder.start();
+        // Play at 0.5x to reduce stutter
+        const recSpeed = Math.min(parseFloat(speedSel.value), 0.5);
+        inst.startMorphAnimation(recSpeed, false, updateScrubber, () => {
+            playing = false;
+            setTimeout(() => recorder.stop(), 200);
+        });
+        playing = true;
+    }
+
+    function downloadBlob(blob, filename) {
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = filename;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        setTimeout(() => URL.revokeObjectURL(url), 5000);
+    }
+
+    function finishRecording() {
+        recording = false;
+        recordBtn.classList.remove('active');
+        recordBtn.title = 'Record animation as video';
+    }
 
 }
 

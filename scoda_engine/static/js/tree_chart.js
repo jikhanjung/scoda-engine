@@ -378,6 +378,10 @@ class TreeChartInstance {
         const h = this.height;
 
         ctx.clearRect(0, 0, w * dpr, h * dpr);
+        if (this._recordBg) {
+            ctx.fillStyle = this._recordBg;
+            ctx.fillRect(0, 0, w * dpr, h * dpr);
+        }
         ctx.save();
 
         const tf = this.transform || d3.zoomIdentity;
