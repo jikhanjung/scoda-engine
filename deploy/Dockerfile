@@ -37,7 +37,7 @@ RUN mkdir -p /data && python /tmp/fetch_packages.py --dest /data/ && \
     chown -R scoda:scoda /data && rm /tmp/fetch_packages.py
 
 # Default package (set at build time, overridable at runtime)
-ARG DEFAULT_PACKAGE=trilobase-assertion
+ARG DEFAULT_PACKAGE=trilobase
 ENV SCODA_MODE=viewer \
     SCODA_PORT=8081 \
     SCODA_WORKERS=2 \
