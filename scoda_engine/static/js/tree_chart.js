@@ -101,6 +101,9 @@ class TreeChartInstance {
         this.diffMode = false;         // true when rendering diff tree
         this.diffNodeMap = null;       // Map<nodeId, {cx, cy}> for ghost edges (old parent positions)
 
+        // Watch list: Set of node IDs being watched
+        this.watchedNodes = new Set();
+
         // Morph animation state
         this._morphAnimId = null;
         this._morphing = false;
@@ -128,6 +131,14 @@ class TreeChartInstance {
             d3.select(this.canvas).on('mousemove', null);
             d3.select(this.canvas).on('click', null);
             d3.select(this.canvas).on('contextmenu', null);
+        }
+        // Clean up panels
+        const container = this.wrapEl?.closest('.tc-view-content') || this.wrapEl?.parentElement;
+        if (container) {
+            const wp = container.querySelector('.tc-watch-panel');
+            if (wp) wp.remove();
+            const rp = container.querySelector('.tc-removed-panel');
+            if (rp) rp.remove();
         }
     }
 
@@ -200,6 +211,7 @@ class TreeChartInstance {
         d3.select(this.canvas).call(this.zoom.transform, this.transform);
         this.render();
         if (this.breadcrumbEl) this.updateBreadcrumb();
+        this._updateRemovedPanel();
     }
 
     // --- Morph Animation ---
@@ -322,6 +334,7 @@ class TreeChartInstance {
         d3.select(this.canvas).call(this.zoom.transform, this.transform);
         this._morphing = true;
         this.renderMorphFrame(0);
+        this._updateRemovedPanel();
     }
 
     /**
@@ -338,6 +351,26 @@ class TreeChartInstance {
 
         // Easing: cubic ease-in-out
         const ease = t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2;
+
+        // Build set of node IDs hidden by collapse (descendants of collapsed nodes)
+        const collapsedHidden = new Set();
+        const collectHidden = (root) => {
+            if (!root) return;
+            root.each(node => {
+                if (node._children) {
+                    const addDescendants = (children) => {
+                        for (const c of children) {
+                            collapsedHidden.add(String(c.id));
+                            if (c.children) addDescendants(c.children);
+                            if (c._children) addDescendants(c._children);
+                        }
+                    };
+                    addDescendants(node._children);
+                }
+            });
+        };
+        collectHidden(this._morphBaseRoot);
+        collectHidden(this._morphCompareRoot);
 
         const ctx = this.ctx;
         const dpr = this.dpr;
@@ -363,6 +396,7 @@ class TreeChartInstance {
         ctx.lineWidth = 2;
         for (const key of allLinkKeys) {
             const [srcId, tgtId] = key.split('→');
+            if (collapsedHidden.has(srcId) || collapsedHidden.has(tgtId)) continue;
             const inFrom = fromLinkSet.has(key);
             const inTo = toLinkSet.has(key);
 
@@ -408,7 +442,11 @@ class TreeChartInstance {
         }
 
         // --- Draw nodes ---
+        const morphSearchIds = new Set(this.searchMatches.map(d => String(d.id)));
+        const morphWatchNeighborIds = this._getWatchNeighborIds();
+
         for (const nodeId of this._morphAllNodeIds) {
+            if (collapsedHidden.has(nodeId)) continue;
             const fp = fromPos.get(nodeId);
             const tp = toPos.get(nodeId);
             if (!fp && !tp) continue;
@@ -437,12 +475,42 @@ class TreeChartInstance {
             }
 
             r *= this.textScale;
+
+            // Watch node enlargement
+            if (this.watchedNodes.has(nodeId)) {
+                r *= 2;
+            } else if (morphWatchNeighborIds.has(nodeId)) {
+                r *= 1.5;
+            }
+
+            const isSearch = morphSearchIds.has(nodeId);
+            if (isSearch) {
+                r = Math.max(r, 12 * this.textScale);
+                color = '#ff6b35';
+            }
+
             if (r < 0.3 || alpha < 0.02) continue;
             ctx.globalAlpha = alpha;
             ctx.fillStyle = color;
             ctx.beginPath();
             ctx.arc(cx, cy, Math.max(r, 0.5), 0, 2 * Math.PI);
             ctx.fill();
+
+            // Search highlight ring
+            if (isSearch && alpha > 0.1) {
+                ctx.strokeStyle = '#ff6b35';
+                ctx.lineWidth = 4;
+                ctx.stroke();
+            }
+
+            // Watch node ring
+            if (this.watchedNodes.has(nodeId) && alpha > 0.1) {
+                ctx.strokeStyle = '#ffc107';
+                ctx.lineWidth = 3;
+                ctx.beginPath();
+                ctx.arc(cx, cy, Math.max(r, 0.5) + 4, 0, 2 * Math.PI);
+                ctx.stroke();
+            }
         }
 
         ctx.globalAlpha = 1;
@@ -1110,19 +1178,219 @@ class TreeChartInstance {
         const lower = term.toLowerCase();
         const labelKey = this.viewDef.hierarchy_options.label_key || 'name';
 
-        this.root.each(d => {
-            const label = (d.data[labelKey] || '').toLowerCase();
-            if (label.includes(lower)) {
-                this.searchMatches.push(d);
+        // In morph mode, search both base and compare trees to find all matches
+        if (this._morphing && this._morphBaseRoot && this._morphCompareRoot) {
+            const seen = new Set();
+            for (const r of [this._morphBaseRoot, this._morphCompareRoot]) {
+                r.each(d => {
+                    const nid = String(d.id);
+                    if (seen.has(nid)) return;
+                    const label = (d.data[labelKey] || '').toLowerCase();
+                    if (label.includes(lower)) {
+                        seen.add(nid);
+                        this.searchMatches.push(d);
+                    }
+                });
             }
-        });
+        } else {
+            this.root.each(d => {
+                const label = (d.data[labelKey] || '').toLowerCase();
+                if (label.includes(lower)) {
+                    this.searchMatches.push(d);
+                }
+            });
+        }
 
         if (this.searchMatches.length > 0) {
-            const target = this.searchMatches[0];
-            this.zoomToNode(target, 4);
+            // In morph mode, update match positions to current interpolated values
+            if (this._morphing) {
+                const fromPos = this._morphReversed ? this._morphComparePositions : this._morphBasePositions;
+                const toPos = this._morphReversed ? this._morphBasePositions : this._morphComparePositions;
+                const mt = this._morphT || 0;
+                const ease = mt < 0.5 ? 4 * mt * mt * mt : 1 - Math.pow(-2 * mt + 2, 3) / 2;
+                for (const m of this.searchMatches) {
+                    const nid = String(m.id);
+                    const fp = fromPos.get(nid);
+                    const tp = toPos.get(nid);
+                    if (fp || tp) {
+                        m.cx = this._lerpVal(fp?.cx, tp?.cx, ease, fp?.cx || tp?.cx);
+                        m.cy = this._lerpVal(fp?.cy, tp?.cy, ease, fp?.cy || tp?.cy);
+                    }
+                }
+            }
+            this.zoomToFitNodes(this.searchMatches);
         }
 
         this.render();
+    }
+
+    // --- Watch ---
+
+    toggleWatch(nodeId) {
+        const nid = String(nodeId);
+        if (this.watchedNodes.has(nid)) {
+            this.watchedNodes.delete(nid);
+        } else {
+            this.watchedNodes.add(nid);
+        }
+        this._updateWatchPanel();
+        this.render();
+    }
+
+    _getWatchNeighborIds() {
+        const neighbors = new Set();
+        if (this.watchedNodes.size === 0) return neighbors;
+
+        const roots = [];
+        if (this._morphing && this._morphBaseRoot && this._morphCompareRoot) {
+            roots.push(this._morphBaseRoot, this._morphCompareRoot);
+        } else if (this.root) {
+            roots.push(this.root);
+        }
+
+        for (const r of roots) {
+            r.each(node => {
+                const nid = String(node.id);
+                if (!this.watchedNodes.has(nid)) return;
+                // Parent
+                if (node.parent) neighbors.add(String(node.parent.id));
+                // Children
+                const children = node.children || node._children;
+                if (children) {
+                    for (const c of children) neighbors.add(String(c.id));
+                }
+            });
+        }
+
+        // Don't include watched nodes themselves as neighbors
+        for (const w of this.watchedNodes) neighbors.delete(w);
+        return neighbors;
+    }
+
+    _findNodeById(nodeId) {
+        const nid = String(nodeId);
+        let found = null;
+        if (this._morphing && this._morphBaseRoot && this._morphCompareRoot) {
+            for (const r of [this._morphBaseRoot, this._morphCompareRoot]) {
+                r.each(d => { if (String(d.id) === nid && !found) found = d; });
+                if (found) return found;
+            }
+        } else if (this.root) {
+            this.root.each(d => { if (String(d.id) === nid && !found) found = d; });
+        }
+        return found;
+    }
+
+    _updateWatchPanel() {
+        // Find or create the watch panel container inside wrapEl's parent
+        const container = this.wrapEl?.closest('.tc-view-content') || this.wrapEl?.parentElement;
+        if (!container) return;
+
+        let panel = container.querySelector('.tc-watch-panel');
+        if (this.watchedNodes.size === 0) {
+            if (panel) panel.remove();
+            return;
+        }
+
+        if (!panel) {
+            panel = document.createElement('div');
+            panel.className = 'tc-watch-panel';
+            container.appendChild(panel);
+        }
+
+        const labelKey = this.viewDef?.hierarchy_options?.label_key || 'name';
+        let html = '<div class="tc-watch-header"><i class="bi bi-eye"></i> Watch</div>';
+
+        for (const nid of this.watchedNodes) {
+            const node = this._findNodeById(nid);
+            const label = node ? (node.data[labelKey] || nid) : nid;
+            html += `<div class="tc-watch-item" data-nid="${nid}">
+                <span class="tc-watch-label">${label}</span>
+                <span class="tc-watch-remove" data-nid="${nid}">&times;</span>
+            </div>`;
+        }
+        panel.innerHTML = html;
+
+        // Bind events
+        panel.querySelectorAll('.tc-watch-label').forEach(el => {
+            el.addEventListener('click', () => {
+                const nid = el.parentElement.dataset.nid;
+                const node = this._findNodeById(nid);
+                if (node) this.zoomToNode(node, 4);
+            });
+        });
+        panel.querySelectorAll('.tc-watch-remove').forEach(el => {
+            el.addEventListener('click', (e) => {
+                e.stopPropagation();
+                this.toggleWatch(el.dataset.nid);
+            });
+        });
+    }
+
+    _updateRemovedPanel() {
+        const container = this.wrapEl?.closest('.tc-view-content') || this.wrapEl?.parentElement;
+        if (!container) return;
+
+        let panel = container.querySelector('.tc-removed-panel');
+
+        // Only show in diff mode or morph mode
+        const showPanel = this.diffMode || this._morphing;
+        if (!showPanel) {
+            if (panel) panel.remove();
+            return;
+        }
+
+        const labelKey = this.viewDef?.hierarchy_options?.label_key || 'name';
+        const removedNodes = [];
+
+        if (this._morphing && this._morphBasePositions && this._morphComparePositions) {
+            // Nodes in base but not in compare = removed
+            const fromPos = this._morphReversed ? this._morphComparePositions : this._morphBasePositions;
+            const toPos = this._morphReversed ? this._morphBasePositions : this._morphComparePositions;
+            const baseRoot = this._morphReversed ? this._morphCompareRoot : this._morphBaseRoot;
+            if (baseRoot) {
+                baseRoot.each(node => {
+                    const nid = String(node.id);
+                    if (fromPos.has(nid) && !toPos.has(nid)) {
+                        removedNodes.push({ id: nid, label: node.data[labelKey] || nid });
+                    }
+                });
+            }
+        } else if (this.diffMode && this.root) {
+            this.root.each(node => {
+                if (node.data._diff_status === 'removed') {
+                    removedNodes.push({ id: String(node.id), label: node.data[labelKey] || String(node.id) });
+                }
+            });
+        }
+
+        if (removedNodes.length === 0) {
+            if (panel) panel.remove();
+            return;
+        }
+
+        if (!panel) {
+            panel = document.createElement('div');
+            panel.className = 'tc-removed-panel';
+            container.appendChild(panel);
+        }
+
+        let html = `<div class="tc-removed-header"><i class="bi bi-dash-circle"></i> Removed (${removedNodes.length})</div>`;
+        for (const n of removedNodes) {
+            html += `<div class="tc-removed-item" data-nid="${n.id}">
+                <span class="tc-removed-label">${n.label}</span>
+            </div>`;
+        }
+        panel.innerHTML = html;
+
+        // Click to zoom
+        panel.querySelectorAll('.tc-removed-label').forEach(el => {
+            el.addEventListener('click', () => {
+                const nid = el.parentElement.dataset.nid;
+                const node = this._findNodeById(nid);
+                if (node) this.zoomToNode(node, 4);
+            });
+        });
     }
 
     // --- Zoom ---
@@ -1163,10 +1431,55 @@ class TreeChartInstance {
         scale = scale || 4;
         const cx = this.width / 2;
         const cy = this.height / 2;
+        // Render applies: translate(t.x + cx*t.k, t.y + cy*t.k), scale(t.k)
+        // To place node at canvas center: t.x + cx*k + node.cx*k = cx
+        //   → t.x = cx*(1-k) - k*node.cx
         const transform = d3.zoomIdentity
             .translate(cx, cy)
             .scale(scale)
-            .translate(-node.cx, -node.cy);
+            .translate(-cx - node.cx, -cy - node.cy);
+
+        d3.select(this.canvas)
+            .transition().duration(600)
+            .call(this.zoom.transform, transform);
+    }
+
+    zoomToFitNodes(nodes) {
+        if (!nodes || nodes.length === 0 || !this.zoom) return;
+        const cx = this.width / 2;
+        const cy = this.height / 2;
+
+        // Compute bounding box of all nodes
+        let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
+        for (const n of nodes) {
+            if (n.cx < minX) minX = n.cx;
+            if (n.cx > maxX) maxX = n.cx;
+            if (n.cy < minY) minY = n.cy;
+            if (n.cy > maxY) maxY = n.cy;
+        }
+
+        const bboxW = maxX - minX;
+        const bboxH = maxY - minY;
+        const bboxCx = (minX + maxX) / 2;
+        const bboxCy = (minY + maxY) / 2;
+
+        // Scale to fit with padding
+        const padding = 100;
+        let scale;
+        if (bboxW < 1 && bboxH < 1) {
+            // Single node or very tight cluster
+            scale = 4;
+        } else {
+            const scaleX = (this.width - padding) / bboxW;
+            const scaleY = (this.height - padding) / bboxH;
+            scale = Math.min(scaleX, scaleY, 10);
+        }
+        scale = Math.max(scale, 0.1);
+
+        const transform = d3.zoomIdentity
+            .translate(cx, cy)
+            .scale(scale)
+            .translate(-cx - bboxCx, -cy - bboxCy);
 
         d3.select(this.canvas)
             .transition().duration(600)
@@ -1323,6 +1636,12 @@ class TreeChartInstance {
 
         if (!nearest || this.isNodeHidden(nearest)) return;
 
+        // Collapsed internal node → expand (takes priority over leaf check)
+        if (nearest._children) {
+            this.toggleNode(nearest);
+            return;
+        }
+
         const tcOpts = this.viewDef.tree_chart_options || {};
         const isLeaf = this.isLeafByRank(nearest);
 
@@ -1367,6 +1686,7 @@ class TreeChartInstance {
         this.assignColors(this.root, this.viewDef);
         this.buildQuadtree(this.root);
         this.render();
+        this._updateRemovedPanel();
 
         if (!_fromSync && this.onCollapseSync) {
             this.onCollapseSync(node.id, collapsed);
@@ -1486,6 +1806,14 @@ class TreeChartInstance {
         // "Zoom to" — always available
         addItem('bi-search', 'Zoom to', () => this.zoomToNode(node, 4));
 
+        // "Watch / Unwatch"
+        const nid = String(node.id);
+        if (this.watchedNodes.has(nid)) {
+            addItem('bi-eye-slash', 'Unwatch', () => this.toggleWatch(nid));
+        } else {
+            addItem('bi-eye', 'Watch', () => this.toggleWatch(nid));
+        }
+
         // "Detail" — for leaf nodes with detail_view configured
         const tcOpts = this.viewDef.tree_chart_options || {};
         if (isLeaf && tcOpts.on_node_click) {
@@ -1570,6 +1898,7 @@ class TreeChartInstance {
         this.transform = this.computeFitTransform();
         d3.select(this.canvas).call(this.zoom.transform, this.transform);
         this.render();
+        this._updateRemovedPanel();
         if (this.breadcrumbEl) this.updateBreadcrumb();
 
         if (!_fromSync && this.onSubtreeSync) this.onSubtreeSync(nodeId);
@@ -1644,6 +1973,7 @@ class TreeChartInstance {
         const scrubber = document.getElementById('morph-scrubber');
         const t = scrubber ? parseInt(scrubber.value, 10) / 1000 : 0;
         this.renderMorphFrame(t);
+        this._updateRemovedPanel();
     }
 
     buildSubtreeFromNode(node) {
@@ -1712,6 +2042,7 @@ class TreeChartInstance {
         this.transform = this.computeFitTransform();
         d3.select(this.canvas).call(this.zoom.transform, this.transform);
         this.render();
+        this._updateRemovedPanel();
         if (this.breadcrumbEl) this.updateBreadcrumb();
 
         if (!_fromSync && this.onSubtreeSync) this.onSubtreeSync(null);
@@ -1766,6 +2097,7 @@ class TreeChartInstance {
         const scrubber = document.getElementById('morph-scrubber');
         const t = scrubber ? parseInt(scrubber.value, 10) / 1000 : 0;
         this.renderMorphFrame(t);
+        this._updateRemovedPanel();
     }
 
     // --- Breadcrumb ---
@@ -2040,15 +2372,26 @@ class TreeChartInstance {
 
     drawNodes(ctx) {
         const searchIds = new Set(this.searchMatches.map(d => d.id));
+        const watchNeighborIds = this._getWatchNeighborIds();
 
         this.root.each(node => {
             if (this.isNodeHidden(node)) return;
 
+            const nid = String(node.id);
             const leaf = this.isLeafByRank(node);
             const isSearch = searchIds.has(node.id);
+            const isWatched = this.watchedNodes.has(nid);
+            const isWatchNeighbor = watchNeighborIds.has(nid);
 
             let radius = 8 * this.textScale;
             if (isSearch) radius = 12 * this.textScale;
+
+            // Watch node enlargement: 2x for watched, 1.5x for parent+children
+            if (isWatched) {
+                radius *= 2;
+            } else if (isWatchNeighbor) {
+                radius *= 1.5;
+            }
 
             ctx.beginPath();
             ctx.arc(node.cx, node.cy, radius, 0, Math.PI * 2);
@@ -2058,6 +2401,15 @@ class TreeChartInstance {
             if (isSearch) {
                 ctx.strokeStyle = '#ff6b35';
                 ctx.lineWidth = 4;
+                ctx.stroke();
+            }
+
+            // Watch highlight ring (golden)
+            if (isWatched) {
+                ctx.strokeStyle = '#ffc107';
+                ctx.lineWidth = 3;
+                ctx.beginPath();
+                ctx.arc(node.cx, node.cy, radius + 4, 0, Math.PI * 2);
                 ctx.stroke();
             }
 
@@ -2113,26 +2465,38 @@ class TreeChartInstance {
 
         const fontSize = Math.round(20 * this.textScale);
         const offset = Math.round(20 * this.textScale);
-        ctx.fillStyle = '#212529';
         ctx.textBaseline = 'middle';
-        ctx.font = `${fontSize}px sans-serif`;
 
         this.root.each(node => {
             if (this.isNodeHidden(node)) return;
             const label = node.data[labelKey] || '';
             if (!label) return;
 
+            const nid = String(node.id);
+            const isWatched = this.watchedNodes.has(nid);
+
+            // Watched nodes get bold + larger font
+            if (isWatched) {
+                ctx.font = `bold ${Math.round(fontSize * 1.3)}px sans-serif`;
+                ctx.fillStyle = '#856404';
+            } else {
+                ctx.font = `${fontSize}px sans-serif`;
+                ctx.fillStyle = '#212529';
+            }
+
+            const nodeOffset = isWatched ? Math.round(offset * 1.5) : offset;
+
             if (isRect) {
                 ctx.textAlign = 'left';
-                ctx.fillText(label, node.cx + offset, node.cy);
+                ctx.fillText(label, node.cx + nodeOffset, node.cy);
             } else {
                 // Radial: place label outside the node along the radial direction
                 const angle = node.x || 0;
                 const radAngle = (angle - 90) * Math.PI / 180; // radial outward direction
                 ctx.save();
                 // Always offset outward from center
-                ctx.translate(node.cx + offset * Math.cos(radAngle),
-                              node.cy + offset * Math.sin(radAngle));
+                ctx.translate(node.cx + nodeOffset * Math.cos(radAngle),
+                              node.cy + nodeOffset * Math.sin(radAngle));
                 // Rotate text to be readable (right half: angle-90, left half: angle+90 to flip)
                 if (angle > 0 && angle < 180) {
                     ctx.rotate((angle - 90) * Math.PI / 180);

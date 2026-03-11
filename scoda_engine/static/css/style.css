@@ -921,6 +921,126 @@ html, body {
     margin: 4px 0;
 }
 
+/* Watch Panel */
+.tc-watch-panel {
+    position: absolute;
+    top: 50px;
+    right: 16px;
+    z-index: 10;
+    background: rgba(255, 255, 255, 0.95);
+    border: 1px solid #ffc107;
+    border-radius: 6px;
+    padding: 0;
+    min-width: 140px;
+    max-width: 220px;
+    max-height: 300px;
+    overflow-y: auto;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+    font-size: 0.8rem;
+}
+
+.tc-watch-header {
+    padding: 6px 10px;
+    font-weight: 600;
+    font-size: 0.75rem;
+    color: #856404;
+    background: #fff3cd;
+    border-bottom: 1px solid #ffc107;
+    border-radius: 6px 6px 0 0;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+
+.tc-watch-item {
+    padding: 4px 10px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 6px;
+    border-bottom: 1px solid #f0f0f0;
+}
+
+.tc-watch-item:last-child {
+    border-bottom: none;
+}
+
+.tc-watch-label {
+    cursor: pointer;
+    color: #212529;
+    flex: 1;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.tc-watch-label:hover {
+    color: #0d6efd;
+}
+
+.tc-watch-remove {
+    cursor: pointer;
+    color: #adb5bd;
+    font-size: 1rem;
+    line-height: 1;
+    padding: 0 2px;
+}
+
+.tc-watch-remove:hover {
+    color: #dc3545;
+}
+
+/* Removed Taxa Panel */
+.tc-removed-panel {
+    position: absolute;
+    bottom: 16px;
+    left: 16px;
+    z-index: 10;
+    background: rgba(255, 255, 255, 0.95);
+    border: 1px solid #f5c2c7;
+    border-radius: 6px;
+    padding: 0;
+    min-width: 140px;
+    max-width: 220px;
+    max-height: 250px;
+    overflow-y: auto;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+    font-size: 0.8rem;
+}
+
+.tc-removed-header {
+    padding: 6px 10px;
+    font-weight: 600;
+    font-size: 0.75rem;
+    color: #842029;
+    background: #f8d7da;
+    border-bottom: 1px solid #f5c2c7;
+    border-radius: 6px 6px 0 0;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+
+.tc-removed-item {
+    padding: 4px 10px;
+    border-bottom: 1px solid #f0f0f0;
+}
+
+.tc-removed-item:last-child {
+    border-bottom: none;
+}
+
+.tc-removed-label {
+    cursor: pointer;
+    color: #842029;
+    font-size: 0.78rem;
+}
+
+.tc-removed-label:hover {
+    color: #0d6efd;
+    text-decoration: underline;
+}
+
 /* Side-by-Side Tree Chart View */
 .sbs-view-content {
     position: relative;
