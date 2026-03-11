@@ -1,6 +1,6 @@
 # SCODA Engine — Project Handoff Document
 
-**Last updated:** 2026-03-11
+**Last updated:** 2026-03-12
 
 ---
 
@@ -108,6 +108,14 @@ P21 CRUD framework가 기반 작업 완료. 남은 항목:
 - Overlay 기반 편집 (.scoda 불변 유지)
 - `.scoda` 빌드 버튼 (편집 완료 후 패키징)
 - ScodaDesktop GUI에 admin 모드 노출 (현재 CLI 전용)
+
+### P27: Admin Backend + Animation Export + Hub Refresh
+
+`devlog/20260312_P27_admin_backend_and_hub_refresh.md` 참조.
+
+1. **Hub Refresh 버튼**: scoda-server + ScodaDesktop에서 서버 재시작 없이 Hub 패키지 갱신·로드
+2. **Animation 동영상 다운로드**: morph animation을 WebM/MP4로 내보내기 (canvas captureStream)
+3. **Admin Backend — Profile 관리**: 소스 txt 업로드 → 신규 profile 등록, addendum 병합. 기존 P21 CRUD는 개인 overlay 편집으로 유지, admin backend는 canonical DB 직접 편집 모드
 
 ---
 
@@ -244,3 +252,4 @@ pytest tests/
 | Side-by-Side Tree refactoring (P24) | `devlog/20260307_P24_side_by_side_tree_refactoring.md` |
 | Diff Tree 시각화 | `devlog/20260307_041_diff_tree.md` |
 | P26: Search + Watch + Removed | `devlog/20260311_P26_impl_tree_search_watch_removed.md` |
+| P27: Admin Backend + Animation + Hub Refresh | `devlog/20260312_P27_admin_backend_and_hub_refresh.md` |
