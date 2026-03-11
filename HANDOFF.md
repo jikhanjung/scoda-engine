@@ -114,8 +114,9 @@ P21 CRUD framework가 기반 작업 완료. 남은 항목:
 `devlog/20260312_P27_admin_backend_and_hub_refresh.md` 참조.
 
 1. **Hub Refresh 버튼**: scoda-server + ScodaDesktop에서 서버 재시작 없이 Hub 패키지 갱신·로드
-2. **Animation 동영상 다운로드**: morph animation을 WebM/MP4로 내보내기 (canvas captureStream)
-3. **Admin Backend — Profile 관리**: 소스 txt 업로드 → 신규 profile 등록, addendum 병합. 기존 P21 CRUD는 개인 overlay 편집으로 유지, admin backend는 canonical DB 직접 편집 모드
+2. **모바일 반응형 UI**: 좁은 화면에서 탭 바를 햄버거/드롭다운 메뉴로 전환, 세로 펼침
+3. **Animation 동영상 다운로드**: morph animation을 WebM/MP4로 내보내기 (canvas captureStream)
+4. **Admin Backend — Profile 관리**: 소스 txt 업로드 → 신규 profile 등록, addendum 병합. 기존 P21 CRUD는 개인 overlay 편집으로 유지, admin backend는 canonical DB 직접 편집 모드
 
 ---
 
