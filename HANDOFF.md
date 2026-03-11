@@ -1,6 +1,6 @@
 # SCODA Engine — Project Handoff Document
 
-**Last updated:** 2026-03-09
+**Last updated:** 2026-03-11
 
 ---
 
@@ -65,6 +65,7 @@
 | Side-by-Side sync 보강 + 성능 최적화 | Done | `devlog/20260307_040_sbs_sync_and_perf.md` |
 | Diff Tree 시각화 (색상, 범례, 툴팁, moved re-parent) | Done | `devlog/20260307_041_diff_tree.md` |
 | Desktop v0.2.0 버전 업 | Done | `scoda_engine/__init__.py`, `pyproject.toml` |
+| P26: Tree Search 수정 + Watch 기능 + Removed Taxa 목록 | Done | `devlog/20260311_P26_impl_tree_search_watch_removed.md` |
 
 ### Test Status
 
@@ -77,12 +78,12 @@
 
 - 없음
 
-### Recent Session (2026-03-07) Summary
+### Recent Session (2026-03-11) Summary
 
-1. **Docker 개선**: nginx 제거 → gunicorn 직접 서빙 (포트 8081). Docker Hub 자동 빌드·push CI. SSL 우회 환경변수.
-2. **Compare Mode**: Profile Diff 탭 전환 시 자동 compare mode. toggle UI, row 색상 지원.
-3. **P24: Side-by-Side Tree**: `tree_chart.js`를 `TreeChartInstance` 클래스로 리팩토링. 듀얼 렌더링 + zoom/layout 동기화. hover/depth/collapse/subtree/tooltip 동기화 + 성능 최적화.
-4. **Diff Tree 시각화**: diff mode 색상(added/removed/moved/modified), 범례, 툴팁, moved 노드 re-parent.
+1. **P26: Tree Search 수정**: morph 모드 양쪽 트리 검색, `zoomToNode` 좌표 계산 수정, bounding box fit-zoom (`zoomToFitNodes`).
+2. **Watch 기능**: 컨텍스트 메뉴 Watch/Unwatch, 우상단 Watch 패널 (클릭→zoom, ×→remove), watched 노드 2×/parent+children 1.5× 확대 + 금색 링 + bold 라벨.
+3. **Removed Taxa 목록**: diff/morph 모드에서 좌하단 패널 표시, subtree/collapse 등 상태 변경 시 동적 갱신.
+4. **버그 수정**: left-click expand (collapsed 노드 leaf 오판), morph animation collapse 시 하위 노드/엣지 숨김 처리.
 
 ---
 
@@ -130,7 +131,7 @@ scoda-engine contains no domain-specific code. All domain logic comes from `.sco
 - `ui_queries` table: named SQL queries
 - `/api/query/<name>`: query execution endpoint
 - `/api/composite/<view>?id=N`: multi-query composite response
-- Generic viewer supports: hierarchy (tree/nested_table/tree_chart with radial+rectangular+side-by-side+diff layout), table, detail modal, global search, annotations, compare mode
+- Generic viewer supports: hierarchy (tree/nested_table/tree_chart with radial+rectangular+side-by-side+diff layout), table, detail modal, global search, annotations, compare mode, node watch, removed taxa panel
 - Boolean columns: customizable via `true_label`/`false_label`, defaults `BOOLEAN_TRUE_LABEL`/`BOOLEAN_FALSE_LABEL`
 - `label_map` 동적 컬럼 label: 행 데이터의 특정 필드 값에 따라 테이블 헤더를 동적으로 결정 (혼합 시 fallback)
 - `editable_entities`: admin 모드에서 CRUD UI 자동 생성 (FK autocomplete, readonly_on_edit, post-mutation hooks)
@@ -242,3 +243,4 @@ pytest tests/
 | Tree chart layout mode (P23) | `devlog/20260302_P23_tree_chart_layout_mode.md` |
 | Side-by-Side Tree refactoring (P24) | `devlog/20260307_P24_side_by_side_tree_refactoring.md` |
 | Diff Tree 시각화 | `devlog/20260307_041_diff_tree.md` |
+| P26: Search + Watch + Removed | `devlog/20260311_P26_impl_tree_search_watch_removed.md` |
