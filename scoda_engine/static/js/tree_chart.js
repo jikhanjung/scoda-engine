@@ -1325,6 +1325,22 @@ class TreeChartInstance {
                 this.toggleWatch(el.dataset.nid);
             });
         });
+
+        // Reposition removed panel below watch panel
+        this._repositionRemovedPanel();
+    }
+
+    _repositionRemovedPanel() {
+        const container = this.wrapEl?.closest('.tc-view-content') || this.wrapEl?.parentElement;
+        if (!container) return;
+        const removedPanel = container.querySelector('.tc-removed-panel');
+        if (!removedPanel) return;
+        const watchPanel = container.querySelector('.tc-watch-panel');
+        if (watchPanel) {
+            removedPanel.style.top = (watchPanel.offsetTop + watchPanel.offsetHeight + 8) + 'px';
+        } else {
+            removedPanel.style.top = '50px';
+        }
     }
 
     _updateRemovedPanel() {
@@ -1382,6 +1398,15 @@ class TreeChartInstance {
             </div>`;
         }
         panel.innerHTML = html;
+
+        // Position below watch panel if it exists
+        const watchPanel = container.querySelector('.tc-watch-panel');
+        if (watchPanel) {
+            const watchBottom = watchPanel.offsetTop + watchPanel.offsetHeight + 8;
+            panel.style.top = watchBottom + 'px';
+        } else {
+            panel.style.top = '50px';
+        }
 
         // Click to zoom
         panel.querySelectorAll('.tc-removed-label').forEach(el => {
