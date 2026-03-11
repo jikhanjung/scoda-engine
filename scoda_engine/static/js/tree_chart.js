@@ -459,6 +459,8 @@ class TreeChartInstance {
                 if (fp || tp) {
                     n.cx = this._lerpVal(fp?.cx, tp?.cx, ease, fp?.cx || tp?.cx);
                     n.cy = this._lerpVal(fp?.cy, tp?.cy, ease, fp?.cy || tp?.cy);
+                    n.x = this._lerpVal(fp?.x, tp?.x, ease, fp?.x || tp?.x);
+                    n.y = this._lerpVal(fp?.y, tp?.y, ease, fp?.y || tp?.y);
                 }
             });
             // Quadtree only when not animating (for hover/context menu)
@@ -1886,9 +1888,11 @@ class TreeChartInstance {
             items.push({ label: 'Original position', color: 'rgba(220, 53, 69, 0.5)', type: 'dash' });
         }
 
-        const x = 12, y = 12;
         const lineH = 18, padX = 12, padY = 8;
         const boxW = 170, boxH = padY * 2 + items.length * lineH;
+        const canvasW = this.canvas.width / this.dpr;
+        const canvasH = this.canvas.height / this.dpr;
+        const x = canvasW - boxW - 12, y = canvasH - boxH - 12;
 
         ctx.save();
         ctx.fillStyle = 'rgba(255, 255, 255, 0.9)';
@@ -2145,12 +2149,14 @@ class TreeChartInstance {
 
     /**
      * Draw labels during morph with fade for added/removed nodes.
+     * Label angle/position is smoothly interpolated between base and compare.
      */
     _drawMorphLabels(ctx, fromPos, toPos, t) {
         if (!this.root || !this.viewDef) return;
 
         const labelKey = this.viewDef.hierarchy_options.label_key || 'name';
         const isRect = this.layoutMode === 'rectangular';
+        const ease = t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2;
 
         const fontSize = Math.round(20 * this.textScale);
         const offset = Math.round(20 * this.textScale);
@@ -2177,19 +2183,47 @@ class TreeChartInstance {
                 ctx.textAlign = 'left';
                 ctx.fillText(label, node.cx + offset, node.cy);
             } else {
+                // Interpolated angle (already set on node.x by renderMorphFrame)
                 const angle = node.x || 0;
                 const radAngle = (angle - 90) * Math.PI / 180;
+
+                // Compute effective rotation that interpolates smoothly across the 180° flip.
+                // Base and compare each have their own "label rotation":
+                //   angle in (0,180): rotation = angle - 90   (text reads left-to-right)
+                //   angle >= 180 or 0: rotation = angle + 90  (flipped to stay readable)
+                const fp = fromPos.get(nid);
+                const tp = toPos.get(nid);
+                const fromAngle = fp ? fp.x : (tp ? tp.x : 0);
+                const toAngle = tp ? tp.x : (fp ? fp.x : 0);
+
+                const fromRot = (fromAngle > 0 && fromAngle < 180)
+                    ? fromAngle - 90 : fromAngle + 90;
+                const toRot = (toAngle > 0 && toAngle < 180)
+                    ? toAngle - 90 : toAngle + 90;
+
+                // Shortest-path angular interpolation for rotation
+                let rotDiff = toRot - fromRot;
+                if (rotDiff > 180) rotDiff -= 360;
+                if (rotDiff < -180) rotDiff += 360;
+                const rot = fromRot + rotDiff * ease;
+
+                // Smoothly blend textAlign: compute a blend factor (0 = left, 1 = right)
+                const fromAlign = (fromAngle > 0 && fromAngle < 180) ? 0 : 1;
+                const toAlign = (toAngle > 0 && toAngle < 180) ? 0 : 1;
+                const alignBlend = fromAlign + (toAlign - fromAlign) * ease;
+
                 ctx.save();
                 ctx.translate(node.cx + offset * Math.cos(radAngle),
                               node.cy + offset * Math.sin(radAngle));
-                if (angle > 0 && angle < 180) {
-                    ctx.rotate((angle - 90) * Math.PI / 180);
+                ctx.rotate(rot * Math.PI / 180);
+
+                if (alignBlend < 0.5) {
                     ctx.textAlign = 'left';
+                    ctx.fillText(label, 0, 0);
                 } else {
-                    ctx.rotate((angle + 90) * Math.PI / 180);
                     ctx.textAlign = 'right';
+                    ctx.fillText(label, 0, 0);
                 }
-                ctx.fillText(label, 0, 0);
                 ctx.restore();
             }
         });

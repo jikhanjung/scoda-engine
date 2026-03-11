@@ -315,7 +315,7 @@ function buildViewTabs() {
     }
 
     html += `<button class="view-tab-toggle" id="view-tab-show-text"
-                     title="Show/hide all tab labels">Show Text</button>`;
+                     title="Show/hide all tab labels"><i class="bi bi-eye-slash"></i> T</button>`;
 
     tabsContainer.innerHTML = html;
 
@@ -323,7 +323,9 @@ function buildViewTabs() {
     toggleBtn.addEventListener('click', () => {
         const expanded = tabsContainer.classList.toggle('show-all-text');
         toggleBtn.classList.toggle('active', expanded);
-        toggleBtn.textContent = expanded ? 'Hide Text' : 'Show Text';
+        toggleBtn.innerHTML = expanded
+            ? '<i class="bi bi-eye"></i> T'
+            : '<i class="bi bi-eye-slash"></i> T';
     });
 }
 
