@@ -2,7 +2,7 @@ name: scoda-server
 
 services:
   app:
-    image: scoda-server
+    image: honestjung/scoda-server:0.2.2
     container_name: scoda-server
     build:
       context: ..
@@ -17,6 +17,8 @@ services:
       - SCODA_PACKAGE=${SCODA_PACKAGE:-trilobase-assertion}
       - SCODA_WORKERS=${SCODA_WORKERS:-2}
       - SCODA_LOG_LEVEL=${SCODA_LOG_LEVEL:-info}
+      - SCODA_HUB_SSL_VERIFY=0
+      - SCODA_HUB_SYNC=1
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8081/healthz')"]
       interval: 30s
