@@ -95,11 +95,22 @@ class TreeChartInstance {
         this.hoverNodeId = null;       // ID of hovered node (for cross-instance highlight)
         this.onHoverSync = null;       // callback: (nodeId) => {} for cross-instance hover
         this.onCollapseSync = null;    // callback: (nodeId, collapsed) => {} for cross-instance collapse
+        this.onVisibleDepthSync = null; // callback: (depth) => {} for cross-instance depth sync
         this.onSubtreeSync = null;     // callback: (nodeId|null) => {} for cross-instance view-as-root
         this._guideDepths = null;      // cached guide line depths
         this._zooming = false;         // true during active zoom gesture
         this.diffMode = false;         // true when rendering diff tree
         this.diffNodeMap = null;       // Map<nodeId, {cx, cy}> for ghost edges (old parent positions)
+
+        // Unique ID for naming
+        this._uid = Math.random().toString(36).slice(2, 8);
+
+        // Rank visibility: ranks ordered root→leaf from rank_radius keys.
+        // visibleDepth = number of ranks to show (0 = all, i.e. slider at max).
+        // When > 0, ranks beyond this depth from root are hidden (nodes + labels + links).
+        this._rankOrder = [];         // e.g. ['Phylum','Class','Order',...,'Genus']
+        this.visibleDepth = 0;        // 0 = show all
+        this._hiddenRanks = new Set();
 
         // Watch list: Set of node IDs being watched
         this.watchedNodes = new Set();
@@ -168,6 +179,15 @@ class TreeChartInstance {
 
         const tcOpts = view.tree_chart_options || {};
         this.layoutMode = tcOpts.default_layout || 'radial';
+
+        // Extract rank order from rank_radius (root→leaf, skip _root)
+        if (tcOpts.rank_radius) {
+            this._rankOrder = Object.keys(tcOpts.rank_radius).filter(k => k !== '_root');
+        } else {
+            this._rankOrder = [];
+        }
+        this.visibleDepth = 0;
+        this._hiddenRanks = new Set();
 
         // Setup canvas
         this.canvas = this.wrapEl.querySelector('canvas');
@@ -284,6 +304,15 @@ class TreeChartInstance {
         const tcOpts = sourceView.tree_chart_options || {};
         this.layoutMode = tcOpts.default_layout || 'radial';
 
+        // Extract rank order from rank_radius
+        if (tcOpts.rank_radius) {
+            this._rankOrder = Object.keys(tcOpts.rank_radius).filter(k => k !== '_root');
+        } else {
+            this._rankOrder = [];
+        }
+        this.visibleDepth = 0;
+        this._hiddenRanks = new Set();
+
         this.canvas = this.wrapEl.querySelector('canvas');
         this.ctx = this.canvas.getContext('2d');
         this.labelsSvg = d3.select(this.wrapEl.querySelector('svg'));
@@ -391,6 +420,17 @@ class TreeChartInstance {
             (tf.x + centerX * tf.k) * dpr,
             (tf.y + centerY * tf.k) * dpr);
 
+        // Build hidden ID set for visible depth filtering (used by edges + nodes)
+        const morphHiddenIds = new Set();
+        if (this._hiddenRanks.size > 0) {
+            const collectHiddenRanks = (root) => {
+                if (!root) return;
+                root.each(n => { if (this._isRankHidden(n)) morphHiddenIds.add(String(n.id)); });
+            };
+            collectHiddenRanks(this._morphBaseRoot);
+            collectHiddenRanks(this._morphCompareRoot);
+        }
+
         // --- Draw edges ---
         // Build link sets for fast lookup
         const fromLinkSet = new Set(fromLinks.map(l => l.sourceId + '→' + l.targetId));
@@ -401,6 +441,7 @@ class TreeChartInstance {
         for (const key of allLinkKeys) {
             const [srcId, tgtId] = key.split('→');
             if (collapsedHidden.has(srcId) || collapsedHidden.has(tgtId)) continue;
+            if (morphHiddenIds.has(tgtId)) continue;
             const inFrom = fromLinkSet.has(key);
             const inTo = toLinkSet.has(key);
 
@@ -451,6 +492,7 @@ class TreeChartInstance {
 
         for (const nodeId of this._morphAllNodeIds) {
             if (collapsedHidden.has(nodeId)) continue;
+            if (morphHiddenIds.has(nodeId)) continue;
             const fp = fromPos.get(nodeId);
             const tp = toPos.get(nodeId);
             if (!fp && !tp) continue;
@@ -777,22 +819,47 @@ class TreeChartInstance {
         const LEAF_GAP_DEG = 2;
         const SUBTREE_GAP_DEG = 1;
         let nextAngle = 0;
+        const hiddenRanks = this._hiddenRanks;
 
         function layoutRadialSubtree(node) {
-            if (!node.children || node.children.length === 0) {
-                node._la = nextAngle;
-                nextAngle += node._children ? LEAF_GAP_DEG * 2 : LEAF_GAP_DEG;
-                return;
-            }
-            for (let i = 0; i < node.children.length; i++) {
-                layoutRadialSubtree(node.children[i]);
-                if (i < node.children.length - 1) {
-                    nextAngle += SUBTREE_GAP_DEG;
+            // If this node's rank is hidden, skip entirely
+            const rank = node.data[rankKey];
+            if (rank && hiddenRanks.has(rank)) return false;
+
+            // Collect visible children (skip hidden-rank subtrees)
+            const visibleChildren = [];
+            if (node.children) {
+                for (const child of node.children) {
+                    const childRank = child.data[rankKey];
+                    if (!childRank || !hiddenRanks.has(childRank)) {
+                        visibleChildren.push(child);
+                    }
                 }
             }
-            const first = node.children[0];
-            const last = node.children[node.children.length - 1];
+
+            if (visibleChildren.length === 0) {
+                // This node is now a visible leaf
+                node._la = nextAngle;
+                nextAngle += node._children ? LEAF_GAP_DEG * 2 : LEAF_GAP_DEG;
+                return true;
+            }
+            let placed = 0;
+            for (let i = 0; i < visibleChildren.length; i++) {
+                const ok = layoutRadialSubtree(visibleChildren[i]);
+                if (ok && i < visibleChildren.length - 1) {
+                    nextAngle += SUBTREE_GAP_DEG;
+                }
+                if (ok) placed++;
+            }
+            if (placed === 0) {
+                node._la = nextAngle;
+                nextAngle += LEAF_GAP_DEG;
+                return true;
+            }
+            const first = visibleChildren[0];
+            const last = visibleChildren[visibleChildren.length - 1];
             node._la = (first._la + last._la) / 2;
+            return true;
         }
 
         layoutRadialSubtree(root);
@@ -856,22 +923,44 @@ class TreeChartInstance {
         const LEAF_GAP = 12;
         const SUBTREE_GAP = 16;
         let nextY = 0;
+        const hiddenRanksClado = this._hiddenRanks;
 
         function layoutSubtree(node) {
-            if (!node.children || node.children.length === 0) {
-                node._ly = nextY;
-                nextY += node._children ? LEAF_GAP * 2 : LEAF_GAP;
-                return;
-            }
-            for (let i = 0; i < node.children.length; i++) {
-                layoutSubtree(node.children[i]);
-                if (i < node.children.length - 1) {
-                    nextY += SUBTREE_GAP;
+            const rank = node.data[rankKey];
+            if (rank && hiddenRanksClado.has(rank)) return false;
+
+            const visibleChildren = [];
+            if (node.children) {
+                for (const child of node.children) {
+                    const childRank = child.data[rankKey];
+                    if (!childRank || !hiddenRanksClado.has(childRank)) {
+                        visibleChildren.push(child);
+                    }
                 }
             }
-            const first = node.children[0];
-            const last = node.children[node.children.length - 1];
+
+            if (visibleChildren.length === 0) {
+                node._ly = nextY;
+                nextY += node._children ? LEAF_GAP * 2 : LEAF_GAP;
+                return true;
+            }
+            let placed = 0;
+            for (let i = 0; i < visibleChildren.length; i++) {
+                const ok = layoutSubtree(visibleChildren[i]);
+                if (ok && i < visibleChildren.length - 1) {
+                    nextY += SUBTREE_GAP;
+                }
+                if (ok) placed++;
+            }
+            if (placed === 0) {
+                node._ly = nextY;
+                nextY += LEAF_GAP;
+                return true;
+            }
+            const first = visibleChildren[0];
+            const last = visibleChildren[visibleChildren.length - 1];
             node._ly = (first._ly + last._ly) / 2;
+            return true;
         }
 
         layoutSubtree(root);
@@ -1062,6 +1151,19 @@ class TreeChartInstance {
         // Reset zoom
         html += '<button class="tc-reset-btn" title="Reset zoom"><i class="bi bi-arrows-fullscreen"></i></button>';
 
+        // Display settings gear (visible depth slider)
+        if (this._rankOrder.length > 1) {
+            const maxDepth = this._rankOrder.length;
+            html += `<span class="tc-settings-wrap" style="position:relative">
+                <button class="tc-settings-btn" title="Display settings"><i class="bi bi-gear"></i></button>
+                <div class="tc-settings-popup" style="display:none">
+                    <div class="tc-settings-title">Visible depth</div>
+                    <input type="range" class="tc-depth-slider" min="1" max="${maxDepth}" value="${this.visibleDepth || maxDepth}" step="1">
+                    <div class="tc-depth-label">${this.visibleDepth ? `→ ${this._rankOrder[this.visibleDepth - 1]}` : `All (${this._rankOrder[this._rankOrder.length - 1] || ''})`}</div>
+                </div>
+            </span>`;
+        }
+
         toolbar.innerHTML = html;
 
         // Event: search
@@ -1115,6 +1217,34 @@ class TreeChartInstance {
         if (textLarger) {
             textLarger.addEventListener('click', () => applyTextScale(this.textScale + 0.1));
         }
+
+        // Event: settings gear popup with depth slider
+        const settingsBtn = toolbar.querySelector('.tc-settings-btn');
+        const settingsPopup = toolbar.querySelector('.tc-settings-popup');
+        if (settingsBtn && settingsPopup) {
+            settingsBtn.addEventListener('click', (e) => {
+                e.stopPropagation();
+                settingsPopup.style.display = settingsPopup.style.display === 'none' ? 'block' : 'none';
+            });
+            document.addEventListener('click', (e) => {
+                if (!settingsPopup.contains(e.target) && e.target !== settingsBtn) {
+                    settingsPopup.style.display = 'none';
+                }
+            });
+            const slider = settingsPopup.querySelector('.tc-depth-slider');
+            const label = settingsPopup.querySelector('.tc-depth-label');
+            if (slider) {
+                slider.addEventListener('input', () => {
+                    const val = parseInt(slider.value);
+                    const maxDepth = this._rankOrder.length;
+                    this.setVisibleDepth(val >= maxDepth ? 0 : val);
+                    label.textContent = this.visibleDepth
+                        ? `→ ${this._rankOrder[this.visibleDepth - 1]}`
+                        : `All (${this._rankOrder[this._rankOrder.length - 1] || ''})`;
+                    if (this.onVisibleDepthSync) this.onVisibleDepthSync(this.visibleDepth);
+                });
+            }
+        }
     }
 
     switchLayout(mode) {
@@ -1157,6 +1287,51 @@ class TreeChartInstance {
                 this.render();
             }
         }
+    }
+
+    /**
+     * Set visible depth: 0 = show all, N = show only first N ranks (root→leaf).
+     * Ranks beyond depth N are hidden (nodes, labels, links).
+     */
+    setVisibleDepth(depth) {
+        this.visibleDepth = depth;
+        this._hiddenRanks = new Set();
+        if (depth > 0 && this._rankOrder.length > 0) {
+            for (let i = depth; i < this._rankOrder.length; i++) {
+                this._hiddenRanks.add(this._rankOrder[i]);
+            }
+        }
+        // Update slider if toolbar exists
+        if (this.toolbarEl) {
+            const slider = this.toolbarEl.querySelector('.tc-depth-slider');
+            const label = this.toolbarEl.querySelector('.tc-depth-label');
+            if (slider) slider.value = depth || this._rankOrder.length;
+            if (label) label.textContent = depth
+                ? `→ ${this._rankOrder[depth - 1]}`
+                : `All (${this._rankOrder[this._rankOrder.length - 1] || ''})`;
+        }
+        // Re-layout so visible leaf nodes redistribute evenly
+        if (this._morphing) {
+            if (this._morphBaseRoot) this.computeLayout(this._morphBaseRoot, this.viewDef);
+            if (this._morphCompareRoot) this.computeLayout(this._morphCompareRoot, this.viewDef);
+            this._morphBasePositions = this._morphBaseRoot ? this.snapshotPositions(this._morphBaseRoot) : null;
+            this._morphComparePositions = this._morphCompareRoot ? this.snapshotPositions(this._morphCompareRoot) : null;
+            this._morphBaseLinks = this._morphBaseRoot ? this.snapshotLinks(this._morphBaseRoot) : null;
+            this._morphCompareLinks = this._morphCompareRoot ? this.snapshotLinks(this._morphCompareRoot) : null;
+            this.renderMorphFrame(this._morphT || 0);
+        } else if (this.root) {
+            this.computeLayout(this.root, this.viewDef);
+            this.buildQuadtree(this.root);
+            this.render();
+        }
+    }
+
+    /** Check if a node's rank is hidden by the visible depth setting. */
+    _isRankHidden(node) {
+        if (this._hiddenRanks.size === 0) return false;
+        const rankKey = (this.viewDef && this.viewDef.hierarchy_options)
+            ? this.viewDef.hierarchy_options.rank_key || 'rank' : 'rank';
+        return this._hiddenRanks.has(node.data[rankKey]);
     }
 
     setTextScale(val) {
@@ -2362,6 +2537,7 @@ class TreeChartInstance {
 
         this.root.links().forEach(link => {
             if (this.isNodeHidden(link.source) || this.isNodeHidden(link.target)) return;
+            if (this._isRankHidden(link.target)) return;
 
             if (isDiff) {
                 const status = link.target.data._diff_status || 'same';
@@ -2408,6 +2584,10 @@ class TreeChartInstance {
 
             const nid = String(node.id);
             const leaf = this.isLeafByRank(node);
+
+            // Visible depth: skip hidden ranks
+            if (this._isRankHidden(node)) return;
+
             const isSearch = searchIds.has(node.id);
             const isWatched = this.watchedNodes.has(nid);
             const isWatchNeighbor = watchNeighborIds.has(nid);
@@ -2501,6 +2681,9 @@ class TreeChartInstance {
             const label = node.data[labelKey] || '';
             if (!label) return;
 
+            // Visible depth: skip hidden rank labels
+            if (this._isRankHidden(node)) return;
+
             const nid = String(node.id);
             const isWatched = this.watchedNodes.has(nid);
 
@@ -2561,6 +2744,9 @@ class TreeChartInstance {
             if (this.isNodeHidden(node)) return;
             const label = node.data[labelKey] || '';
             if (!label) return;
+
+            // Visible depth: skip hidden rank labels during morph
+            if (this._isRankHidden(node)) return;
 
             // Compute opacity for added/removed
             let alpha = 1;
@@ -2802,6 +2988,10 @@ function _setupSbsSync(left, right) {
     // Sync radius scale
     left.onTextScaleSync = (val) => right.setTextScale(val);
     right.onTextScaleSync = (val) => left.setTextScale(val);
+
+    // Sync visible depth
+    left.onVisibleDepthSync = (depth) => right.setVisibleDepth(depth);
+    right.onVisibleDepthSync = (depth) => left.setVisibleDepth(depth);
 
     // Sync hover highlight
     left.onHoverSync = (nodeId) => right.setHoverNode(nodeId);

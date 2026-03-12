@@ -352,6 +352,12 @@ def _execute_query(conn, query_name, params):
     if not query:
         return None
     try:
+        # Fill missing optional params with None so COALESCE(:param, default) works
+        if query['params_json']:
+            declared = json.loads(query['params_json'])
+            for pname in declared:
+                if pname not in params:
+                    params[pname] = None
         cursor.execute(query['sql'], params)
         columns = [desc[0] for desc in cursor.description]
         rows = cursor.fetchall()
@@ -484,21 +490,24 @@ def api_composite_detail(view_name: str, request: Request):
         conn.close()
         return JSONResponse({'error': f'Detail view not found: {view_name}'}, status_code=404)
 
-    # Main query
+    # Main query — merge request query_params so optional params (e.g. profile_id) are forwarded
     source_param = view.get('source_param', 'id')
-    result = _execute_query(conn, view['source_query'], {source_param: entity_id})
+    main_params = dict(request.query_params)
+    main_params[source_param] = entity_id
+    result = _execute_query(conn, view['source_query'], main_params)
+    if result and 'error' in result:
+        conn.close()
+        return JSONResponse(result, status_code=400)
     if result is None or result.get('row_count', 0) == 0:
         conn.close()
         return JSONResponse({'error': 'Not found'}, status_code=404)
-    if 'error' in result:
-        conn.close()
-        return JSONResponse(result, status_code=400)
 
     data = dict(result['rows'][0])
 
-    # Sub-queries
+    # Sub-queries — also forward request query_params for optional bindings
+    extra_params = dict(request.query_params)
     for key, sub_def in view.get('sub_queries', {}).items():
-        params = {}
+        params = dict(extra_params)
         for param_name, value_source in sub_def.get('params', {}).items():
             if value_source == 'id':
                 params[param_name] = entity_id
