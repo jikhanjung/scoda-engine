@@ -501,6 +501,8 @@ async function switchCompoundSubView(subKey) {
         await renderCompoundSbsSubView(subKey, subView, contentEl);
     } else if (display === 'tree_chart_morph') {
         await renderCompoundMorphSubView(subKey, subView, contentEl);
+    } else if (display === 'tree_chart_timeline') {
+        await renderCompoundTimelineSubView(subKey, subView, contentEl);
     }
 }
 
@@ -1059,6 +1061,352 @@ async function renderCompoundMorphSubView(subKey, subView, containerEl) {
         recordBtn.title = 'Record animation as video';
     }
 
+}
+
+/**
+ * Render a timeline sub-view within compound view.
+ * Shows a tree chart with a time-axis slider (e.g. geologic periods, publication years).
+ * Supports chained morph animation between consecutive timeline steps.
+ */
+async function renderCompoundTimelineSubView(subKey, subView, containerEl) {
+    const tlOpts = subView.timeline_options;
+    if (!tlOpts || !tlOpts.axis_modes || tlOpts.axis_modes.length === 0) {
+        containerEl.innerHTML = '<div class="text-danger">timeline_options with axis_modes required</div>';
+        return;
+    }
+
+    containerEl.innerHTML = `<div class="tc-view-content" style="height:100%;">
+        <div class="tc-toolbar" id="compound-tl-toolbar"></div>
+        <div class="tc-canvas-wrap" id="compound-tl-wrap"></div>
+        <div class="tc-breadcrumb" id="compound-tl-breadcrumb"></div>
+        <div class="tc-tooltip" id="compound-tl-tooltip" style="display:none;"></div>
+        <div class="tc-context-menu" id="compound-tl-context-menu" style="display:none;"></div>
+        <div class="timeline-controls" id="compound-tl-controls">
+            <div class="tl-axis-row">
+                <select id="tl-axis-mode" class="tl-axis-select"></select>
+                <label class="tl-step-label">Step <input type="number" id="tl-step-size" value="${tlOpts.default_step_size || 1}" min="1" class="tl-step-input"></label>
+            </div>
+            <div class="tl-transport-row">
+                <button id="tl-rewind-btn" title="Rewind"><i class="bi bi-skip-start-fill"></i></button>
+                <button id="tl-play-rev-btn" title="Play backward"><i class="bi bi-caret-left-fill"></i></button>
+                <button id="tl-pause-btn" title="Pause"><i class="bi bi-pause-fill"></i></button>
+                <button id="tl-play-fwd-btn" title="Play forward"><i class="bi bi-caret-right-fill"></i></button>
+                <button id="tl-ff-btn" title="Fast forward"><i class="bi bi-skip-end-fill"></i></button>
+                <button id="tl-step-fwd-btn" title="Step forward"><i class="bi bi-skip-forward-fill"></i></button>
+                <span class="tl-step-info" id="tl-step-info"></span>
+                <input type="range" id="tl-scrubber" min="0" max="0" value="0">
+                <span class="tl-step-label-display" id="tl-step-label-display"></span>
+                <select id="tl-speed" class="tl-speed-select">
+                    <option value="0.5">0.5x</option>
+                    <option value="1" selected>1x</option>
+                    <option value="2">2x</option>
+                    <option value="4">4x</option>
+                </select>
+            </div>
+        </div>
+    </div>`;
+
+    await ensureD3Loaded();
+
+    if (_singletonTC) { _singletonTC.destroy(); _singletonTC = null; }
+
+    const inst = new TreeChartInstance({
+        wrapEl: document.getElementById('compound-tl-wrap'),
+        toolbarEl: document.getElementById('compound-tl-toolbar'),
+        breadcrumbEl: document.getElementById('compound-tl-breadcrumb'),
+        tooltipEl: document.getElementById('compound-tl-tooltip'),
+        contextMenuEl: document.getElementById('compound-tl-context-menu'),
+    });
+    _singletonTC = inst;
+
+    // DOM refs
+    const axisModeSel = document.getElementById('tl-axis-mode');
+    const stepSizeInput = document.getElementById('tl-step-size');
+    const scrubber = document.getElementById('tl-scrubber');
+    const stepInfo = document.getElementById('tl-step-info');
+    const stepLabelDisplay = document.getElementById('tl-step-label-display');
+    const speedSel = document.getElementById('tl-speed');
+    const rewindBtn = document.getElementById('tl-rewind-btn');
+    const playRevBtn = document.getElementById('tl-play-rev-btn');
+    const pauseBtn = document.getElementById('tl-pause-btn');
+    const playFwdBtn = document.getElementById('tl-play-fwd-btn');
+    const ffBtn = document.getElementById('tl-ff-btn');
+    const stepFwdBtn = document.getElementById('tl-step-fwd-btn');
+
+    // State
+    let allSteps = [];       // full axis values [{value, label}, ...]
+    let steps = [];           // filtered by step_size
+    let currentIdx = 0;
+    let playing = false;
+    let tlAnimId = null;
+    const paramName = tlOpts.param_name || 'timeline_value';
+
+    // Populate axis mode dropdown
+    axisModeSel.innerHTML = tlOpts.axis_modes.map((m, i) =>
+        `<option value="${i}">${m.label || m.key}</option>`
+    ).join('');
+
+    // --- Axis loading ---
+    async function loadAxis(modeIdx) {
+        const mode = tlOpts.axis_modes[modeIdx];
+        if (!mode || !mode.axis_query) return;
+
+        const rows = await fetchCompoundQuery(mode.axis_query);
+        const valueKey = mode.value_key || 'value';
+        const labelKey = mode.label_key || 'label';
+        const orderKey = mode.order_key || null;
+
+        allSteps = rows.map(r => ({ value: r[valueKey], label: String(r[labelKey]) }));
+        if (orderKey) {
+            allSteps.sort((a, b) => {
+                const av = rows.find(r => r[valueKey] === a.value)?.[orderKey];
+                const bv = rows.find(r => r[valueKey] === b.value)?.[orderKey];
+                return (av ?? 0) - (bv ?? 0);
+            });
+        }
+
+        // Override source_query / edge_query per axis mode
+        if (mode.source_query_override) {
+            subView.source_query = mode.source_query_override;
+        }
+        if (mode.edge_query_override && subView.tree_chart_options) {
+            subView.tree_chart_options.edge_query = mode.edge_query_override;
+        }
+
+        applyStepSize();
+        currentIdx = 0;
+        updateScrubber();
+        await loadStep(0);
+    }
+
+    function applyStepSize() {
+        const sz = Math.max(1, parseInt(stepSizeInput.value, 10) || 1);
+        steps = [];
+        for (let i = 0; i < allSteps.length; i += sz) {
+            steps.push(allSteps[i]);
+        }
+        // Always include last step
+        if (steps.length > 0 && steps[steps.length - 1].value !== allSteps[allSteps.length - 1].value) {
+            steps.push(allSteps[allSteps.length - 1]);
+        }
+        scrubber.max = Math.max(0, steps.length - 1);
+    }
+
+    function updateScrubber() {
+        scrubber.value = currentIdx;
+        const step = steps[currentIdx];
+        stepLabelDisplay.textContent = step ? step.label : '';
+        stepInfo.textContent = step ? `${currentIdx + 1} / ${steps.length}` : '';
+    }
+
+    // --- Tree loading for a single step ---
+    async function loadStep(idx) {
+        if (idx < 0 || idx >= steps.length) return;
+        currentIdx = idx;
+        updateScrubber();
+
+        const overrides = { ...compoundControls };
+        if (overrides.base_profile_id) overrides.profile_id = overrides.base_profile_id;
+        overrides[paramName] = steps[idx].value;
+        inst.overrideParams = overrides;
+
+        await inst.buildHierarchy(subView);
+        inst.root = inst.fullRoot;
+        if (!inst.root) return;
+        inst.computeLayout(inst.root, subView);
+        inst.assignColors(inst.root, subView);
+        inst.buildQuadtree(inst.root);
+        inst._morphing = false;
+        inst.transform = inst.computeFitTransform();
+        d3.select(inst.canvas).call(inst.zoom.transform, inst.transform);
+        inst.render();
+    }
+
+    // --- Morph between two steps ---
+    async function morphToStep(fromIdx, toIdx, speed) {
+        if (fromIdx < 0 || fromIdx >= steps.length || toIdx < 0 || toIdx >= steps.length) return;
+        if (fromIdx === toIdx) return;
+
+        // Look-ahead: prefetch next step's data
+        const nextNext = toIdx + (toIdx > fromIdx ? 1 : -1);
+        if (nextNext >= 0 && nextNext < steps.length) {
+            const prefetchParams = { ...compoundControls, [paramName]: steps[nextNext].value };
+            if (prefetchParams.base_profile_id) prefetchParams.profile_id = prefetchParams.base_profile_id;
+            fetchQuery(subView.source_query, prefetchParams).catch(() => {});
+        }
+
+        // Build base snapshot (from current state)
+        const overridesFrom = { ...compoundControls };
+        if (overridesFrom.base_profile_id) overridesFrom.profile_id = overridesFrom.base_profile_id;
+        overridesFrom[paramName] = steps[fromIdx].value;
+        inst.overrideParams = overridesFrom;
+        await inst.buildHierarchy(subView);
+        inst.root = inst.fullRoot;
+        if (!inst.root) return;
+        inst.computeLayout(inst.root, subView);
+        inst.assignColors(inst.root, subView);
+        const baseBW = inst.cladoBoundsW, baseBH = inst.cladoBoundsH;
+        inst._morphBasePositions = inst.snapshotPositions(inst.root);
+        inst._morphBaseLinks = inst.snapshotLinks(inst.root);
+        inst._morphBaseRoot = inst.root;
+
+        // Build compare snapshot
+        const overridesTo = { ...compoundControls };
+        if (overridesTo.base_profile_id) overridesTo.profile_id = overridesTo.base_profile_id;
+        overridesTo[paramName] = steps[toIdx].value;
+        inst.overrideParams = overridesTo;
+        await inst.buildHierarchy(subView);
+        const compareRoot = inst.fullRoot;
+        if (!compareRoot) return;
+        inst.computeLayout(compareRoot, subView);
+        inst.assignColors(compareRoot, subView);
+        inst.cladoBoundsW = Math.max(baseBW, inst.cladoBoundsW);
+        inst.cladoBoundsH = Math.max(baseBH, inst.cladoBoundsH);
+        inst._morphComparePositions = inst.snapshotPositions(compareRoot);
+        inst._morphCompareLinks = inst.snapshotLinks(compareRoot);
+        inst._morphCompareRoot = compareRoot;
+
+        inst._morphAllNodeIds = new Set([
+            ...inst._morphBasePositions.keys(),
+            ...inst._morphComparePositions.keys(),
+        ]);
+
+        inst.root = inst._morphBaseRoot;
+        inst.buildQuadtree(inst.root);
+        inst._morphing = true;
+        inst._morphReversed = false;
+
+        // Animate
+        return new Promise(resolve => {
+            const duration = 1600 / speed;
+            const startT = performance.now();
+            const animate = (now) => {
+                const elapsed = now - startT;
+                const frac = Math.min(elapsed / duration, 1);
+                inst.renderMorphFrame(frac);
+                inst._updateRemovedPanel();
+
+                if (frac < 1) {
+                    tlAnimId = requestAnimationFrame(animate);
+                } else {
+                    tlAnimId = null;
+                    inst.renderMorphFrame(1);
+                    currentIdx = toIdx;
+                    updateScrubber();
+                    resolve();
+                }
+            };
+            tlAnimId = requestAnimationFrame(animate);
+        });
+    }
+
+    // --- Chained playback ---
+    async function playTimeline(forward) {
+        playing = true;
+        const speed = parseFloat(speedSel.value);
+        const dir = forward ? 1 : -1;
+
+        while (playing) {
+            const nextIdx = currentIdx + dir;
+            if (nextIdx < 0 || nextIdx >= steps.length) break;
+            await morphToStep(currentIdx, nextIdx, speed);
+            if (!playing) break;
+        }
+        playing = false;
+    }
+
+    function stopPlaying() {
+        playing = false;
+        if (tlAnimId) {
+            cancelAnimationFrame(tlAnimId);
+            tlAnimId = null;
+        }
+    }
+
+    // --- Event handlers ---
+    axisModeSel.addEventListener('change', async () => {
+        stopPlaying();
+        queryCache = {};
+        await loadAxis(parseInt(axisModeSel.value, 10));
+    });
+
+    stepSizeInput.addEventListener('change', async () => {
+        stopPlaying();
+        const prevValue = steps[currentIdx]?.value;
+        applyStepSize();
+        // Snap to closest step
+        currentIdx = 0;
+        if (prevValue != null) {
+            for (let i = 0; i < steps.length; i++) {
+                if (steps[i].value === prevValue) { currentIdx = i; break; }
+                if (steps[i].value > prevValue) { currentIdx = Math.max(0, i - 1); break; }
+                currentIdx = i;
+            }
+        }
+        updateScrubber();
+        await loadStep(currentIdx);
+    });
+
+    scrubber.addEventListener('input', async () => {
+        stopPlaying();
+        const idx = parseInt(scrubber.value, 10);
+        await loadStep(idx);
+    });
+
+    rewindBtn.addEventListener('click', async () => {
+        stopPlaying();
+        await loadStep(0);
+    });
+
+    ffBtn.addEventListener('click', async () => {
+        stopPlaying();
+        await loadStep(steps.length - 1);
+    });
+
+    stepFwdBtn.addEventListener('click', async () => {
+        stopPlaying();
+        if (currentIdx < steps.length - 1) {
+            const speed = parseFloat(speedSel.value);
+            await morphToStep(currentIdx, currentIdx + 1, speed);
+        }
+    });
+
+    playFwdBtn.addEventListener('click', () => {
+        if (playing) return;
+        playTimeline(true);
+    });
+
+    playRevBtn.addEventListener('click', () => {
+        if (playing) return;
+        playTimeline(false);
+    });
+
+    pauseBtn.addEventListener('click', () => stopPlaying());
+
+    // --- Initial load ---
+    // Load tree chart first (sets up canvas, toolbar etc)
+    const overrides = { ...compoundControls };
+    if (overrides.base_profile_id) overrides.profile_id = overrides.base_profile_id;
+    inst.overrideParams = overrides;
+
+    // Resolve view for tree chart options
+    const tcOpts = subView.tree_chart_options || {};
+    const resolvedView = { ...subView };
+    if (tcOpts.diff_mode && tcOpts.diff_mode.edge_params) {
+        const resolved = { ...tcOpts.diff_mode.edge_params };
+        for (const [k, v] of Object.entries(resolved)) {
+            if (typeof v === 'string' && v.startsWith('$')) {
+                const ref = v.substring(1);
+                resolved[k] = compoundControls[ref] ?? globalControls[ref] ?? v;
+            }
+        }
+        resolvedView.tree_chart_options = { ...tcOpts, diff_mode: { ...tcOpts.diff_mode, edge_params: resolved } };
+    }
+
+    await inst.load(subKey, resolvedView);
+
+    // Then load axis data and show first step
+    await loadAxis(0);
 }
 
 /**

@@ -14,6 +14,7 @@ ROOT = Path(__file__).resolve().parent.parent
 VERSION_FILES = [
     (ROOT / "pyproject.toml", re.compile(r'^(version\s*=\s*")([^"]+)(")', re.MULTILINE)),
     (ROOT / "scoda_engine" / "__init__.py", re.compile(r'^(__version__\s*=\s*")([^"]+)(")', re.MULTILINE)),
+    (ROOT / "deploy" / "docker-compose.yml", re.compile(r'(image:\s*honestjung/scoda-server:)([^\s]+)()')),
 ]
 
 

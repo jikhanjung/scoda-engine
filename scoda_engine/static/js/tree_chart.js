@@ -15,7 +15,7 @@ function ensureD3Loaded() {
     d3Ready = new Promise((resolve, reject) => {
         if (window.d3) return resolve();
         const script = document.createElement('script');
-        script.src = 'https://d3js.org/d3.v7.min.js';
+        script.src = '/static/vendor/d3.v7.min.js';
         script.onload = resolve;
         script.onerror = () => reject(new Error('Failed to load D3.js'));
         document.head.appendChild(script);
