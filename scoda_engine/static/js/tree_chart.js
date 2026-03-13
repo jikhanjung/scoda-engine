@@ -1218,6 +1218,14 @@ class TreeChartInstance {
             textLarger.addEventListener('click', () => applyTextScale(this.textScale + 0.1));
         }
 
+        // Event: keyboard shortcut for text scale ([ = smaller, ] = larger)
+        const keyHandler = (e) => {
+            if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
+            if (e.key === '[') applyTextScale(this.textScale - 0.1);
+            else if (e.key === ']') applyTextScale(this.textScale + 0.1);
+        };
+        document.addEventListener('keydown', keyHandler);
+
         // Event: settings gear popup with depth slider
         const settingsBtn = toolbar.querySelector('.tc-settings-btn');
         const settingsPopup = toolbar.querySelector('.tc-settings-popup');
