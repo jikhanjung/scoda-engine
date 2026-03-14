@@ -983,6 +983,119 @@ def api_entity_detail(entity_name: str, entity_id: str,
 # ---------------------------------------------------------------------------
 app.include_router(pkg_router)
 
+# Legacy fallback: /api/... (no package prefix) resolves to active or single package.
+# This maintains backward compatibility with tests and single-package mode.
+legacy_router = APIRouter(prefix="/api")
+
+
+def get_legacy_db():
+    """Resolve DB for legacy /api/... routes (no package in URL)."""
+    from scoda_engine_core.scoda_package import get_active_package_name, get_db
+    active = get_active_package_name()
+    if active:
+        try:
+            conn = get_registry().get_db(active)
+        except KeyError:
+            conn = get_db()
+    else:
+        # Testing mode or single-package: use direct get_db()
+        conn = get_db()
+    try:
+        yield conn
+    finally:
+        conn.close()
+
+
+# Re-register key endpoints under /api/ with legacy DB resolver
+@legacy_router.get('/manifest')
+def legacy_manifest(conn: sqlite3.Connection = Depends(get_legacy_db)):
+    result = _fetch_manifest(conn)
+    if result:
+        result['mode'] = SCODA_MODE
+        return result
+    return JSONResponse({'error': 'No manifest found'}, status_code=404)
+
+@legacy_router.get('/queries')
+def legacy_queries(conn: sqlite3.Connection = Depends(get_legacy_db)):
+    return _fetch_queries(conn)
+
+@legacy_router.get('/queries/{query_name}/execute')
+def legacy_query_execute(query_name: str, request: Request,
+                         conn: sqlite3.Connection = Depends(get_legacy_db)):
+    params = dict(request.query_params)
+    result = _execute_query(conn, query_name, params)
+    if result is None:
+        return JSONResponse({'error': f'Query not found: {query_name}'}, status_code=404)
+    if 'error' in result:
+        return JSONResponse(result, status_code=400)
+    return result
+
+@legacy_router.get('/detail/{query_name}')
+def legacy_detail(query_name: str, request: Request,
+                  conn: sqlite3.Connection = Depends(get_legacy_db)):
+    params = dict(request.query_params)
+    result = _execute_query(conn, query_name, params)
+    if result is None:
+        return JSONResponse({'error': f'Query not found: {query_name}'}, status_code=404)
+    if 'error' in result:
+        return JSONResponse(result, status_code=400)
+    if result['row_count'] == 0:
+        return JSONResponse({'error': 'Not found'}, status_code=404)
+    return result['rows'][0]
+
+@legacy_router.get('/composite/{view_name}')
+def legacy_composite(view_name: str, request: Request,
+                     conn: sqlite3.Connection = Depends(get_legacy_db)):
+    entity_id = request.query_params.get('id')
+    if not entity_id:
+        return JSONResponse({'error': 'id parameter required'}, status_code=400)
+    manifest_data = _fetch_manifest(conn)
+    if not manifest_data:
+        return JSONResponse({'error': 'No manifest found'}, status_code=404)
+    views = manifest_data['manifest'].get('views', {})
+    view = views.get(view_name)
+    if not view or view.get('type') != 'detail' or 'source_query' not in view:
+        return JSONResponse({'error': f'Detail view not found: {view_name}'}, status_code=404)
+    source_param = view.get('source_param', 'id')
+    main_params = dict(request.query_params)
+    main_params[source_param] = entity_id
+    result = _execute_query(conn, view['source_query'], main_params)
+    if result is None or result.get('row_count', 0) == 0:
+        return JSONResponse({'error': 'Not found'}, status_code=404)
+    data = dict(result['rows'][0])
+    extra_params = dict(request.query_params)
+    for key, sub_def in view.get('sub_queries', {}).items():
+        params = dict(extra_params)
+        for param_name, value_source in sub_def.get('params', {}).items():
+            if value_source == 'id':
+                params[param_name] = entity_id
+            elif value_source.startswith('result.'):
+                params[param_name] = data.get(value_source[7:], '')
+            else:
+                params[param_name] = value_source
+        sub_result = _execute_query(conn, sub_def['query'], params)
+        data[key] = sub_result['rows'] if sub_result and 'rows' in sub_result else []
+    return data
+
+@legacy_router.get('/preferences')
+def legacy_preferences(conn: sqlite3.Connection = Depends(get_legacy_db)):
+    try:
+        cursor = conn.cursor()
+        cursor.execute("SELECT key, value FROM overlay.overlay_metadata WHERE key LIKE 'pref_%'")
+        rows = cursor.fetchall()
+        result = {}
+        for r in rows:
+            k = r['key'][5:]
+            try:
+                result[k] = json.loads(r['value'])
+            except (json.JSONDecodeError, TypeError):
+                result[k] = r['value']
+        return result
+    except Exception:
+        return {}
+
+app.include_router(legacy_router)
+
 
 # ---------------------------------------------------------------------------
 # Global endpoints (package-independent)
