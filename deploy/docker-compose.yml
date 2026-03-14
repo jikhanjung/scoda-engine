@@ -7,14 +7,11 @@ services:
     build:
       context: ..
       dockerfile: deploy/Dockerfile
-      args:
-        DEFAULT_PACKAGE: ${DEFAULT_PACKAGE:-trilobase}
     ports:
       - "${SCODA_PUBLIC_PORT:-8081}:8081"
     environment:
       - SCODA_PATH=/data/
       - SCODA_MODE=viewer
-      - SCODA_PACKAGE=${SCODA_PACKAGE:-trilobase}
       - SCODA_WORKERS=${SCODA_WORKERS:-2}
       - SCODA_LOG_LEVEL=${SCODA_LOG_LEVEL:-info}
       - SCODA_HUB_SSL_VERIFY=0
