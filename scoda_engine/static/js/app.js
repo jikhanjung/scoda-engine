@@ -1219,7 +1219,13 @@ async function renderCompoundTimelineSubView(subKey, subView, containerEl) {
         await inst.buildHierarchy(subView);
         inst.root = inst.fullRoot;
         console.log(`[timeline] loadStep: fullRoot=${inst.fullRoot ? 'exists' : 'null'}, root children=${inst.root?.children?.length ?? 'N/A'}, descendants=${inst.root?.descendants?.()?.length ?? 'N/A'}`);
-        if (!inst.root) { inst.render(); return; }
+        if (!inst.root) {
+            // Clear canvas for empty step
+            inst._morphing = false;
+            if (inst.ctx) { inst.ctx.clearRect(0, 0, inst.canvas.width, inst.canvas.height); }
+            inst.render();
+            return;
+        }
         inst.computeLayout(inst.root, subView);
         inst.assignColors(inst.root, subView);
         inst.buildQuadtree(inst.root);
@@ -1250,7 +1256,12 @@ async function renderCompoundTimelineSubView(subKey, subView, containerEl) {
         inst.overrideParams = overridesFrom;
         await inst.buildHierarchy(subView);
         inst.root = inst.fullRoot;
-        if (!inst.root) return;
+        if (!inst.root) {
+            // Skip over empty steps so playTimeline doesn't loop forever
+            currentIdx = toIdx;
+            updateScrubber();
+            return;
+        }
         inst.computeLayout(inst.root, subView);
         inst.assignColors(inst.root, subView);
         const baseBW = inst.cladoBoundsW, baseBH = inst.cladoBoundsH;
@@ -1265,7 +1276,18 @@ async function renderCompoundTimelineSubView(subKey, subView, containerEl) {
         inst.overrideParams = overridesTo;
         await inst.buildHierarchy(subView);
         const compareRoot = inst.fullRoot;
-        if (!compareRoot) return;
+        if (!compareRoot) {
+            // Target step is empty — advance index and show base state
+            currentIdx = toIdx;
+            updateScrubber();
+            inst.root = inst._morphBaseRoot;
+            inst.buildQuadtree(inst.root);
+            inst._morphing = false;
+            inst.transform = inst.computeFitTransform();
+            d3.select(inst.canvas).call(inst.zoom.transform, inst.transform);
+            inst.render();
+            return;
+        }
         inst.computeLayout(compareRoot, subView);
         inst.assignColors(compareRoot, subView);
         inst.cladoBoundsW = Math.max(baseBW, inst.cladoBoundsW);
