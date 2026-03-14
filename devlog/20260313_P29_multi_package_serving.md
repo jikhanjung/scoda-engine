@@ -1,4 +1,4 @@
-# P86: Multi-Package Serving — 여러 SCODA 패키지 동시 서빙
+# P29: Multi-Package Serving — 여러 SCODA 패키지 동시 서빙
 
 **날짜:** 2026-03-13
 **목표:** 하나의 scoda-engine 인스턴스에서 여러 SCODA 패키지(trilobase, brachiobase 등)를 동시에 서빙하고, 한 세션 안에서 자유롭게 패키지 간 전환할 수 있도록 한다.
