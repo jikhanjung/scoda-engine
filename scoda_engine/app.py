@@ -979,11 +979,8 @@ def api_entity_detail(entity_name: str, entity_id: str,
 
 
 # ---------------------------------------------------------------------------
-# Include package router in app
-# ---------------------------------------------------------------------------
-app.include_router(pkg_router)
-
 # Legacy fallback: /api/... (no package prefix) resolves to active or single package.
+# MUST be included BEFORE pkg_router so /api/manifest doesn't match /api/{package}.
 # This maintains backward compatibility with tests and single-package mode.
 legacy_router = APIRouter(prefix="/api")
 
@@ -1095,6 +1092,9 @@ def legacy_preferences(conn: sqlite3.Connection = Depends(get_legacy_db)):
         return {}
 
 app.include_router(legacy_router)
+
+# Package router AFTER legacy router
+app.include_router(pkg_router)
 
 
 # ---------------------------------------------------------------------------
