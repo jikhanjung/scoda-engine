@@ -138,25 +138,20 @@ def create_app():
             # Hub sync: download new/updated packages before scanning
             if os.environ.get('SCODA_HUB_SYNC', '0').strip() == '1':
                 _sync_hub_packages(scoda_path)
-            # Directory mode: scan all .scoda files, select one as active
-            from scoda_engine_core import get_registry, set_active_package
+            # Directory mode: scan all .scoda files, serve all via pkg_router
+            from scoda_engine_core import get_registry
             registry = get_registry()
             registry.scan(scoda_path)
             packages = registry.list_packages()
             if packages:
-                # SCODA_PACKAGE env var selects the active package
+                # Validate SCODA_PACKAGE if set (used by GET / redirect)
                 selected = os.environ.get('SCODA_PACKAGE')
                 if selected:
                     matching = [p for p in packages if p['name'] == selected]
-                    if matching:
-                        set_active_package(selected)
-                    else:
+                    if not matching:
                         available = ', '.join(p['name'] for p in packages)
                         print(f"WARNING: SCODA_PACKAGE='{selected}' not found. "
                               f"Available: {available}", file=sys.stderr)
-                        set_active_package(packages[0]['name'])
-                else:
-                    set_active_package(packages[0]['name'])
         else:
             # Single file mode (original behavior)
             from scoda_engine_core import register_scoda_path

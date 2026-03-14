@@ -3,6 +3,17 @@
  * Manifest-driven frontend for browsing SCODA data packages
  */
 
+// API_BASE is injected by the template: const API_BASE = '/api/{package_name}';
+// It is expected to be defined before this script runs.
+
+// Resolve manifest source URLs (e.g. /api/genus/123) to the package-scoped API base.
+function resolveApiUrl(path) {
+    if (path.startsWith('/api/')) {
+        return API_BASE + path.slice(4); // /api/xyz → ${API_BASE}/xyz
+    }
+    return path;
+}
+
 // Defaults
 const BOOLEAN_TRUE_LABEL = 'True';
 const BOOLEAN_FALSE_LABEL = 'False';
@@ -77,7 +88,7 @@ document.addEventListener('DOMContentLoaded', async () => {
  */
 async function loadManifest() {
     try {
-        const response = await fetch('/api/manifest');
+        const response = await fetch(`${API_BASE}/manifest`);
         if (!response.ok) return;
         const data = await response.json();
         manifest = data.manifest;
@@ -94,7 +105,7 @@ async function loadManifest() {
             // Load saved preferences from overlay DB
             let savedPrefs = {};
             try {
-                const prefResp = await fetch('/api/preferences');
+                const prefResp = await fetch(`${API_BASE}/preferences`);
                 if (prefResp.ok) savedPrefs = await prefResp.json();
             } catch (e) { /* use defaults */ }
             for (const ctrl of manifest.global_controls) {
@@ -109,22 +120,24 @@ async function loadManifest() {
         // Load entity schemas if admin mode
         if (appMode === 'admin') {
             try {
-                const schemaResp = await fetch('/api/entities');
+                const schemaResp = await fetch(`${API_BASE}/entities`);
                 if (schemaResp.ok) entitySchemas = await schemaResp.json();
             } catch (e) { /* no editable entities */ }
         }
 
         buildViewTabs();
 
-        // Show package name as main title, SCODA Desktop as subtitle
+        // Show package name as main title with Home breadcrumb
+        const titleEl = document.getElementById('navbar-title');
+        const subtitleEl = document.getElementById('navbar-subtitle');
+        const sepEl = document.getElementById('navbar-sep');
         if (data.package && data.package.name) {
-            const titleEl = document.getElementById('navbar-title');
-            const subtitleEl = document.getElementById('navbar-subtitle');
             if (titleEl) titleEl.textContent = `${data.package.name} v${data.package.version}`;
-            const engineName = data.engine_name || 'SCODA Desktop';
-            const engineVer = data.engine_version ? ` v${data.engine_version}` : '';
-            if (subtitleEl) subtitleEl.textContent = `Powered by ${engineName}${engineVer}`;
+            if (sepEl) sepEl.style.display = '';
             document.title = `${data.package.name} v${data.package.version}`;
+        } else {
+            if (titleEl) titleEl.textContent = '';
+            if (sepEl) sepEl.style.display = 'none';
         }
 
         // Hide Hub Refresh button in Desktop mode (no /api/hub/sync endpoint)
@@ -176,7 +189,7 @@ async function renderGlobalControls() {
                     const val = parseInt(sel.value, 10);
                     globalControls[ctrl.param] = isNaN(val) ? sel.value : val;
                     // Fire-and-forget save to overlay DB
-                    fetch(`/api/preferences/${ctrl.param}`, {
+                    fetch(`${API_BASE}/preferences/${ctrl.param}`, {
                         method: 'PUT',
                         headers: {'Content-Type': 'application/json'},
                         body: JSON.stringify({value: globalControls[ctrl.param]})
@@ -222,7 +235,7 @@ async function fetchQuery(queryName, params) {
     if (queryCache[cacheKey]) return queryCache[cacheKey];
     _showLoading();
     try {
-        let url = `/api/queries/${queryName}/execute`;
+        let url = `${API_BASE}/queries/${queryName}/execute`;
         if (hasParams) {
             url += '?' + new URLSearchParams(mergedParams);
         }
@@ -2053,7 +2066,7 @@ async function selectTreeLeaf(leafId, leafName) {
     try {
         let items;
         if (tOpts.item_query && tOpts.item_param) {
-            const baseUrl = `/api/queries/${tOpts.item_query}/execute`;
+            const baseUrl = `${API_BASE}/queries/${tOpts.item_query}/execute`;
             const qp = new URLSearchParams({ ...globalControls, [tOpts.item_param]: leafId });
             const url = `${baseUrl}?${qp}`;
             const response = await fetch(url);
@@ -2307,7 +2320,7 @@ async function loadAnnotations(entityType, entityId) {
     if (!listContainer) return;
 
     try {
-        const annUrl = `/api/annotations/${entityType}/${entityId}`;
+        const annUrl = `${API_BASE}/annotations/${entityType}/${entityId}`;
         const response = await fetch(annUrl);
         const annotations = await response.json();
 
@@ -2360,7 +2373,7 @@ async function addAnnotation(entityType, entityId) {
     if (!content) return;
 
     try {
-        const postUrl = '/api/annotations';
+        const postUrl = `${API_BASE}/annotations`;
         const response = await fetch(postUrl, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
@@ -2387,7 +2400,7 @@ async function addAnnotation(entityType, entityId) {
  */
 async function deleteAnnotation(annotationId, entityType, entityId) {
     try {
-        const delUrl = `/api/annotations/${annotationId}`;
+        const delUrl = `${API_BASE}/annotations/${annotationId}`;
         const response = await fetch(delUrl, {
             method: 'DELETE'
         });
@@ -2428,7 +2441,7 @@ async function renderAutoDetail(table, entityId) {
     detailModal.show();
 
     try {
-        const response = await fetch(`/api/auto/detail/${table}?id=${entityId}`);
+        const response = await fetch(`${API_BASE}/auto/detail/${table}?id=${entityId}`);
         if (!response.ok) throw new Error(`HTTP ${response.status}`);
         const data = await response.json();
 
@@ -2805,8 +2818,8 @@ async function renderDetailFromManifest(viewKey, entityId) {
 
     try {
         const url = view.source
-            ? view.source.replace('{id}', entityId)
-            : `/api/composite/${viewKey}?id=${entityId}`;
+            ? resolveApiUrl(view.source.replace('{id}', entityId))
+            : `${API_BASE}/composite/${viewKey}?id=${entityId}`;
         const response = await fetch(url);
         if (!response.ok) {
             const err = await response.json().catch(() => ({}));
@@ -3312,7 +3325,7 @@ async function openEditForm(entityType, entityId) {
     modalBody.innerHTML = '<div class="loading">Loading...</div>';
 
     try {
-        const resp = await fetch(`/api/entities/${entityType}/${entityId}`);
+        const resp = await fetch(`${API_BASE}/entities/${entityType}/${entityId}`);
         if (!resp.ok) throw new Error('Failed to load entity');
         const data = await resp.json();
         modalTitle.innerHTML = `Edit ${entityType}`;
@@ -3396,7 +3409,7 @@ async function resolveFkDisplayNames(entityType, data) {
         if (!searchInput && !readonlyEl) continue;
 
         promises.push(
-            fetch(`/api/entities/${searchType}/${fkId}`)
+            fetch(`${API_BASE}/entities/${searchType}/${fkId}`)
                 .then(r => r.ok ? r.json() : null)
                 .then(entity => {
                     if (!entity) return;
@@ -3443,7 +3456,7 @@ function setupFormHandlers(entityType, isEdit, entityId) {
         }
 
         try {
-            const url = isEdit ? `/api/entities/${entityType}/${entityId}` : `/api/entities/${entityType}`;
+            const url = isEdit ? `${API_BASE}/entities/${entityType}/${entityId}` : `${API_BASE}/entities/${entityType}`;
             const method = isEdit ? 'PATCH' : 'POST';
             const resp = await fetch(url, {method, headers: {'Content-Type': 'application/json'}, body: JSON.stringify(data)});
             if (!resp.ok) {
@@ -3498,7 +3511,7 @@ function setupFormHandlers(entityType, isEdit, entityId) {
                 if (!searchType) { resultsList.style.display = 'none'; return; }
 
                 // Build search URL with optional rank filter
-                let searchUrl = `/api/search/${searchType}?q=${encodeURIComponent(q)}`;
+                let searchUrl = `${API_BASE}/search/${searchType}?q=${encodeURIComponent(q)}`;
                 const predSel = form.querySelector('[name="predicate"]');
                 if (fname === 'object_taxon_id' && predSel && predSel.value === 'PLACED_IN') {
                     // Resolve subject taxon rank for filtering
@@ -3550,7 +3563,7 @@ function setupFormHandlers(entityType, isEdit, entityId) {
 async function confirmDelete(entityType, entityId) {
     if (!confirm(`Delete this ${entityType}? This cannot be undone.`)) return;
     try {
-        const resp = await fetch(`/api/entities/${entityType}/${entityId}`, {method: 'DELETE'});
+        const resp = await fetch(`${API_BASE}/entities/${entityType}/${entityId}`, {method: 'DELETE'});
         if (!resp.ok) {
             const err = await resp.json().catch(() => ({}));
             throw new Error(err.error || `HTTP ${resp.status}`);

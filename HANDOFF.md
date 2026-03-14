@@ -74,6 +74,8 @@
 | Desktop v0.2.4 ~ v0.2.5 버전 업 | Done | `e7ab362`, `915acd6` |
 | Fix: Timeline 축 전환 시 빈 트리 처리 | Done | `devlog/20260314_033_timeline_axis_switch_bugfix.md` |
 | Fix: Timeline play 빈 스텝 무한 루프 방지 | Done | `devlog/20260314_034_timeline_empty_step_infinite_loop_fix.md` |
+| P29: Multi-Package Serving | Done | `devlog/20260314_035_P29_multi_package_serving_impl.md` |
+| Desktop v0.3.0 버전 업 | Done | `scoda_engine/__init__.py`, `pyproject.toml` |
 
 ### Test Status
 
@@ -81,12 +83,26 @@
 - All fixtures converted to domain-independent generic data
 - MCP subprocess tests support `SCODA_DB_PATH` environment variable
 - CRUD tests: `tests/test_crud.py` (27 tests) — generic item/category fixture
+- Tests use `/api/test/...` URL prefix (package name "test" registered by `_set_paths_for_testing`)
 
 ### In Progress
 
 - 없음
 
 ### Recent Sessions (2026-03-12 ~ 2026-03-14) Summary
+
+**2026-03-14: P29 Multi-Package Serving + GUI 개선**
+1. **APIRouter 리팩토링**: 모든 per-package 엔드포인트를 `pkg_router = APIRouter(prefix="/api/{package}")` 로 이동. `Depends(get_package_db)` dependency로 자동 conn lifecycle 관리.
+2. **글로벌 엔드포인트**: `GET /api/packages` (패키지 목록), `GET /healthz` (패키지 수 포함), `POST /api/hub/sync` (기존 유지).
+3. **페이지 라우트**: `GET /` — 단일 패키지 시 `/{name}/`으로 302 redirect, 복수 패키지 시 `landing.html` 렌더. `GET /{package}/` — 패키지 뷰어.
+4. **Frontend `API_BASE`**: `index.html`에 `const API_BASE = '/api/{package_name}'` 주입, `app.js`의 18개 fetch URL을 `${API_BASE}/...`로 교체. `resolveApiUrl()` 유틸로 manifest `view.source` URL 변환.
+5. **랜딩 페이지**: `landing.html` — D3 force simulation 배경, 패키지 카드 그리드, 다크 테마.
+6. **Home breadcrumb**: navbar에 🏠 SCODA / 패키지명 구조. 홈 아이콘 클릭 시 패키지 목록으로 이동.
+7. **serve_web.py**: 디렉토리 모드에서 `set_active_package()` 제거 (모든 패키지 동시 서빙).
+8. **Core 변경**: `PackageRegistry.register_db()` 메서드 추가, `_set_paths_for_testing()`에 registry "test" 등록 추가, `check_same_thread=False` 적용.
+9. **GUI 개선**: Start Server 패키지 선택 불요 (모든 패키지 동시 서빙), 패키지 목록 정보 표시 전용, 헤더에 버전 표시.
+10. **테스트**: 모든 `/api/...` URL → `/api/test/...` 변환, `GET /` 테스트 302 redirect 검증, 303개 전체 통과.
+11. **버전 업**: v0.2.5 → v0.3.0
 
 **2026-03-12: P27 구현**
 1. **Hub Refresh 버튼**: Web navbar ↻ 버튼 (`POST /api/hub/sync`), Desktop GUI "Check Hub" 버튼, 새 패키지 감지 시 자동 페이지 리로드.
@@ -150,12 +166,20 @@ scoda-engine contains no domain-specific code. All domain logic comes from `.sco
 | Overlay | User annotations and modifications |
 | Dependency | Reference DBs connected via ATTACH |
 
+### Multi-Package Serving (P29)
+
+- All per-package API endpoints: `/api/{package}/...` (APIRouter with prefix)
+- Global endpoints: `GET /api/packages`, `GET /healthz`, `POST /api/hub/sync`
+- Page routes: `GET /` (landing/redirect), `GET /{package}/` (viewer)
+- Frontend: `API_BASE = '/api/{package_name}'` injected by template, `resolveApiUrl()` for manifest source URLs
+- `PackageRegistry.register_db()` for testing, `_set_paths_for_testing()` auto-registers as "test"
+
 ### Manifest-driven UI
 
 - `ui_manifest` table: defines views, detail modals, and actions
 - `ui_queries` table: named SQL queries
-- `/api/query/<name>`: query execution endpoint
-- `/api/composite/<view>?id=N`: multi-query composite response
+- `/api/{package}/queries/<name>/execute`: query execution endpoint
+- `/api/{package}/composite/<view>?id=N`: multi-query composite response
 - Generic viewer supports: hierarchy (tree/nested_table/tree_chart with radial+rectangular+side-by-side+diff layout), table, detail modal, global search, annotations, compare mode, node watch, removed taxa panel, timeline sub-view
 - Tree chart features: visible depth slider, text scale shortcut (`[`/`]`), morph animation video export (WebM)
 - Timeline sub-view: `tree_chart_timeline` display type, multiple axis modes, step slider, playback controls, morph between steps, look-ahead caching
@@ -179,16 +203,16 @@ core/scoda_engine_core/     # PyPI: scoda-engine-core v0.1.1 (pure stdlib, zero 
 ├── hub_client.py           # Hub: fetch index, compare, download, SSL fallback
 └── validate_manifest.py    # Manifest validator/linter (pure functions)
 
-scoda_engine/               # PyPI: scoda-engine v0.2.5 (desktop/server)
+scoda_engine/               # PyPI: scoda-engine v0.3.0 (desktop/server)
 ├── scoda_package.py        # Backward-compat shim → scoda_engine_core
-├── app.py                  # FastAPI web server (+ CRUD endpoints)
+├── app.py                  # FastAPI web server (multi-package APIRouter + CRUD)
 ├── entity_schema.py        # P21: FieldDef/EntitySchema parser + validation
 ├── crud_engine.py          # P21: Generic CRUD engine (FK, constraints, hooks)
 ├── mcp_server.py           # MCP server (stdio/SSE)
-├── gui.py                  # Tkinter GUI (+ Hub Refresh 버튼)
+├── gui.py                  # Tkinter GUI (multi-package serving)
 ├── serve.py                # uvicorn launcher (--db-path, --mode admin|viewer)
 ├── serve_web.py            # Production web launcher (gunicorn/Docker)
-├── templates/              # Generic viewer template
+├── templates/              # index.html (viewer) + landing.html (multi-package)
 └── static/                 # Viewer assets (app.js, tree_chart.js, vendor/)
 ```
 
@@ -283,3 +307,4 @@ pytest tests/
 | Version bump + docker-compose 자동화 | `devlog/20260314_032_bump_version_docker_and_misc.md` |
 | Timeline 축 전환 빈 트리 bugfix | `devlog/20260314_033_timeline_axis_switch_bugfix.md` |
 | Timeline 빈 스텝 무한 루프 bugfix | `devlog/20260314_034_timeline_empty_step_infinite_loop_fix.md` |
+| P29 구현 (Multi-Package Serving) | `devlog/20260314_035_P29_multi_package_serving_impl.md` |

@@ -42,14 +42,15 @@ scoda-engine/
 ├── scoda_engine/               # Desktop/server package
 │   ├── __init__.py
 │   ├── scoda_package.py        # Backward-compat shim → scoda_engine_core
-│   ├── app.py                  # FastAPI web server (+ CRUD endpoints)
+│   ├── app.py                  # FastAPI web server (multi-package APIRouter + CRUD)
 │   ├── entity_schema.py        # FieldDef/EntitySchema parser + validation
 │   ├── crud_engine.py          # Generic CRUD engine (FK, constraints, hooks)
 │   ├── mcp_server.py           # MCP server (stdio/SSE)
 │   ├── gui.py                  # Tkinter GUI
 │   ├── serve.py                # uvicorn launcher
 │   ├── serve_web.py            # Production web launcher (gunicorn/Docker)
-│   ├── templates/index.html    # Generic viewer template
+│   ├── templates/index.html    # Generic viewer template (API_BASE injection)
+│   ├── templates/landing.html  # Multi-package landing page (D3 force)
 │   └── static/
 │       ├── css/style.css       # Viewer styles (responsive, timeline)
 │       ├── js/app.js           # Viewer main logic (timeline, morph, video export)
@@ -79,9 +80,10 @@ scoda-engine/
 
 - **Zero domain code**: All domain logic comes from `.scoda` packages
 - **Monorepo with core separation**: `scoda_engine_core` (pure stdlib) + `scoda_engine` (desktop/server)
+- **Multi-package serving** (P29): All per-package endpoints under `/api/{package}/...`, global endpoints at app level
 - **Manifest-driven UI**: Views, detail modals, and actions defined in DB `ui_manifest`
-- **Named queries**: SQL in `ui_queries` table, executed via `/api/query/<name>`
-- **Composite detail**: `/api/composite/<view>?id=N` assembles multi-query responses
+- **Named queries**: SQL in `ui_queries` table, executed via `/api/{package}/queries/<name>/execute`
+- **Composite detail**: `/api/{package}/composite/<view>?id=N` assembles multi-query responses
 - **MCP tools**: Built-in (7) + dynamic from `mcp_tools.json` in `.scoda` package
 - **3-DB architecture**: canonical (main) + overlay (user annotations) + dependency (ATTACH)
 

@@ -13,7 +13,9 @@
     <nav class="navbar navbar-dark bg-dark">
         <div class="container-fluid">
             <span class="navbar-brand mb-0 h1" id="navbar-brand">
-                <i class="bi bi-diagram-3"></i> <span id="navbar-title">SCODA Desktop</span>
+                <a href="/" title="All packages" style="color: inherit; text-decoration: none;" id="navbar-home"><i class="bi bi-house-door-fill"></i> <span style="font-size: 0.85em;">SCODA</span></a>
+                <span id="navbar-sep" style="margin: 0 6px; opacity: 0.4;">/</span>
+                <span id="navbar-title"></span>
                 <small id="navbar-subtitle" class="text-white-50" style="font-size: 0.6em; margin-left: 8px;"></small>
             </span>
             <button class="btn btn-outline-light btn-sm" id="hub-refresh-btn"
@@ -158,6 +160,7 @@
         </div>
     </div>
 
+    <script>const API_BASE = '/api/{{ package_name }}';</script>
     <script src="/static/vendor/bootstrap.bundle.min.js"></script>
     <script src="/static/js/app.js?v={{ cache_bust }}"></script>
     <script src="/static/js/tree_chart.js?v={{ cache_bust }}"></script>

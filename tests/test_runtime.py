@@ -33,13 +33,13 @@ from scoda_engine_core import validate_manifest, validate_db
 class TestCORS:
     def test_cors_headers_present(self, generic_client):
         """API responses should include CORS headers."""
-        response = generic_client.get('/api/manifest', headers={"Origin": "http://localhost:3000"})
+        response = generic_client.get('/api/test/manifest', headers={"Origin": "http://localhost:3000"})
         assert response.status_code == 200
         assert 'access-control-allow-origin' in response.headers
 
     def test_cors_preflight(self, generic_client):
         """OPTIONS preflight requests should return CORS headers."""
-        response = generic_client.options('/api/manifest', headers={
+        response = generic_client.options('/api/test/manifest', headers={
             "Origin": "http://localhost:3000",
             "Access-Control-Request-Method": "GET",
         })
@@ -81,47 +81,48 @@ class TestOpenAPIDocs:
 # --- Index page ---
 
 class TestIndex:
-    def test_index_returns_200(self, generic_client):
-        response = generic_client.get('/')
-        assert response.status_code == 200
+    def test_index_redirects_to_package(self, generic_client):
+        response = generic_client.get('/', follow_redirects=False)
+        assert response.status_code == 302
+        assert response.headers['location'] == '/test/'
 
 
 
 
-# --- /api/provenance ---
+# --- /api/test/provenance ---
 
 
 
 
-# --- /api/provenance ---
+# --- /api/test/provenance ---
 
 class TestApiProvenance:
     def test_provenance_returns_200(self, generic_client):
-        response = generic_client.get('/api/provenance')
+        response = generic_client.get('/api/test/provenance')
         assert response.status_code == 200
 
     def test_provenance_returns_list(self, generic_client):
-        response = generic_client.get('/api/provenance')
+        response = generic_client.get('/api/test/provenance')
         data = response.json()
         assert isinstance(data, list)
         assert len(data) == 2
 
     def test_provenance_has_primary_source(self, generic_client):
-        response = generic_client.get('/api/provenance')
+        response = generic_client.get('/api/test/provenance')
         data = response.json()
         primary = next(s for s in data if s['source_type'] == 'primary')
         assert 'Test Source' in primary['citation']
         assert primary['year'] == 2024
 
     def test_provenance_has_supplementary_source(self, generic_client):
-        response = generic_client.get('/api/provenance')
+        response = generic_client.get('/api/test/provenance')
         data = response.json()
         supp = next(s for s in data if s['source_type'] == 'supplementary')
         assert 'Additional Source' in supp['citation']
         assert supp['year'] == 2025
 
     def test_provenance_record_structure(self, generic_client):
-        response = generic_client.get('/api/provenance')
+        response = generic_client.get('/api/test/provenance')
         data = response.json()
         record = data[0]
         expected_keys = ['id', 'source_type', 'citation', 'description', 'year', 'url']
@@ -129,27 +130,27 @@ class TestApiProvenance:
             assert key in record, f"Missing key: {key}"
 
 
-# --- /api/display-intent ---
+# --- /api/test/display-intent ---
 
 
 
 
-# --- /api/display-intent ---
+# --- /api/test/display-intent ---
 
 class TestApiDisplayIntent:
     def test_display_intent_returns_200(self, generic_client):
-        response = generic_client.get('/api/display-intent')
+        response = generic_client.get('/api/test/display-intent')
         assert response.status_code == 200
 
     def test_display_intent_returns_list(self, generic_client):
-        response = generic_client.get('/api/display-intent')
+        response = generic_client.get('/api/test/display-intent')
         data = response.json()
         assert isinstance(data, list)
         assert len(data) == 2
 
     def test_display_intent_primary_view(self, generic_client):
         """items entity should have tree as primary (priority=0) view."""
-        response = generic_client.get('/api/display-intent')
+        response = generic_client.get('/api/test/display-intent')
         data = response.json()
         items_intents = [i for i in data if i['entity'] == 'items']
         primary = next(i for i in items_intents if i['priority'] == 0)
@@ -157,20 +158,20 @@ class TestApiDisplayIntent:
 
     def test_display_intent_secondary_view(self, generic_client):
         """items entity should have table as secondary (priority=1) view."""
-        response = generic_client.get('/api/display-intent')
+        response = generic_client.get('/api/test/display-intent')
         data = response.json()
         items_intents = [i for i in data if i['entity'] == 'items']
         secondary = next(i for i in items_intents if i['priority'] == 1)
         assert secondary['default_view'] == 'table'
 
     def test_display_intent_source_query(self, generic_client):
-        response = generic_client.get('/api/display-intent')
+        response = generic_client.get('/api/test/display-intent')
         data = response.json()
         tree_intent = next(i for i in data if i['default_view'] == 'tree')
         assert tree_intent['source_query'] == 'category_tree'
 
     def test_display_intent_record_structure(self, generic_client):
-        response = generic_client.get('/api/display-intent')
+        response = generic_client.get('/api/test/display-intent')
         data = response.json()
         record = data[0]
         expected_keys = ['id', 'entity', 'default_view', 'description',
@@ -179,26 +180,26 @@ class TestApiDisplayIntent:
             assert key in record, f"Missing key: {key}"
 
 
-# --- /api/queries ---
+# --- /api/test/queries ---
 
 
 
 
-# --- /api/queries ---
+# --- /api/test/queries ---
 
 class TestApiQueries:
     def test_queries_returns_200(self, generic_client):
-        response = generic_client.get('/api/queries')
+        response = generic_client.get('/api/test/queries')
         assert response.status_code == 200
 
     def test_queries_returns_list(self, generic_client):
-        response = generic_client.get('/api/queries')
+        response = generic_client.get('/api/test/queries')
         data = response.json()
         assert isinstance(data, list)
         assert len(data) == 11
 
     def test_queries_record_structure(self, generic_client):
-        response = generic_client.get('/api/queries')
+        response = generic_client.get('/api/test/queries')
         data = response.json()
         record = data[0]
         expected_keys = ['id', 'name', 'description', 'params', 'created_at']
@@ -206,23 +207,23 @@ class TestApiQueries:
             assert key in record, f"Missing key: {key}"
 
     def test_queries_sorted_by_name(self, generic_client):
-        response = generic_client.get('/api/queries')
+        response = generic_client.get('/api/test/queries')
         data = response.json()
         names = [q['name'] for q in data]
         assert names == sorted(names)
 
 
-# --- /api/queries/<name>/execute ---
+# --- /api/test/queries/<name>/execute ---
 
 
 
 
-# --- /api/queries/<name>/execute ---
+# --- /api/test/queries/<name>/execute ---
 
 class TestApiQueryExecute:
     def test_execute_no_params(self, generic_client):
         """Execute items_list query (no parameters needed)."""
-        response = generic_client.get('/api/queries/items_list/execute')
+        response = generic_client.get('/api/test/queries/items_list/execute')
         assert response.status_code == 200
         data = response.json()
         assert data['query'] == 'items_list'
@@ -232,7 +233,7 @@ class TestApiQueryExecute:
 
     def test_execute_with_params(self, generic_client):
         """Execute category_items query with category_id parameter."""
-        response = generic_client.get('/api/queries/category_items/execute?category_id=2')
+        response = generic_client.get('/api/test/queries/category_items/execute?category_id=2')
         assert response.status_code == 200
         data = response.json()
         assert data['row_count'] == 2  # Relativity, Alchemy (both in Physics)
@@ -241,92 +242,92 @@ class TestApiQueryExecute:
 
     def test_execute_results_sorted(self, generic_client):
         """items_list results should be sorted by name."""
-        response = generic_client.get('/api/queries/items_list/execute')
+        response = generic_client.get('/api/test/queries/items_list/execute')
         data = response.json()
         names = [r['name'] for r in data['rows']]
         assert names == sorted(names)
 
     def test_execute_not_found(self, generic_client):
-        response = generic_client.get('/api/queries/nonexistent/execute')
+        response = generic_client.get('/api/test/queries/nonexistent/execute')
         assert response.status_code == 404
         data = response.json()
         assert 'error' in data
 
     def test_execute_columns_present(self, generic_client):
         """Result should include column names."""
-        response = generic_client.get('/api/queries/items_list/execute')
+        response = generic_client.get('/api/test/queries/items_list/execute')
         data = response.json()
         assert 'name' in data['columns']
         assert 'is_active' in data['columns']
 
     def test_execute_row_is_dict(self, generic_client):
         """Each row should be a dictionary with column keys."""
-        response = generic_client.get('/api/queries/items_list/execute')
+        response = generic_client.get('/api/test/queries/items_list/execute')
         data = response.json()
         row = data['rows'][0]
         assert isinstance(row, dict)
         assert 'name' in row
 
 
-# --- /api/manifest ---
+# --- /api/test/manifest ---
 
 
 
 
-# --- /api/manifest ---
+# --- /api/test/manifest ---
 
 class TestApiManifest:
     def test_manifest_returns_200(self, generic_client):
-        response = generic_client.get('/api/manifest')
+        response = generic_client.get('/api/test/manifest')
         assert response.status_code == 200
 
     def test_manifest_returns_json(self, generic_client):
-        response = generic_client.get('/api/manifest')
+        response = generic_client.get('/api/test/manifest')
         data = response.json()
         assert isinstance(data, dict)
 
     def test_manifest_has_name(self, generic_client):
-        response = generic_client.get('/api/manifest')
+        response = generic_client.get('/api/test/manifest')
         data = response.json()
         assert data['name'] == 'default'
 
     def test_manifest_has_description(self, generic_client):
-        response = generic_client.get('/api/manifest')
+        response = generic_client.get('/api/test/manifest')
         data = response.json()
         assert data['description'] == 'Test manifest'
 
     def test_manifest_has_created_at(self, generic_client):
-        response = generic_client.get('/api/manifest')
+        response = generic_client.get('/api/test/manifest')
         data = response.json()
         assert 'created_at' in data
         assert data['created_at'] == '2026-02-20T00:00:00'
 
     def test_manifest_has_manifest_object(self, generic_client):
         """manifest_json should be parsed as an object, not returned as string."""
-        response = generic_client.get('/api/manifest')
+        response = generic_client.get('/api/test/manifest')
         data = response.json()
         assert 'manifest' in data
         assert isinstance(data['manifest'], dict)
 
     def test_manifest_has_default_view(self, generic_client):
-        response = generic_client.get('/api/manifest')
+        response = generic_client.get('/api/test/manifest')
         data = response.json()
         assert data['manifest']['default_view'] == 'category_tree'
 
     def test_manifest_has_views(self, generic_client):
-        response = generic_client.get('/api/manifest')
+        response = generic_client.get('/api/test/manifest')
         data = response.json()
         assert 'views' in data['manifest']
         assert isinstance(data['manifest']['views'], dict)
 
     def test_manifest_view_count(self, generic_client):
         """Test manifest should have 5 views (3 tab + 2 detail)."""
-        response = generic_client.get('/api/manifest')
+        response = generic_client.get('/api/test/manifest')
         data = response.json()
         assert len(data['manifest']['views']) == 5
 
     def test_manifest_tree_view(self, generic_client):
-        response = generic_client.get('/api/manifest')
+        response = generic_client.get('/api/test/manifest')
         data = response.json()
         tree = data['manifest']['views']['category_tree']
         assert tree['type'] == 'hierarchy'
@@ -334,21 +335,21 @@ class TestApiManifest:
         assert tree['source_query'] == 'category_tree'
 
     def test_manifest_table_view(self, generic_client):
-        response = generic_client.get('/api/manifest')
+        response = generic_client.get('/api/test/manifest')
         data = response.json()
         table = data['manifest']['views']['items_table']
         assert table['type'] == 'table'
         assert table['source_query'] == 'items_list'
 
     def test_manifest_detail_view(self, generic_client):
-        response = generic_client.get('/api/manifest')
+        response = generic_client.get('/api/test/manifest')
         data = response.json()
         detail = data['manifest']['views']['item_detail']
         assert detail['type'] == 'detail'
 
     def test_manifest_table_columns(self, generic_client):
         """Table views should have column definitions."""
-        response = generic_client.get('/api/manifest')
+        response = generic_client.get('/api/test/manifest')
         data = response.json()
         table = data['manifest']['views']['items_table']
         assert 'columns' in table
@@ -359,7 +360,7 @@ class TestApiManifest:
         assert 'label' in col
 
     def test_manifest_table_default_sort(self, generic_client):
-        response = generic_client.get('/api/manifest')
+        response = generic_client.get('/api/test/manifest')
         data = response.json()
         table = data['manifest']['views']['items_table']
         assert 'default_sort' in table
@@ -368,10 +369,10 @@ class TestApiManifest:
 
     def test_manifest_source_query_exists(self, generic_client):
         """source_query references should point to actual ui_queries entries."""
-        response = generic_client.get('/api/manifest')
+        response = generic_client.get('/api/test/manifest')
         data = response.json()
 
-        queries_response = generic_client.get('/api/queries')
+        queries_response = generic_client.get('/api/test/queries')
         queries_data = queries_response.json()
         query_names = {q['name'] for q in queries_data}
 
@@ -382,7 +383,7 @@ class TestApiManifest:
 
     def test_manifest_response_structure(self, generic_client):
         """Top-level response should have exactly these keys."""
-        response = generic_client.get('/api/manifest')
+        response = generic_client.get('/api/test/manifest')
         data = response.json()
         expected_keys = ['name', 'description', 'manifest', 'created_at']
         for key in expected_keys:
@@ -556,24 +557,24 @@ class TestRelease:
             create_release(canonical_db, output_dir)
 
 
-# --- /api/annotations --- (Phase 17)
+# --- /api/test/annotations --- (Phase 17)
 
 
 
 
-# --- /api/annotations --- (Phase 17)
+# --- /api/test/annotations --- (Phase 17)
 
 class TestAnnotations:
     def test_get_annotations_empty(self, generic_client):
         """Entity with no annotations should return empty list."""
-        response = generic_client.get('/api/annotations/item/1')
+        response = generic_client.get('/api/test/annotations/item/1')
         assert response.status_code == 200
         data = response.json()
         assert data == []
 
     def test_create_annotation(self, generic_client):
         """POST should create annotation and return 201."""
-        response = generic_client.post('/api/annotations',
+        response = generic_client.post('/api/test/annotations',
             json={
                 'entity_type': 'item',
                 'entity_id': 1,
@@ -591,7 +592,7 @@ class TestAnnotations:
 
     def test_create_annotation_missing_content(self, generic_client):
         """POST without content should return 400."""
-        response = generic_client.post('/api/annotations',
+        response = generic_client.post('/api/test/annotations',
             json={
                 'entity_type': 'item',
                 'entity_id': 1,
@@ -603,7 +604,7 @@ class TestAnnotations:
 
     def test_get_annotations_after_create(self, generic_client):
         """GET after POST should return the created annotation."""
-        generic_client.post('/api/annotations',
+        generic_client.post('/api/test/annotations',
             json={
                 'entity_type': 'item',
                 'entity_id': 1,
@@ -611,7 +612,7 @@ class TestAnnotations:
                 'content': 'Test note'
             })
 
-        response = generic_client.get('/api/annotations/item/1')
+        response = generic_client.get('/api/test/annotations/item/1')
         assert response.status_code == 200
         data = response.json()
         assert len(data) == 1
@@ -619,7 +620,7 @@ class TestAnnotations:
 
     def test_delete_annotation(self, generic_client):
         """DELETE should remove annotation and return 200."""
-        create_resp = generic_client.post('/api/annotations',
+        create_resp = generic_client.post('/api/test/annotations',
             json={
                 'entity_type': 'item',
                 'entity_id': 1,
@@ -628,32 +629,32 @@ class TestAnnotations:
             })
         annotation_id = create_resp.json()['id']
 
-        response = generic_client.delete(f'/api/annotations/{annotation_id}')
+        response = generic_client.delete(f'/api/test/annotations/{annotation_id}')
         assert response.status_code == 200
         data = response.json()
         assert data['id'] == annotation_id
 
         # Verify it's gone
-        get_resp = generic_client.get('/api/annotations/item/1')
+        get_resp = generic_client.get('/api/test/annotations/item/1')
         assert get_resp.json() == []
 
     def test_delete_annotation_not_found(self, generic_client):
         """DELETE for non-existent ID should return 404."""
-        response = generic_client.delete('/api/annotations/99999')
+        response = generic_client.delete('/api/test/annotations/99999')
         assert response.status_code == 404
         data = response.json()
         assert 'error' in data
 
     def test_annotations_ordered_by_date(self, generic_client):
         """Annotations should be returned newest first."""
-        generic_client.post('/api/annotations',
+        generic_client.post('/api/test/annotations',
             json={
                 'entity_type': 'item',
                 'entity_id': 1,
                 'annotation_type': 'note',
                 'content': 'First note'
             })
-        generic_client.post('/api/annotations',
+        generic_client.post('/api/test/annotations',
             json={
                 'entity_type': 'item',
                 'entity_id': 1,
@@ -661,7 +662,7 @@ class TestAnnotations:
                 'content': 'Second note'
             })
 
-        response = generic_client.get('/api/annotations/item/1')
+        response = generic_client.get('/api/test/annotations/item/1')
         data = response.json()
         assert len(data) == 2
         # Most recent first (both created in same second, so check by id desc)
@@ -670,7 +671,7 @@ class TestAnnotations:
 
     def test_annotation_response_structure(self, generic_client):
         """Annotation response should have all required keys."""
-        generic_client.post('/api/annotations',
+        generic_client.post('/api/test/annotations',
             json={
                 'entity_type': 'category',
                 'entity_id': 2,
@@ -679,7 +680,7 @@ class TestAnnotations:
                 'author': 'Reviewer'
             })
 
-        response = generic_client.get('/api/annotations/category/2')
+        response = generic_client.get('/api/test/annotations/category/2')
         data = response.json()
         record = data[0]
         expected_keys = ['id', 'entity_type', 'entity_id', 'annotation_type',
@@ -996,7 +997,7 @@ class TestPackageRegistry:
 
 
 # ---------------------------------------------------------------------------
-# /api/detail/<query_name> endpoint tests
+# /api/test/detail/<query_name> endpoint tests
 # ---------------------------------------------------------------------------
 
 
@@ -1068,11 +1069,11 @@ class TestRegisterPath:
 # ---------------------------------------------------------------------------
 
 class TestGenericDetailEndpoint:
-    """Tests for /api/detail/<query_name> generic detail endpoint."""
+    """Tests for /api/test/detail/<query_name> generic detail endpoint."""
 
     def test_detail_returns_first_row(self, generic_client):
-        """GET /api/detail/<query> should return first row as flat JSON."""
-        response = generic_client.get('/api/detail/items_list')
+        """GET /api/test/detail/<query> should return first row as flat JSON."""
+        response = generic_client.get('/api/test/detail/items_list')
         assert response.status_code == 200
         data = response.json()
         # Should be a flat dict (first row), not wrapped in rows/columns
@@ -1080,29 +1081,29 @@ class TestGenericDetailEndpoint:
         assert 'rows' not in data
 
     def test_detail_with_params(self, generic_client):
-        """GET /api/detail/<query>?param=value should pass parameters."""
-        response = generic_client.get('/api/detail/items_list')
+        """GET /api/test/detail/<query>?param=value should pass parameters."""
+        response = generic_client.get('/api/test/detail/items_list')
         assert response.status_code == 200
         data = response.json()
         assert isinstance(data, dict)
 
     def test_detail_query_not_found(self, generic_client):
         """Non-existent query should return 404."""
-        response = generic_client.get('/api/detail/nonexistent_query')
+        response = generic_client.get('/api/test/detail/nonexistent_query')
         assert response.status_code == 404
         data = response.json()
         assert 'error' in data
 
     def test_detail_no_results(self, generic_client):
         """Query returning 0 rows should return 404."""
-        response = generic_client.get('/api/detail/category_items?category_id=999999')
+        response = generic_client.get('/api/test/detail/category_items?category_id=999999')
         assert response.status_code == 404
         data = response.json()
         assert data['error'] == 'Not found'
 
     def test_detail_nonexistent_query(self, generic_client):
         """Non-existent query should return 404."""
-        response = generic_client.get('/api/detail/nonexistent_query')
+        response = generic_client.get('/api/test/detail/nonexistent_query')
         assert response.status_code == 404
 
 
@@ -1213,8 +1214,11 @@ class TestGenericViewer:
     """Tests for generic viewer serving."""
 
     def test_index_serves_generic_viewer(self, generic_client):
-        """Index should serve generic viewer."""
-        response = generic_client.get('/')
+        """Index should redirect to package, which serves generic viewer."""
+        response = generic_client.get('/', follow_redirects=False)
+        assert response.status_code == 302
+        assert response.headers['location'] == '/test/'
+        response = generic_client.get('/test/')
         assert response.status_code == 200
         html = response.text
         assert 'SCODA Desktop' in html
@@ -1223,44 +1227,44 @@ class TestGenericViewer:
 
 
 
-# --- /api/composite/<view_name> ---
+# --- /api/test/composite/<view_name> ---
 
 
 class TestCompositeDetail:
-    """Tests for /api/composite/<view_name> manifest-driven composite endpoint."""
+    """Tests for /api/test/composite/<view_name> manifest-driven composite endpoint."""
 
     def test_composite_requires_id(self, generic_client):
         """Missing id parameter should return 400."""
-        response = generic_client.get('/api/composite/item_detail')
+        response = generic_client.get('/api/test/composite/item_detail')
         assert response.status_code == 400
         data = response.json()
         assert 'id parameter required' in data['error']
 
     def test_composite_unknown_view_returns_404(self, generic_client):
         """Non-existent view name should return 404."""
-        response = generic_client.get('/api/composite/nonexistent_view?id=1')
+        response = generic_client.get('/api/test/composite/nonexistent_view?id=1')
         assert response.status_code == 404
         data = response.json()
         assert 'Detail view not found' in data['error']
 
     def test_composite_non_detail_view_returns_404(self, generic_client):
         """Table view (not detail type) should return 404."""
-        response = generic_client.get('/api/composite/items_table?id=1')
+        response = generic_client.get('/api/test/composite/items_table?id=1')
         assert response.status_code == 404
 
     def test_composite_hierarchy_view_returns_404(self, generic_client):
         """Hierarchy view (not detail type) should return 404."""
-        response = generic_client.get('/api/composite/category_tree?id=1')
+        response = generic_client.get('/api/test/composite/category_tree?id=1')
         assert response.status_code == 404
 
     def test_composite_entity_not_found(self, generic_client):
         """Non-existent entity id should return 404."""
-        response = generic_client.get('/api/composite/item_detail?id=999999')
+        response = generic_client.get('/api/test/composite/item_detail?id=999999')
         assert response.status_code == 404
 
     def test_composite_item_returns_main_data(self, generic_client):
         """Composite item detail should return main query fields at top level."""
-        response = generic_client.get('/api/composite/item_detail?id=1')
+        response = generic_client.get('/api/test/composite/item_detail?id=1')
         assert response.status_code == 200
         data = response.json()
         assert data['name'] == 'Gravity'
@@ -1269,7 +1273,7 @@ class TestCompositeDetail:
 
     def test_composite_item_has_sub_query_keys(self, generic_client):
         """Composite item detail should include sub-query result arrays."""
-        response = generic_client.get('/api/composite/item_detail?id=1')
+        response = generic_client.get('/api/test/composite/item_detail?id=1')
         assert response.status_code == 200
         data = response.json()
         assert 'hierarchy' in data
@@ -1281,7 +1285,7 @@ class TestCompositeDetail:
 
     def test_composite_item_hierarchy(self, generic_client):
         """Hierarchy should walk up from item's category to root."""
-        response = generic_client.get('/api/composite/item_detail?id=1')
+        response = generic_client.get('/api/test/composite/item_detail?id=1')
         data = response.json()
         hierarchy = data['hierarchy']
         assert len(hierarchy) >= 2  # At least group and root
@@ -1292,13 +1296,13 @@ class TestCompositeDetail:
 
     def test_composite_item_relations_empty(self, generic_client):
         """Item with no relations should have empty list."""
-        response = generic_client.get('/api/composite/item_detail?id=1')
+        response = generic_client.get('/api/test/composite/item_detail?id=1')
         data = response.json()
         assert data['relations'] == []
 
     def test_composite_item_tags(self, generic_client):
         """Item with tags should list them."""
-        response = generic_client.get('/api/composite/item_detail?id=1')
+        response = generic_client.get('/api/test/composite/item_detail?id=1')
         data = response.json()
         assert len(data['tags']) == 2  # 'classical', 'fundamental'
         tag_names = [t['tag_name'] for t in data['tags']]
@@ -1306,7 +1310,7 @@ class TestCompositeDetail:
 
     def test_composite_item_relations(self, generic_client):
         """Item with relations should list them."""
-        response = generic_client.get('/api/composite/item_detail?id=5')
+        response = generic_client.get('/api/test/composite/item_detail?id=5')
         data = response.json()
         assert len(data['relations']) == 1
         assert data['relations'][0]['target_name'] == 'Relativity'
@@ -1314,7 +1318,7 @@ class TestCompositeDetail:
     def test_composite_result_field_param(self, generic_client):
         """Sub-query using result.field should resolve from main query result."""
         # related_items uses result.category_id
-        response = generic_client.get('/api/composite/item_detail?id=2')
+        response = generic_client.get('/api/test/composite/item_detail?id=2')
         data = response.json()
         # Relativity has category_id=2 (Physics), which also contains Alchemy
         assert 'related_items' in data
@@ -1325,7 +1329,7 @@ class TestCompositeDetail:
 
     def test_composite_category_detail(self, generic_client):
         """Composite category detail should return main + children + counts."""
-        response = generic_client.get('/api/composite/category_detail?id=1')
+        response = generic_client.get('/api/test/composite/category_detail?id=1')
         assert response.status_code == 200
         data = response.json()
         assert data['name'] == 'Science'
@@ -1339,8 +1343,11 @@ class TestGenericViewerFallback:
     """Tests for generic viewer graceful handling of unknown section types."""
 
     def test_index_serves_html(self, generic_client):
-        """Generic viewer should serve valid HTML."""
-        response = generic_client.get('/')
+        """Generic viewer should redirect to package, which serves valid HTML."""
+        response = generic_client.get('/', follow_redirects=False)
+        assert response.status_code == 302
+        assert response.headers['location'] == '/test/'
+        response = generic_client.get('/test/')
         assert response.status_code == 200
         html = response.text
         assert '<html' in html
@@ -2004,8 +2011,8 @@ class TestAutoDiscovery:
     """Test auto-generated manifest for databases without ui_manifest."""
 
     def test_manifest_auto_generated(self, no_manifest_client):
-        """GET /api/manifest should return auto-generated manifest when no ui_manifest exists."""
-        resp = no_manifest_client.get('/api/manifest')
+        """GET /api/test/manifest should return auto-generated manifest when no ui_manifest exists."""
+        resp = no_manifest_client.get('/api/test/manifest')
         assert resp.status_code == 200
         data = resp.json()
         assert data['name'] == 'auto-generated'
@@ -2016,7 +2023,7 @@ class TestAutoDiscovery:
 
     def test_auto_manifest_contains_data_tables(self, no_manifest_client):
         """Auto-generated manifest should include species and localities tables."""
-        resp = no_manifest_client.get('/api/manifest')
+        resp = no_manifest_client.get('/api/test/manifest')
         data = resp.json()
         views = data['manifest']['views']
         assert 'species_table' in views
@@ -2024,7 +2031,7 @@ class TestAutoDiscovery:
 
     def test_auto_manifest_excludes_meta_tables(self, no_manifest_client):
         """Auto-generated manifest should not include SCODA metadata tables."""
-        resp = no_manifest_client.get('/api/manifest')
+        resp = no_manifest_client.get('/api/test/manifest')
         data = resp.json()
         views = data['manifest']['views']
         # No SCODA meta table should appear as a view
@@ -2034,7 +2041,7 @@ class TestAutoDiscovery:
 
     def test_auto_manifest_table_view_structure(self, no_manifest_client):
         """Auto-generated table view should have correct structure."""
-        resp = no_manifest_client.get('/api/manifest')
+        resp = no_manifest_client.get('/api/test/manifest')
         view = resp.json()['manifest']['views']['species_table']
         assert view['type'] == 'table'
         assert view['title'] == 'Species'
@@ -2045,7 +2052,7 @@ class TestAutoDiscovery:
 
     def test_auto_manifest_detail_view_created(self, no_manifest_client):
         """Auto-generated detail view should exist for tables with PK."""
-        resp = no_manifest_client.get('/api/manifest')
+        resp = no_manifest_client.get('/api/test/manifest')
         views = resp.json()['manifest']['views']
         assert 'species_detail' in views
         detail = views['species_detail']
@@ -2054,7 +2061,7 @@ class TestAutoDiscovery:
 
     def test_auto_query_execute(self, no_manifest_client):
         """auto__{table}_list queries should return data."""
-        resp = no_manifest_client.get('/api/queries/auto__species_list/execute')
+        resp = no_manifest_client.get('/api/test/queries/auto__species_list/execute')
         assert resp.status_code == 200
         data = resp.json()
         assert data['query'] == 'auto__species_list'
@@ -2065,12 +2072,12 @@ class TestAutoDiscovery:
 
     def test_auto_query_nonexistent_table(self, no_manifest_client):
         """auto__ query for non-existent table should return 404."""
-        resp = no_manifest_client.get('/api/queries/auto__nonexistent_list/execute')
+        resp = no_manifest_client.get('/api/test/queries/auto__nonexistent_list/execute')
         assert resp.status_code == 404
 
     def test_auto_detail_endpoint(self, no_manifest_client):
-        """GET /api/auto/detail/{table}?id=N should return single row."""
-        resp = no_manifest_client.get('/api/auto/detail/species?id=1')
+        """GET /api/test/auto/detail/{table}?id=N should return single row."""
+        resp = no_manifest_client.get('/api/test/auto/detail/species?id=1')
         assert resp.status_code == 200
         data = resp.json()
         assert data['name'] == 'Paradoxides davidis'
@@ -2078,22 +2085,22 @@ class TestAutoDiscovery:
 
     def test_auto_detail_not_found(self, no_manifest_client):
         """Auto detail with invalid id should return 404."""
-        resp = no_manifest_client.get('/api/auto/detail/species?id=999')
+        resp = no_manifest_client.get('/api/test/auto/detail/species?id=999')
         assert resp.status_code == 404
 
     def test_auto_detail_missing_id(self, no_manifest_client):
         """Auto detail without id param should return 400."""
-        resp = no_manifest_client.get('/api/auto/detail/species')
+        resp = no_manifest_client.get('/api/test/auto/detail/species')
         assert resp.status_code == 400
 
     def test_auto_detail_nonexistent_table(self, no_manifest_client):
         """Auto detail for non-existent table should return 404."""
-        resp = no_manifest_client.get('/api/auto/detail/nonexistent?id=1')
+        resp = no_manifest_client.get('/api/test/auto/detail/nonexistent?id=1')
         assert resp.status_code == 404
 
     def test_existing_manifest_unchanged(self, generic_client):
         """Databases WITH ui_manifest should still use the stored manifest."""
-        resp = generic_client.get('/api/manifest')
+        resp = generic_client.get('/api/test/manifest')
         assert resp.status_code == 200
         data = resp.json()
         # Should be the test fixture manifest, not auto-generated
@@ -2102,14 +2109,14 @@ class TestAutoDiscovery:
 
     def test_auto_manifest_default_view(self, no_manifest_client):
         """Default view should be the first table alphabetically."""
-        resp = no_manifest_client.get('/api/manifest')
+        resp = no_manifest_client.get('/api/test/manifest')
         data = resp.json()
         # 'localities' < 'species' alphabetically
         assert data['manifest']['default_view'] == 'localities_table'
 
     def test_auto_query_localities(self, no_manifest_client):
         """auto__localities_list should return locality data."""
-        resp = no_manifest_client.get('/api/queries/auto__localities_list/execute')
+        resp = no_manifest_client.get('/api/test/queries/auto__localities_list/execute')
         assert resp.status_code == 200
         data = resp.json()
         assert data['row_count'] == 2
@@ -2120,12 +2127,12 @@ class TestAutoDiscovery:
         """Auto detail endpoint should block access to SCODA metadata tables."""
         for meta_table in ('artifact_metadata', 'provenance', 'schema_descriptions',
                            'ui_display_intent', 'ui_queries', 'ui_manifest'):
-            resp = generic_client.get(f'/api/auto/detail/{meta_table}?id=1')
+            resp = generic_client.get(f'/api/test/auto/detail/{meta_table}?id=1')
             assert resp.status_code == 403, f"{meta_table} should return 403"
 
     def test_auto_detail_blocks_metadata_no_manifest(self, no_manifest_client):
         """Auto detail metadata blocking works even without manifest."""
-        resp = no_manifest_client.get('/api/auto/detail/ui_queries?id=1')
+        resp = no_manifest_client.get('/api/test/auto/detail/ui_queries?id=1')
         assert resp.status_code == 403
 
 

@@ -357,7 +357,7 @@ class PackageRegistry:
         # Ensure overlay DB exists
         _ensure_overlay_for_package(db_path, overlay_path)
 
-        conn = sqlite3.connect(db_path)
+        conn = sqlite3.connect(db_path, check_same_thread=False)
         conn.row_factory = sqlite3.Row
         conn.execute(f"ATTACH DATABASE '{overlay_path}' AS overlay")
         logger.debug("get_db(%s): attached overlay", name)
@@ -367,6 +367,12 @@ class PackageRegistry:
         for alias, dep_db_path in validated_deps:
             conn.execute(f"ATTACH DATABASE '{dep_db_path}' AS {alias}")
             logger.debug("get_db(%s): attached dependency as %s", name, alias)
+
+        # Attach raw dependency DBs (from register_db / testing)
+        for alias, dep_path in entry.get('_extra_dbs', {}).items():
+            if os.path.exists(dep_path):
+                conn.execute(f"ATTACH DATABASE '{dep_path}' AS {alias}")
+                logger.debug("get_db(%s): attached extra_db as %s", name, alias)
 
         return conn
 
@@ -525,6 +531,26 @@ class PackageRegistry:
 
         logger.info("Registered package '%s' from %s", name, scoda_path)
         return name
+
+    def register_db(self, name, db_path, overlay_path, extra_dbs=None):
+        """Register a raw DB path (for testing / direct DB mode).
+
+        No ScodaPackage wrapping — just stores the paths so get_db() can
+        open a connection with overlay and dependency attachments.
+
+        Args:
+            name: Package name.
+            db_path: Path to the canonical database.
+            overlay_path: Path to the overlay database.
+            extra_dbs: Optional dict of {alias: path} for dependency databases.
+        """
+        self._packages[name] = {
+            'pkg': None,
+            'db_path': db_path,
+            'overlay_path': overlay_path,
+            'deps': [],
+            '_extra_dbs': extra_dbs or {},
+        }
 
     def close_all(self):
         """Close all ScodaPackage instances."""
@@ -833,18 +859,26 @@ def _resolve_paths():
 def _set_paths_for_testing(canonical_path, overlay_path, extra_dbs=None):
     """Override DB paths for testing. Call before any get_db().
 
+    Also registers the DB in the default PackageRegistry under the name
+    ``"test"`` so that the multi-package router (``/api/{package}/...``)
+    can resolve it.
+
     Args:
         canonical_path: Path to the main database.
         overlay_path: Path to the overlay database.
         extra_dbs: Optional dict of {alias: path} for dependency databases.
     """
-    global _canonical_db, _overlay_db, _dep_dbs, _scoda_pkg, _dep_pkgs, _active_package_name
+    global _canonical_db, _overlay_db, _dep_dbs, _scoda_pkg, _dep_pkgs, _active_package_name, _registry
     _active_package_name = None  # tests use direct paths, not registry
     _canonical_db = canonical_path
     _overlay_db = overlay_path
     _dep_dbs = extra_dbs or {}
     _scoda_pkg = None
     _dep_pkgs = []
+    # Register in registry for multi-package router
+    if _registry is None:
+        _registry = PackageRegistry()
+    _registry.register_db('test', canonical_path, overlay_path, extra_dbs or {})
 
 
 def _reset_paths():
@@ -860,6 +894,7 @@ def _reset_paths():
     _scoda_pkg = None
     _dep_pkgs = []
     _active_package_name = None
+    _reset_registry()
 
 
 def get_canonical_db_path():

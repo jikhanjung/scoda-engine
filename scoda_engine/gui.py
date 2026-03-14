@@ -227,7 +227,7 @@ class ScodaDesktopGUI:
         header_inner = tk.Frame(header_frame, bg="#2196F3")
         header_inner.pack(pady=12)
 
-        header = tk.Label(header_inner, text="SCODA Desktop",
+        header = tk.Label(header_inner, text=f"SCODA Desktop v{__version__}",
                          font=("Arial", 14, "bold"), bg="#2196F3", fg="white")
         header.pack(side="left")
 
@@ -403,82 +403,47 @@ class ScodaDesktopGUI:
         self.log_text.tag_config("SUCCESS", foreground="green")
 
     def _on_package_select(self, event):
-        """Handle package selection change in Listbox."""
-        if self.server_running:
-            self._append_log("Stop server before switching packages", "WARNING")
-            # Re-select the current package
-            for i, pkg in enumerate(self.packages):
-                if pkg['name'] == self.selected_package:
-                    self.pkg_listbox.selection_clear(0, "end")
-                    self.pkg_listbox.selection_set(i)
-                    break
-            return
-
+        """Handle package selection change in Listbox (informational only)."""
         idx = self.pkg_listbox.curselection()
         if not idx:
             return
         self.selected_package = self.packages[idx[0]]['name']
         self._update_pkg_info()
-        self._update_status()
-        self._append_log(f"Selected: {self.selected_package}")
 
     def _refresh_pkg_listbox(self):
         """Refresh listbox items with current status indicators."""
-        self.pkg_listbox.config(state="normal")
         self.pkg_listbox.delete(0, "end")
-
-        # Build dep names for the running package
-        running_dep_names = set()
-        if self.server_running and self.selected_package:
-            running_pkg = self._get_selected_pkg()
-            if running_pkg:
-                for dep in running_pkg.get('deps', []):
-                    running_dep_names.add(dep.get('name'))
 
         sel_idx = None
         row = 0
         for pkg in self.packages:
-            is_running = self.server_running and pkg['name'] == self.selected_package
-            is_loaded_dep = self.server_running and pkg['name'] in running_dep_names
-
-            # Skip deps here; they'll appear as children under the running package
-            if is_loaded_dep:
-                continue
-
-            if is_running:
-                label = f" \u25b6 Running  {pkg['name']} v{pkg['version']} \u2014 {pkg['record_count']:,} records"
-            else:
-                label = f" \u25a0 Stopped  {pkg['name']} v{pkg['version']} \u2014 {pkg['record_count']:,} records"
+            status = "\u25b6 Serving" if self.server_running else "\u25a0"
+            label = f" {status}  {pkg['name']} v{pkg['version']} \u2014 {pkg['record_count']:,} records"
             self.pkg_listbox.insert("end", label)
 
             if pkg['name'] == self.selected_package:
                 sel_idx = row
             row += 1
 
-            # Insert dependency children under running package
-            if is_running:
-                for dep in pkg.get('deps', []):
-                    dep_name = dep.get('name')
-                    dep_pkg = None
-                    for p in self.packages:
-                        if p['name'] == dep_name:
-                            dep_pkg = p
-                            break
-                    if dep_pkg:
-                        dep_label = (f"   \u2514\u2500 Loaded  {dep_pkg['name']} v{dep_pkg['version']}"
-                                     f" \u2014 {dep_pkg['record_count']:,} records")
-                    else:
-                        dep_label = f"   \u2514\u2500 Loaded  {dep_name} (alias: {dep.get('alias', dep_name)})"
-                    self.pkg_listbox.insert("end", dep_label)
-                    row += 1
+            # Show dependency info
+            for dep in pkg.get('deps', []):
+                dep_name = dep.get('name')
+                dep_pkg = None
+                for p in self.packages:
+                    if p['name'] == dep_name:
+                        dep_pkg = p
+                        break
+                if dep_pkg:
+                    dep_label = (f"   \u2514\u2500 dep  {dep_pkg['name']} v{dep_pkg['version']}"
+                                 f" \u2014 {dep_pkg['record_count']:,} records")
+                else:
+                    dep_label = f"   \u2514\u2500 dep  {dep_name} (alias: {dep.get('alias', dep_name)})"
+                self.pkg_listbox.insert("end", dep_label)
+                row += 1
 
         # Restore selection
         if sel_idx is not None:
             self.pkg_listbox.selection_set(sel_idx)
-
-        # Disable switching while running
-        if self.server_running:
-            self.pkg_listbox.config(state="disabled")
 
     def _get_selected_pkg(self):
         """Return the selected package dict or None."""
@@ -492,7 +457,7 @@ class ScodaDesktopGUI:
     def _update_pkg_info(self):
         """Update the package info label below the Listbox."""
         if not self.selected_package:
-            self.pkg_info_label.config(text="Select a package to start")
+            self.pkg_info_label.config(text="Select a package to view details")
             return
 
         pkg = None
@@ -941,14 +906,14 @@ class ScodaDesktopGUI:
         self.root.update_idletasks()
 
     def start_server(self):
-        """Start web server for the selected package."""
+        """Start web server for all discovered packages."""
         if self.server_running:
             return
 
-        if not self.selected_package:
-            self._append_log("ERROR: No package selected!", "ERROR")
-            messagebox.showerror("No Package",
-                               "Please select a package before starting the server.")
+        if not self.packages:
+            self._append_log("ERROR: No packages found!", "ERROR")
+            messagebox.showerror("No Packages",
+                               "No .scoda packages found to serve.")
             return
 
         # Validate port number from entry
@@ -988,13 +953,6 @@ class ScodaDesktopGUI:
             else:
                 return
 
-        # Verify the package exists in registry
-        try:
-            self.registry.get_package(self.selected_package)
-        except KeyError:
-            self._append_log(f"ERROR: Package '{self.selected_package}' not found!", "ERROR")
-            return
-
         self.root.config(cursor="wait")
         self.root.update()
         try:
@@ -1020,10 +978,9 @@ class ScodaDesktopGUI:
 
     def _start_server_threaded(self):
         """Start web server in thread (for frozen/PyInstaller mode)."""
-        self._append_log(f"Starting web server (package={self.selected_package})...", "INFO")
-
-        # Set active package before importing app
-        scoda_package.set_active_package(self.selected_package)
+        n = len(self.packages)
+        names = ', '.join(p['name'] for p in self.packages)
+        self._append_log(f"Starting web server ({n} package(s): {names})...", "INFO")
 
         # Redirect stdout/stderr to GUI
         self.original_stdout = sys.stdout
@@ -1041,15 +998,15 @@ class ScodaDesktopGUI:
         """Start web server as subprocess (for development mode)."""
         python_exe = sys.executable
 
-        self._append_log(f"Starting web server (package={self.selected_package})...", "INFO")
+        n = len(self.packages)
+        names = ', '.join(p['name'] for p in self.packages)
+        self._append_log(f"Starting web server ({n} package(s): {names})...", "INFO")
 
-        # Build command: use --scoda-path for externally loaded packages
+        # Build command — multi-package serving discovers packages from the base directory.
+        # For externally loaded packages, pass --scoda-path so the subprocess registers them.
         cmd = [python_exe, '-m', 'scoda_engine.app', '--port', str(self.port)]
-        ext_path = self._external_scoda_paths.get(self.selected_package)
-        if ext_path:
+        for ext_path in self._external_scoda_paths.values():
             cmd.extend(['--scoda-path', ext_path])
-        else:
-            cmd.extend(['--package', self.selected_package])
 
         # Start server as subprocess (using -m for package import)
         self.server_process = subprocess.Popen(
@@ -1220,12 +1177,19 @@ class ScodaDesktopGUI:
         self._append_log("Log cleared")
 
     def open_browser(self):
-        """Open default browser."""
+        """Open default browser.
+
+        If a package is selected in the listbox, opens directly to that
+        package's viewer page.  Otherwise opens the root (landing/redirect).
+        """
         if not self.server_running:
             return
 
         try:
-            webbrowser.open(f'http://localhost:{self.port}')
+            url = f'http://localhost:{self.port}'
+            if self.selected_package:
+                url += f'/{self.selected_package}/'
+            webbrowser.open(url)
         except Exception as e:
             messagebox.showerror("Browser Error",
                                f"Could not open browser:\n{e}")
@@ -1262,23 +1226,26 @@ class ScodaDesktopGUI:
             self.start_btn.config(state="disabled", relief="sunken")
             self.stop_btn.config(state="normal", relief="raised")
             self.port_entry.config(state="disabled")
-            # Show running package in header
-            pkg = self._get_selected_pkg()
-            if pkg:
+            # Show serving info in header
+            n = len(self.packages)
+            if n == 1:
+                pkg = self.packages[0]
                 self.header_pkg_label.config(
                     text=f"\u25b6 {pkg['name']} v{pkg['version']}",
                     fg="white")
+            else:
+                self.header_pkg_label.config(
+                    text=f"\u25b6 Serving {n} packages",
+                    fg="white")
         else:
             self.browser_btn.config(state="disabled")
-            can_start = self.selected_package is not None
-            self.start_btn.config(state="normal" if can_start else "disabled",
-                                 relief="raised")
+            self.start_btn.config(state="normal", relief="raised")
             self.stop_btn.config(state="disabled", relief="sunken")
             self.port_entry.config(state="normal")
             # Clear header package indicator
             self.header_pkg_label.config(text="", fg="#BBDEFB")
 
-        # Refresh listbox (handles status text + disabled state)
+        # Refresh listbox
         self._refresh_pkg_listbox()
 
     def run(self):

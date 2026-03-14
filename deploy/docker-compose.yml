@@ -2,7 +2,7 @@ name: scoda-server
 
 services:
   app:
-    image: honestjung/scoda-server:0.2.5
+    image: honestjung/scoda-server:0.3.0
     container_name: scoda-server
     build:
       context: ..

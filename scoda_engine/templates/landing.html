@@ -1,0 +1,152 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SCODA — Packages</title>
+    <link href="/static/vendor/bootstrap.min.css" rel="stylesheet">
+    <link href="/static/vendor/bootstrap-icons/bootstrap-icons.css" rel="stylesheet">
+    <style>
+        body {
+            margin: 0;
+            background: #0d1117;
+            color: #c9d1d9;
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            min-height: 100vh;
+            overflow: hidden;
+        }
+        #canvas { position: fixed; top: 0; left: 0; width: 100%; height: 100%; z-index: 0; }
+        .landing-header {
+            position: relative; z-index: 1;
+            text-align: center; padding: 2rem 1rem 0.5rem;
+        }
+        .landing-header h1 {
+            font-size: 2rem; font-weight: 300; letter-spacing: 0.15em;
+            color: #58a6ff;
+            text-shadow: 0 0 20px rgba(88,166,255,0.3);
+        }
+        .landing-header p { color: #8b949e; font-size: 0.95rem; }
+        .package-list {
+            position: relative; z-index: 1;
+            display: flex; flex-wrap: wrap; justify-content: center;
+            gap: 1.5rem; padding: 2rem;
+            max-width: 1200px; margin: 0 auto;
+        }
+        .package-card {
+            background: rgba(22,27,34,0.85);
+            border: 1px solid #30363d;
+            border-radius: 12px;
+            padding: 1.5rem;
+            width: 280px;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            text-decoration: none;
+            color: inherit;
+            backdrop-filter: blur(8px);
+        }
+        .package-card:hover {
+            border-color: #58a6ff;
+            box-shadow: 0 0 24px rgba(88,166,255,0.15);
+            transform: translateY(-4px);
+            color: inherit;
+        }
+        .package-card h3 {
+            font-size: 1.1rem; margin: 0 0 0.5rem;
+            color: #58a6ff;
+        }
+        .package-card .version { color: #8b949e; font-size: 0.8rem; }
+        .package-card .desc {
+            color: #8b949e; font-size: 0.85rem;
+            margin: 0.75rem 0;
+            display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical;
+            overflow: hidden;
+        }
+        .package-card .stats {
+            font-size: 0.8rem; color: #484f58;
+        }
+        .empty-state {
+            position: relative; z-index: 1;
+            text-align: center; padding: 4rem;
+            color: #484f58;
+        }
+        @media (max-width: 640px) {
+            .package-card { width: 100%; }
+        }
+    </style>
+</head>
+<body>
+    <svg id="canvas"></svg>
+
+    <div class="landing-header">
+        <h1><i class="bi bi-diagram-3"></i> SCODA</h1>
+        <p>Select a data package to explore</p>
+    </div>
+
+    <div class="package-list" id="package-list">
+        <div class="empty-state">Loading packages...</div>
+    </div>
+
+    <script src="/static/vendor/d3.v7.min.js"></script>
+    <script>
+    (async () => {
+        // Load packages
+        const resp = await fetch('/api/packages');
+        const packages = await resp.json();
+        const container = document.getElementById('package-list');
+
+        if (!packages.length) {
+            container.innerHTML = '<div class="empty-state"><i class="bi bi-inbox" style="font-size:3rem;"></i><p>No packages found</p></div>';
+            return;
+        }
+
+        container.innerHTML = packages.map(p => `
+            <a href="/${p.name}/" class="package-card">
+                <h3><i class="bi bi-box-seam"></i> ${p.title || p.name}</h3>
+                <span class="version">v${p.version}</span>
+                <div class="desc">${p.description || ''}</div>
+                <div class="stats">
+                    ${p.record_count ? `<i class="bi bi-table"></i> ${p.record_count.toLocaleString()} records` : ''}
+                    ${p.has_dependencies ? ' <i class="bi bi-link-45deg"></i> deps' : ''}
+                </div>
+            </a>
+        `).join('');
+
+        // D3 force background — floating circles
+        const svg = d3.select('#canvas');
+        const w = window.innerWidth, h = window.innerHeight;
+        svg.attr('width', w).attr('height', h);
+
+        const nodes = packages.map((p, i) => ({
+            x: w/2 + (Math.random()-0.5)*300,
+            y: h/2 + (Math.random()-0.5)*300,
+            r: 30 + Math.min(p.record_count || 0, 10000) / 200,
+            name: p.name,
+        }));
+
+        // Add ambient particles
+        for (let i = 0; i < 20; i++) {
+            nodes.push({
+                x: Math.random()*w, y: Math.random()*h,
+                r: 2 + Math.random()*4, name: null
+            });
+        }
+
+        const sim = d3.forceSimulation(nodes)
+            .force('charge', d3.forceManyBody().strength(-30))
+            .force('center', d3.forceCenter(w/2, h/2).strength(0.02))
+            .force('collision', d3.forceCollide(d => d.r + 5))
+            .alphaDecay(0.002)
+            .on('tick', () => {
+                circles.attr('cx', d => d.x).attr('cy', d => d.y);
+            });
+
+        const circles = svg.selectAll('circle')
+            .data(nodes).enter().append('circle')
+            .attr('r', d => d.r)
+            .attr('fill', d => d.name ? 'rgba(88,166,255,0.08)' : 'rgba(88,166,255,0.03)')
+            .attr('stroke', d => d.name ? 'rgba(88,166,255,0.15)' : 'none')
+            .attr('stroke-width', 1);
+    })();
+    </script>
+</body>
+</html>
