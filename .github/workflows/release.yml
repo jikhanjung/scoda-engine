@@ -32,10 +32,10 @@ jobs:
             platform: windows
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - name: Set up Python 3.12
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v6
         with:
           python-version: "3.12"
 
@@ -63,7 +63,7 @@ jobs:
         shell: pwsh
 
       - name: Upload artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         with:
           name: ScodaDesktop-${{ inputs.version_tag }}-${{ matrix.platform }}
           path: ScodaDesktop-${{ inputs.version_tag }}-${{ matrix.platform }}.zip
@@ -74,7 +74,7 @@ jobs:
     outputs:
       bare_version: ${{ steps.version.outputs.bare }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
@@ -108,10 +108,10 @@ jobs:
       contents: write
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - name: Download desktop artifacts
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v5
         with:
           pattern: ScodaDesktop-*
           path: release-assets
