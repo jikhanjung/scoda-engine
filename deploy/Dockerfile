@@ -36,14 +36,13 @@ ENV SCODA_HUB_SSL_VERIFY=0
 RUN mkdir -p /data && python /tmp/fetch_packages.py --dest /data/ && \
     chown -R scoda:scoda /data && rm /tmp/fetch_packages.py
 
-# Default package (set at build time, overridable at runtime)
-ARG DEFAULT_PACKAGE=trilobase
+# Multi-package serving: all packages in /data/ are served simultaneously.
+# Set SCODA_PACKAGE at runtime to force GET / redirect to a specific package.
 ENV SCODA_MODE=viewer \
     SCODA_PORT=8081 \
     SCODA_WORKERS=2 \
     SCODA_LOG_LEVEL=info \
     SCODA_PATH=/data/ \
-    SCODA_PACKAGE=${DEFAULT_PACKAGE} \
     SCODA_HUB_SYNC=1 \
     SCODA_HUB_SYNC_INTERVAL=86400
 

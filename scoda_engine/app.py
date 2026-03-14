@@ -1143,9 +1143,10 @@ def index(request: Request):
     })
 
 
-@app.get('/{package}/', response_class=HTMLResponse)
+@app.get('/{package}/', response_class=HTMLResponse, include_in_schema=False)
+@app.get('/{package}', response_class=HTMLResponse)
 def package_index(request: Request, package: str):
-    """Package viewer page."""
+    """Package viewer page (with or without trailing slash)."""
     # Verify package exists in registry
     try:
         get_registry().get_package(package)
