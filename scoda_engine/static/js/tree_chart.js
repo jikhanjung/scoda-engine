@@ -693,7 +693,7 @@ class TreeChartInstance {
         const tcOpts = view.tree_chart_options || {};
         const rows = await fetchQuery(view.source_query, this.overrideParams);
 
-        if (!rows || rows.length === 0) return null;
+        if (!rows || rows.length === 0) { this.fullRoot = null; return null; }
 
         // Determine edge source: diff_mode or normal edge_query
         const diffCfg = tcOpts.diff_mode || null;

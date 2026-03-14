@@ -1149,9 +1149,11 @@ async function renderCompoundTimelineSubView(subKey, subView, containerEl) {
     // --- Axis loading ---
     async function loadAxis(modeIdx) {
         const mode = tlOpts.axis_modes[modeIdx];
+        console.log(`[timeline] loadAxis(${modeIdx})`, mode?.key, 'axis_query=', mode?.axis_query);
         if (!mode || !mode.axis_query) return;
 
         const rows = await fetchCompoundQuery(mode.axis_query);
+        console.log(`[timeline] axis rows: ${rows.length}`, rows.slice(0, 3));
         const valueKey = mode.value_key || 'value';
         const labelKey = mode.label_key || 'label';
         const orderKey = mode.order_key || null;
@@ -1164,6 +1166,7 @@ async function renderCompoundTimelineSubView(subKey, subView, containerEl) {
                 return (av ?? 0) - (bv ?? 0);
             });
         }
+        console.log(`[timeline] allSteps: ${allSteps.length}, first=`, allSteps[0], 'last=', allSteps[allSteps.length - 1]);
 
         // Override source_query / edge_query per axis mode
         if (mode.source_query_override) {
@@ -1172,6 +1175,7 @@ async function renderCompoundTimelineSubView(subKey, subView, containerEl) {
         if (mode.edge_query_override && subView.tree_chart_options) {
             subView.tree_chart_options.edge_query = mode.edge_query_override;
         }
+        console.log(`[timeline] source_query=${subView.source_query}, edge_query=${subView.tree_chart_options?.edge_query}`);
 
         applyStepSize();
         currentIdx = 0;
@@ -1201,7 +1205,8 @@ async function renderCompoundTimelineSubView(subKey, subView, containerEl) {
 
     // --- Tree loading for a single step ---
     async function loadStep(idx) {
-        if (idx < 0 || idx >= steps.length) return;
+        console.log(`[timeline] loadStep(${idx}), steps.length=${steps.length}`);
+        if (idx < 0 || idx >= steps.length) { console.log('[timeline] loadStep: out of range, skip'); return; }
         currentIdx = idx;
         updateScrubber();
 
@@ -1209,10 +1214,12 @@ async function renderCompoundTimelineSubView(subKey, subView, containerEl) {
         if (overrides.base_profile_id) overrides.profile_id = overrides.base_profile_id;
         overrides[paramName] = steps[idx].value;
         inst.overrideParams = overrides;
+        console.log(`[timeline] loadStep: step value=${steps[idx].value}, label=${steps[idx].label}, source_query=${subView.source_query}, overrideParams=`, JSON.stringify(overrides));
 
         await inst.buildHierarchy(subView);
         inst.root = inst.fullRoot;
-        if (!inst.root) return;
+        console.log(`[timeline] loadStep: fullRoot=${inst.fullRoot ? 'exists' : 'null'}, root children=${inst.root?.children?.length ?? 'N/A'}, descendants=${inst.root?.descendants?.()?.length ?? 'N/A'}`);
+        if (!inst.root) { inst.render(); return; }
         inst.computeLayout(inst.root, subView);
         inst.assignColors(inst.root, subView);
         inst.buildQuadtree(inst.root);
@@ -1220,6 +1227,7 @@ async function renderCompoundTimelineSubView(subKey, subView, containerEl) {
         inst.transform = inst.computeFitTransform();
         d3.select(inst.canvas).call(inst.zoom.transform, inst.transform);
         inst.render();
+        console.log(`[timeline] loadStep: render complete`);
     }
 
     // --- Morph between two steps ---
@@ -1325,9 +1333,14 @@ async function renderCompoundTimelineSubView(subKey, subView, containerEl) {
 
     // --- Event handlers ---
     axisModeSel.addEventListener('change', async () => {
-        stopPlaying();
-        queryCache = {};
-        await loadAxis(parseInt(axisModeSel.value, 10));
+        console.log(`[timeline] axis dropdown changed to index=${axisModeSel.value}`);
+        try {
+            stopPlaying();
+            queryCache = {};
+            await loadAxis(parseInt(axisModeSel.value, 10));
+        } catch (e) {
+            console.error('[timeline] loadAxis error:', e);
+        }
     });
 
     stepSizeInput.addEventListener('change', async () => {
