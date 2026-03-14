@@ -1,6 +1,6 @@
 # SCODA Engine — Project Handoff Document
 
-**Last updated:** 2026-03-12
+**Last updated:** 2026-03-14
 
 ---
 
@@ -66,6 +66,14 @@
 | Diff Tree 시각화 (색상, 범례, 툴팁, moved re-parent) | Done | `devlog/20260307_041_diff_tree.md` |
 | Desktop v0.2.0 버전 업 | Done | `scoda_engine/__init__.py`, `pyproject.toml` |
 | P26: Tree Search 수정 + Watch 기능 + Removed Taxa 목록 | Done | `devlog/20260311_P26_impl_tree_search_watch_removed.md` |
+| P27: Hub Refresh + 모바일 반응형 UI + Animation 동영상 다운로드 | Done | `devlog/20260312_P27_impl_hub_refresh_mobile_ui_video.md` |
+| Composite detail bugfix + Tree chart visible depth slider | Done | `devlog/20260313_028_composite_bugfix_and_tree_depth_slider.md` |
+| Tree 노드 라벨 폰트 크기 단축키 (`[`/`]` 키) | Done | `devlog/20260313_029_tree_text_scale_keyboard_shortcut.md` |
+| P28: Timeline sub-view (지질시대/출판연도 타임라인) | Done | `devlog/20260314_030_timeline_subview_implementation.md` |
+| Vendor JS/CSS 번들링 (오프라인 지원) | Done | `devlog/20260314_031_vendor_js_bundling.md` |
+| Desktop v0.2.4 ~ v0.2.5 버전 업 | Done | `e7ab362`, `915acd6` |
+| Fix: Timeline 축 전환 시 빈 트리 처리 | Done | `devlog/20260314_033_timeline_axis_switch_bugfix.md` |
+| Fix: Timeline play 빈 스텝 무한 루프 방지 | Done | `devlog/20260314_034_timeline_empty_step_infinite_loop_fix.md` |
 
 ### Test Status
 
@@ -78,12 +86,23 @@
 
 - 없음
 
-### Recent Session (2026-03-11) Summary
+### Recent Sessions (2026-03-12 ~ 2026-03-14) Summary
 
-1. **P26: Tree Search 수정**: morph 모드 양쪽 트리 검색, `zoomToNode` 좌표 계산 수정, bounding box fit-zoom (`zoomToFitNodes`).
-2. **Watch 기능**: 컨텍스트 메뉴 Watch/Unwatch, 우상단 Watch 패널 (클릭→zoom, ×→remove), watched 노드 2×/parent+children 1.5× 확대 + 금색 링 + bold 라벨.
-3. **Removed Taxa 목록**: diff/morph 모드에서 좌하단 패널 표시, subtree/collapse 등 상태 변경 시 동적 갱신.
-4. **버그 수정**: left-click expand (collapsed 노드 leaf 오판), morph animation collapse 시 하위 노드/엣지 숨김 처리.
+**2026-03-12: P27 구현**
+1. **Hub Refresh 버튼**: Web navbar ↻ 버튼 (`POST /api/hub/sync`), Desktop GUI "Check Hub" 버튼, 새 패키지 감지 시 자동 페이지 리로드.
+2. **모바일 반응형 UI**: 768px breakpoint, 햄버거 메뉴(☰↔✕), 세로 드롭다운 탭, 검색바·단축키 힌트 숨김.
+3. **Animation 동영상 다운로드**: Chrome/Edge/Firefox: 오프라인 30fps `webm-writer` 렌더링, Safari: captureStream + MediaRecorder, 1920×1080 고정, ⏺ 녹화 버튼.
+
+**2026-03-13: 버그 수정 + Tree 기능 강화**
+1. **Composite detail bugfix**: `_execute_query()` 누락 파라미터 자동 None 채움, 에러 체크 순서 수정.
+2. **Tree visible depth slider**: 기어 아이콘 팝업, rank 기반 depth 제한, Radial/Rect/SBS 동기화.
+3. **Text scale 단축키**: `[`/`]` 키로 텍스트 크기 조절 (0.3~5.0 범위).
+
+**2026-03-14: P28 Timeline sub-view**
+1. **Timeline sub-view**: `tree_chart_timeline` display type, 다중 axis mode (지질시대/출판연도), 동적 query override.
+2. **Timeline playback**: ⏮◀⏸▶⏭⏩ 컨트롤, scrubber 슬라이더, speed selector (0.5x~4x), step 간 morph animation, look-ahead 캐싱.
+3. **Vendor JS 번들링**: CDN → `/static/vendor/` (D3, Bootstrap, icons) — Desktop 오프라인 지원.
+4. **버그 수정**: 축 전환 시 빈 트리 처리 (`fullRoot = null`), 빈 스텝 무한 루프 방지 (`currentIdx` 증가 보장).
 
 ---
 
@@ -109,14 +128,11 @@ P21 CRUD framework가 기반 작업 완료. 남은 항목:
 - `.scoda` 빌드 버튼 (편집 완료 후 패키징)
 - ScodaDesktop GUI에 admin 모드 노출 (현재 CLI 전용)
 
-### P27: Admin Backend + Animation Export + Hub Refresh
+### P27-4: Admin Backend — Profile 관리 (보류)
 
-`devlog/20260312_P27_admin_backend_and_hub_refresh.md` 참조.
-
-1. **Hub Refresh 버튼**: scoda-server + ScodaDesktop에서 서버 재시작 없이 Hub 패키지 갱신·로드
-2. **모바일 반응형 UI**: 좁은 화면에서 탭 바를 햄버거/드롭다운 메뉴로 전환, 세로 펼침
-3. **Animation 동영상 다운로드**: morph animation을 WebM/MP4로 내보내기 (canvas captureStream)
-4. **Admin Backend — Profile 관리**: 소스 txt 업로드 → 신규 profile 등록, addendum 병합. 기존 P21 CRUD는 개인 overlay 편집으로 유지, admin backend는 canonical DB 직접 편집 모드
+소스 txt 업로드 → 신규 profile 등록, addendum 병합.
+기존 P21 CRUD는 개인 overlay 편집으로 유지, admin backend는 canonical DB 직접 편집 모드.
+도메인 의존성 복잡도로 인해 보류 중.
 
 ---
 
@@ -140,11 +156,15 @@ scoda-engine contains no domain-specific code. All domain logic comes from `.sco
 - `ui_queries` table: named SQL queries
 - `/api/query/<name>`: query execution endpoint
 - `/api/composite/<view>?id=N`: multi-query composite response
-- Generic viewer supports: hierarchy (tree/nested_table/tree_chart with radial+rectangular+side-by-side+diff layout), table, detail modal, global search, annotations, compare mode, node watch, removed taxa panel
+- Generic viewer supports: hierarchy (tree/nested_table/tree_chart with radial+rectangular+side-by-side+diff layout), table, detail modal, global search, annotations, compare mode, node watch, removed taxa panel, timeline sub-view
+- Tree chart features: visible depth slider, text scale shortcut (`[`/`]`), morph animation video export (WebM)
+- Timeline sub-view: `tree_chart_timeline` display type, multiple axis modes, step slider, playback controls, morph between steps, look-ahead caching
 - Boolean columns: customizable via `true_label`/`false_label`, defaults `BOOLEAN_TRUE_LABEL`/`BOOLEAN_FALSE_LABEL`
 - `label_map` 동적 컬럼 label: 행 데이터의 특정 필드 값에 따라 테이블 헤더를 동적으로 결정 (혼합 시 fallback)
 - `editable_entities`: admin 모드에서 CRUD UI 자동 생성 (FK autocomplete, readonly_on_edit, post-mutation hooks)
 - `global_controls`: 전역 파라미터 셀렉터 (profile 등), overlay DB에 사용자 선택 저장
+- Hub Refresh: 서버 재시작 없이 Hub 패키지 갱신 (`POST /api/hub/sync`)
+- Mobile responsive: 768px 이하에서 햄버거 메뉴로 전환
 
 ### MCP Tools
 
@@ -159,17 +179,17 @@ core/scoda_engine_core/     # PyPI: scoda-engine-core v0.1.1 (pure stdlib, zero 
 ├── hub_client.py           # Hub: fetch index, compare, download, SSL fallback
 └── validate_manifest.py    # Manifest validator/linter (pure functions)
 
-scoda_engine/               # PyPI: scoda-engine v0.2.0 (desktop/server)
+scoda_engine/               # PyPI: scoda-engine v0.2.5 (desktop/server)
 ├── scoda_package.py        # Backward-compat shim → scoda_engine_core
 ├── app.py                  # FastAPI web server (+ CRUD endpoints)
 ├── entity_schema.py        # P21: FieldDef/EntitySchema parser + validation
 ├── crud_engine.py          # P21: Generic CRUD engine (FK, constraints, hooks)
 ├── mcp_server.py           # MCP server (stdio/SSE)
-├── gui.py                  # Tkinter GUI
+├── gui.py                  # Tkinter GUI (+ Hub Refresh 버튼)
 ├── serve.py                # uvicorn launcher (--db-path, --mode admin|viewer)
 ├── serve_web.py            # Production web launcher (gunicorn/Docker)
 ├── templates/              # Generic viewer template
-└── static/                 # Generic viewer assets (+ tree_chart.js for D3 tree chart)
+└── static/                 # Viewer assets (app.js, tree_chart.js, vendor/)
 ```
 
 ---
@@ -253,4 +273,13 @@ pytest tests/
 | Side-by-Side Tree refactoring (P24) | `devlog/20260307_P24_side_by_side_tree_refactoring.md` |
 | Diff Tree 시각화 | `devlog/20260307_041_diff_tree.md` |
 | P26: Search + Watch + Removed | `devlog/20260311_P26_impl_tree_search_watch_removed.md` |
-| P27: Admin Backend + Animation + Hub Refresh | `devlog/20260312_P27_admin_backend_and_hub_refresh.md` |
+| P27 계획 | `devlog/20260312_P27_admin_backend_and_hub_refresh.md` |
+| P27 구현 (Hub Refresh, 모바일 UI, 동영상) | `devlog/20260312_P27_impl_hub_refresh_mobile_ui_video.md` |
+| Composite bugfix + depth slider | `devlog/20260313_028_composite_bugfix_and_tree_depth_slider.md` |
+| Text scale keyboard shortcut | `devlog/20260313_029_tree_text_scale_keyboard_shortcut.md` |
+| P28 계획 (Timeline) | `devlog/20260313_P28_geologic_time_and_publication_timeline.md` |
+| P28 구현 (Timeline sub-view) | `devlog/20260314_030_timeline_subview_implementation.md` |
+| Vendor JS 번들링 | `devlog/20260314_031_vendor_js_bundling.md` |
+| Version bump + docker-compose 자동화 | `devlog/20260314_032_bump_version_docker_and_misc.md` |
+| Timeline 축 전환 빈 트리 bugfix | `devlog/20260314_033_timeline_axis_switch_bugfix.md` |
+| Timeline 빈 스텝 무한 루프 bugfix | `devlog/20260314_034_timeline_empty_step_infinite_loop_fix.md` |

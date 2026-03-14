@@ -50,14 +50,19 @@ scoda-engine/
 │   ├── serve.py                # uvicorn launcher
 │   ├── serve_web.py            # Production web launcher (gunicorn/Docker)
 │   ├── templates/index.html    # Generic viewer template
-│   └── static/{css,js}/        # Generic viewer assets (+ tree_chart.js)
+│   └── static/
+│       ├── css/style.css       # Viewer styles (responsive, timeline)
+│       ├── js/app.js           # Viewer main logic (timeline, morph, video export)
+│       ├── js/tree_chart.js    # D3 tree chart (radial/rect/SBS/diff/timeline)
+│       └── vendor/             # Offline vendor libs (D3, Bootstrap, icons)
+├── deploy/                     # Docker deployment (docker-compose.yml)
 ├── design/                     # Design & concept documents (originals)
 ├── scripts/
 │   ├── build.py                # PyInstaller EXE builder
 │   ├── validate_manifest.py    # Manifest validator CLI (thin wrapper → core)
 │   ├── init_overlay_db.py      # Overlay DB initializer
 │   ├── release.py              # Release packager
-│   ├── bump_version.py         # Version bump utility
+│   ├── bump_version.py         # Version bump utility (+ docker-compose auto-update)
 │   └── generate_hub_index.py   # Hub index generator
 ├── examples/genus-explorer/    # Example SPA
 ├── tests/
