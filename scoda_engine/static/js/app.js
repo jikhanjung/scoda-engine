@@ -2032,6 +2032,9 @@ function createTreeNode(node) {
  * Select a tree leaf node and load its items (manifest-driven)
  */
 async function selectTreeLeaf(leafId, leafName) {
+    // Close mobile drawer when a leaf is selected
+    closeMobileTree();
+
     // Update selection highlight
     document.querySelectorAll('.tree-node-content.selected').forEach(el => {
         el.classList.remove('selected');
@@ -2055,7 +2058,12 @@ async function selectTreeLeaf(leafId, leafName) {
             </div>` : '';
     header.innerHTML = `
         <div class="d-flex justify-content-between align-items-center">
-            <h5 class="mb-0"><i class="bi bi-folder-fill"></i> ${leafName}</h5>
+            <h5 class="mb-0">
+                <button class="mobile-tree-toggle" onclick="toggleMobileTree()" title="Show tree">
+                    <i class="bi bi-layout-sidebar"></i>
+                </button>
+                <i class="bi bi-folder-fill"></i> ${leafName}
+            </h5>
             ${filterHtml}
         </div>`;
 
@@ -3660,3 +3668,26 @@ async function hubRefresh() {
         });
     });
 })();
+
+// ── Mobile Tree Drawer ────────────────────────────────────────
+function toggleMobileTree() {
+    const panel = document.querySelector('#view-tree .tree-panel');
+    const backdrop = document.getElementById('tree-backdrop');
+    if (!panel || !backdrop) return;
+    const isOpen = panel.classList.contains('mobile-open');
+    if (isOpen) {
+        panel.classList.remove('mobile-open');
+        backdrop.classList.remove('visible');
+    } else {
+        panel.classList.add('mobile-open');
+        backdrop.classList.add('visible');
+    }
+}
+
+function closeMobileTree() {
+    const panel = document.querySelector('#view-tree .tree-panel');
+    const backdrop = document.getElementById('tree-backdrop');
+    if (!panel || !backdrop) return;
+    panel.classList.remove('mobile-open');
+    backdrop.classList.remove('visible');
+}

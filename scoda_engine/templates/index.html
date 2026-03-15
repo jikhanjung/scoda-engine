@@ -46,6 +46,7 @@
 
     <!-- View: Tree (default, existing layout) -->
     <div class="view-container" id="view-tree">
+        <div id="tree-backdrop" onclick="closeMobileTree()"></div>
         <div class="container-fluid main-content">
             <div class="row h-100">
                 <!-- Left Panel: Tree View -->
@@ -69,7 +70,12 @@
                 <!-- Right Panel: Item List -->
                 <div class="col-md-8 col-lg-9 list-panel">
                     <div class="panel-header" id="list-header">
-                        <h5><i class="bi bi-list-ul"></i> Select an item</h5>
+                        <h5>
+                            <button class="mobile-tree-toggle" onclick="toggleMobileTree()" title="Show tree">
+                                <i class="bi bi-layout-sidebar"></i>
+                            </button>
+                            <i class="bi bi-list-ul"></i> Select an item
+                        </h5>
                     </div>
                     <div class="list-container" id="list-container">
                         <div class="empty-state">

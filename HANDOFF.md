@@ -1,6 +1,6 @@
 # SCODA Engine — Project Handoff Document
 
-**Last updated:** 2026-03-14
+**Last updated:** 2026-03-15
 
 ---
 
@@ -76,6 +76,7 @@
 | Fix: Timeline play 빈 스텝 무한 루프 방지 | Done | `devlog/20260314_034_timeline_empty_step_infinite_loop_fix.md` |
 | P29: Multi-Package Serving | Done | `devlog/20260314_035_P29_multi_package_serving_impl.md` |
 | Desktop v0.3.0 버전 업 | Done | `scoda_engine/__init__.py`, `pyproject.toml` |
+| P30: 모바일 UI 개선 (Landing 스크롤 + Tree 드로어) | Done | `devlog/20260315_P30_mobile_ui_improvements.md` |
 
 ### Test Status
 
