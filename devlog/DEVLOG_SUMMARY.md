@@ -1,8 +1,8 @@
 # SCODA Engine 개발 기록 요약
 
-**최종 업데이트:** 2026-03-03
-**총 문서:** 56개 (작업 로그 33개, 계획 문서 23개)
-**개발 기간:** 2026-02-19 ~ 2026-03-03 (13일)
+**최종 업데이트:** 2026-03-15
+**총 문서:** 89개 (작업 로그 56개, 계획 문서 33개)
+**개발 기간:** 2026-02-19 ~ 2026-03-15 (25일)
 
 ---
 
@@ -194,6 +194,127 @@ Rectangular/radial 레이아웃의 겹침 문제 해결을 위해 d3.tree()를 b
 
 ---
 
+### 2026-03-06 (Day 16) — Docker 단순화 + CI Docker Hub + 버전 스크립트
+
+Docker에서 nginx 제거(gunicorn 직접 서빙), 기관 네트워크 SSL 우회, leaf 간격 최적화, Release workflow에 Docker Hub 자동 빌드 추가, 버전 관리 스크립트.
+
+| # | 유형 | 제목 | 문서 |
+|---|------|------|------|
+| 034 | 작업 | Docker nginx 제거 — gunicorn 직접 서빙, 포트 8081 | `20260306_034_remove_nginx_from_docker.md` |
+| 035 | 작업 | Docker 빌드 SSL 우회 + 프로덕션 엔진 이름 분리 (`SCODA_ENGINE_NAME`) | `20260306_035_docker_ssl_and_engine_name.md` |
+| 036 | 작업 | Rectangular Tree leaf 간격 축소 (LEAF_GAP 12→6px) | `20260306_036_tree_leaf_gap_reduction.md` |
+| 037 | 작업 | Release workflow에 Docker Hub 빌드·push 추가 | `20260306_037_release_docker_hub.md` |
+| 038 | 작업 | `scripts/bump_version.py` 추가 (pyproject.toml + \_\_init\_\_.py 동시 업데이트) | `20260306_038_bump_version_script.md` |
+
+**결과:** Docker 구조 단순화 (nginx 제거). CI에서 자동 Docker Hub 게시. 버전 불일치 방지 스크립트. Desktop v0.1.8.
+
+---
+
+### 2026-03-07 (Day 17) — Side-by-Side Tree Chart (P24)
+
+`tree_chart.js`를 `TreeChartInstance` 클래스로 전면 리팩토링하여 두 개의 독립 트리를 동시 렌더링. Side-by-Side 뷰, Diff Tree 시각화 구현.
+
+| # | 유형 | 제목 | 문서 |
+|---|------|------|------|
+| P24 | 계획 | Side-by-Side Tree — TreeChartInstance 리팩토링 설계 | `20260307_P24_side_by_side_tree_refactoring.md` |
+| 039 | 작업 | TreeChartInstance 클래스 리팩토링 + Side-by-Side 뷰 (v0.2.0) | `20260307_039_side_by_side_tree.md` |
+| 040 | 작업 | SBS Sync 보강 (hover/depth/collapse/subtree) + bitmap cache 성능 최적화 | `20260307_040_sbs_sync_and_perf.md` |
+| 041 | 작업 | Diff Tree 시각화 (status별 색상, 범례, tooltip, moved re-parent) | `20260307_041_diff_tree.md` |
+
+**결과:** 전역 20+개 변수 → 클래스 인스턴스화. SBS zoom/pan/hover/collapse/depth 5종 동기화. Diff Tree 색상 코딩. Desktop v0.2.0.
+
+---
+
+### 2026-03-09 (Day 19) — Compound View + Animated Morphing (P25)
+
+Compound View 타입(탭 안 서브탭 + 로컬 컨트롤) 도입, 두 프로필 트리 간 모프(morph) 애니메이션, 렌더링 엔진 단순화.
+
+| # | 유형 | 제목 | 문서 |
+|---|------|------|------|
+| P25 | 계획 | Compound View + Animated Morphing 설계 | `20260309_P25_compound_view_and_morph.md` |
+| 042 | 작업 | Compound View 구현 + Morph 애니메이션 + 렌더링 단순화 + UX 개선 | `20260309_042_compound_view_morph_and_ui.md` |
+
+**결과:** `type: compound` manifest 타입 추가. `tree_chart_morph` display 타입. genera_count 쿼리 10,310ms→9ms. Text scale A±/[]키 조절.
+
+---
+
+### 2026-03-11 (Day 21) — Hub 개선 + Tree Search/Watch/Removed (P26)
+
+Hub 인덱스 최신 버전만 포함하도록 변경, Hub 주기적 동기화 API 추가, Tree Chart 검색 버그 수정, Watch 기능, Removed Taxa 패널.
+
+| # | 유형 | 제목 | 문서 |
+|---|------|------|------|
+| P26 | 계획 | Tree Search 개선 + Watch 기능 + Removed Taxa 목록 설계 | `20260311_P26_tree_search_and_watch.md` |
+| P26 구현 | 작업 | P26 구현 전체 (Search 수정, Watch, Removed 패널, morph collapse 버그) | `20260311_P26_impl_tree_search_watch_removed.md` |
+| 042 | 작업 | Hub Index: latest 릴리스만 포함 (--all 플래그 제거) | `20260311_042_hub_index_latest_only.md` |
+| 043 | 작업 | Hub 주기적 동기화 + 온디맨드 `POST /api/hub/sync` API | `20260311_043_hub_periodic_and_ondemand_sync.md` |
+| 044 | 작업 | UI 개선: Show Text 아이콘화, Morph 라벨 각도 보간, Diff legend 위치 수정 | `20260311_044_ui_polish_and_morph_label_fix.md` |
+
+**결과:** Watch 노드 2x 확대 렌더링, 금색 링. Removed Taxa 패널 (클릭 시 zoom). morph collapse 버그 수정. v0.2.3.
+
+---
+
+### 2026-03-12 (Day 22) — Hub Refresh + 모바일 반응형 UI + Animation 동영상 (P27)
+
+서버 재시작 없이 Hub 패키지 갱신, 768px 이하 모바일 햄버거 메뉴, Morph animation WebM 동영상 다운로드.
+
+| # | 유형 | 제목 | 문서 |
+|---|------|------|------|
+| P27 | 계획 | Admin Backend + Animation Export + Hub Refresh 설계 | `20260312_P27_admin_backend_and_hub_refresh.md` |
+| P27 구현 | 작업 | Hub Refresh + 모바일 UI + Animation 동영상 구현 | `20260312_P27_impl_hub_refresh_mobile_ui_video.md` |
+
+**결과:** Navbar ↻ 버튼 + Desktop GUI "Check Hub" 버튼. 768px 이하 햄버거 드롭다운 메뉴. 1920×1080 WebM 오프라인 렌더링 (Chrome/Edge/Firefox) + MediaRecorder (Safari).
+
+---
+
+### 2026-03-13 (Day 23) — 버그 수정 + Tree 기능 강화
+
+Composite detail 엔드포인트 버그 수정, Tree Chart visible depth 슬라이더, 텍스트 크기 단축키, Multi-Package Serving 계획.
+
+| # | 유형 | 제목 | 문서 |
+|---|------|------|------|
+| P28 | 계획 | 지질시대 + 출판 연도 타임라인 설계 (초안) | `20260313_P28_geologic_time_and_publication_timeline.md` |
+| P29 | 계획 | Multi-Package Serving 설계 (URL prefix 기반) | `20260313_P29_multi_package_serving.md` |
+| 028 | 작업 | Composite detail 버그 수정 3건 + Tree visible depth 슬라이더 | `20260313_028_composite_bugfix_and_tree_depth_slider.md` |
+| 029 | 작업 | Tree 노드 라벨 폰트 크기 단축키 (`[`/`]` 키) | `20260313_029_tree_text_scale_keyboard_shortcut.md` |
+
+**결과:** Composite 쿼리 파라미터 누락 자동 채움. Visible depth 슬라이더(radial/rect/SBS/morph 동기화). `[`/`]` 단축키 0.3~5.0 범위.
+
+---
+
+### 2026-03-14 (Day 24) — Timeline Sub-view (P28) + Multi-Package Serving (P29)
+
+시간축 슬라이더 + morph 연쇄 애니메이션 타임라인 서브뷰, 오프라인 vendor JS 내장, Multi-Package Serving (v0.3.0).
+
+| # | 유형 | 제목 | 문서 |
+|---|------|------|------|
+| P28 구현 | 계획 | Timeline 구현 상세 계획 (Phase 1+2) | `20260314_P28_timeline_implementation_plan.md` |
+| 030 | 작업 | Timeline Sub-view 구현 (`tree_chart_timeline` 타입, 컨트롤 바, morph 재생) | `20260314_030_timeline_subview_implementation.md` |
+| 031 | 작업 | JS/CSS 라이브러리 로컬 내장 (`static/vendor/`, 오프라인 지원) | `20260314_031_vendor_js_bundling.md` |
+| 032 | 작업 | Desktop v0.2.5 + bump_version docker-compose 자동화 + source_query_override | `20260314_032_bump_version_docker_and_misc.md` |
+| 033 | 작업 | Fix: Timeline 축 전환 시 빈 트리 잔류 버그 (`fullRoot = null`) | `20260314_033_timeline_axis_switch_bugfix.md` |
+| 034 | 작업 | Fix: Timeline play 빈 스텝 무한 루프 방지 (`currentIdx` 갱신 보장) | `20260314_034_timeline_empty_step_infinite_loop_fix.md` |
+| 035 | 작업 | P29: Multi-Package Serving 구현 (APIRouter, 랜딩 페이지, API_BASE) | `20260314_035_P29_multi_package_serving_impl.md` |
+| 036 | 작업 | Home 브레드크럼 + Legacy `/api/...` Fallback Router | `20260314_036_home_breadcrumb_and_legacy_fallback.md` |
+
+**결과:** Timeline 슬라이더 + ⏮◀⏸▶⏭⏩ 컨트롤 + look-ahead 캐싱. D3/Bootstrap/BI 오프라인 내장(755KB). 모든 엔드포인트 `/api/{package}/...` prefix. 랜딩 페이지(D3 force 배경). v0.3.0, 303 tests.
+
+---
+
+### 2026-03-15 (Day 25) — 모바일 UI 추가 개선 (P30)
+
+Landing 페이지 스크롤, Tree 뷰 드로어 패턴, Removed Taxa 패널 접기, Compound View 서브탭 모바일 수정.
+
+| # | 유형 | 제목 | 문서 |
+|---|------|------|------|
+| P30 | 계획 | 모바일 UI 개선 — Landing 스크롤 + Tree 드로어 | `20260315_P30_mobile_ui_improvements.md` |
+| 036 | 작업 | Removed Taxa 패널 접기/펼치기 (헤더 클릭 토글, 상태 유지) | `20260315_036_removed_panel_collapsible.md` |
+| 037 | 작업 | Compound View 서브탭 모바일 미표시 수정 (2행 레이아웃 + 가로 스크롤) | `20260315_037_compound_view_mobile_subtabs.md` |
+
+**결과:** Landing `overflow-y: auto`. Tree 드로어 슬라이드인 + backdrop + 항목 선택 시 자동 닫힘. Removed 패널 접기. Compound 서브탭 2행 배치. v0.3.1→v0.3.2.
+
+---
+
 ## 주제별 분류
 
 ### 1. 테스트 인프라 (S-1, 02-20)
@@ -227,14 +348,16 @@ Rectangular/radial 레이아웃의 겹침 문제 해결을 위해 d3.tree()를 b
 | 02-22 | `required` dependency 필드, SemVer range 파싱 |
 | 02-22 | `ScodaDependencyError` 예외, CHANGELOG.md 지원 |
 
-### 4. CI/CD 인프라 (02-23)
+### 4. CI/CD 인프라 (02-23, 03-06)
 
 | 날짜 | 내용 |
 |------|------|
 | 02-23 | `test.yml` — 2 OS × 2 Python 매트릭스 CI |
 | 02-23 | `release.yml` — PyInstaller 빌드 + GitHub Release |
+| 03-06 | `release.yml`에 Docker Hub 자동 빌드·push 추가 |
+| 03-06 | `bump_version.py` — pyproject.toml + \_\_init\_\_.py + docker-compose 동시 갱신 |
 
-### 5. Desktop UI 기능 (02-22~03-01)
+### 5. Desktop UI 기능 (02-22~03-15)
 
 | 날짜 | 내용 |
 |------|------|
@@ -246,6 +369,10 @@ Rectangular/radial 레이아웃의 겹침 문제 해결을 위해 d3.tree()를 b
 | 02-26 | GUI 서버 포트 설정 + 자동 탐색 (Hyper-V 포트 충돌 대응) |
 | 03-01 | Global Controls 프레임워크 (manifest-driven 드롭다운, 쿼리 자동 병합) |
 | 03-01 | Preferences API (overlay DB 저장, localStorage 완전 제거) |
+| 03-06 | Docker nginx 제거 → gunicorn 직접 서빙, 포트 8081 |
+| 03-06 | `SCODA_ENGINE_NAME` — Desktop/Server 구분 표시 |
+| 03-14 | Home 브레드크럼 (🏠 SCODA / PackageName) |
+| 03-15 | Compound View 서브탭 모바일 2행 레이아웃 |
 
 ### 6. 임의 경로 로딩 (P14, 02-24)
 
@@ -255,21 +382,20 @@ Rectangular/radial 레이아웃의 겹침 문제 해결을 위해 d3.tree()를 b
 | 02-24 | `--scoda-path` CLI 인수 (serve, mcp, gui) |
 | 02-24 | `SCODA_PACKAGE_PATH` 환경변수 |
 
-### 7. SCODA Hub (P15/P16/P17, 02-24~02-26)
+### 7. SCODA Hub (P15/P16/P17, 02-24~03-11)
 
 정적 패키지 레지스트리 + 자동 다운로드 시스템.
 
 | 날짜 | 내용 |
 |------|------|
 | 02-24 | `hub/sources.json` + `generate_hub_index.py` (index.json 수집) |
-| 02-24 | `hub-index.yml` (GitHub Actions → Pages 배포) |
 | 02-24 | `hub_client.py` (fetch/compare/download/resolve, 순수 stdlib) |
 | 02-24 | GUI Hub 섹션 (백그라운드 체크, 프로그레스 바, SHA-256 검증) |
-| 02-24 | Hub 업데이트 버전 비교 버그 수정 |
-| 02-25 | Hub Manifest Spec 문서 (`docs/HUB_MANIFEST_SPEC.md`) |
-| 02-25 | Dependency UI (`[requires: ...]`) + 다운로드 확인 다이얼로그 |
-| 02-25 | SSL fallback (Windows 인증서 저장소, `HubSSLError`, 설정 저장) |
-| 02-26 | Hub index 파일명 변경 (`index.json` → `scoda-hub-index.json`, MkDocs 충돌 해소) |
+| 02-25 | Hub Manifest Spec 문서, SSL fallback (기관 프록시 대응) |
+| 02-26 | Hub index 파일명 변경 (`scoda-hub-index.json`) |
+| 03-11 | Hub Index: latest 버전만 포함 (누적 제거) |
+| 03-11 | `POST /api/hub/sync` 온디맨드 API + 주기적 daemon sync |
+| 03-12 | Hub Refresh 버튼 (Navbar ↻ + Desktop GUI "Check Hub") |
 
 ### 8. 문서 사이트 (P19, 02-26)
 
@@ -278,48 +404,93 @@ MkDocs + Material 테마 기반 다국어(EN/KO) GitHub Pages 문서 사이트.
 | 날짜 | 내용 |
 |------|------|
 | 02-26 | `mkdocs.yml` 설정 (Material 테마, i18n 접미사 방식) |
-| 02-26 | 8개 문서 다국어 분리 (`.md` EN + `.ko.md` KO) |
-| 02-26 | 랜딩 페이지 (`index.md` / `index.ko.md`) |
+| 02-26 | 8개 문서 다국어 분리, 랜딩 페이지 |
 | 02-26 | `pages.yml` 통합 워크플로우 (MkDocs + Hub index.json 공존) |
 
-### 9. Tree Chart 시각화 (P20/P23, 02-28~03-03)
+### 9. Tree Chart 시각화 엔진 (P20/P23/P24, 02-28~03-15)
 
-Hierarchy 데이터의 방사형/직각 트리 시각화 엔진.
+Canvas+SVG 기반 고성능 hierarchy 트리 렌더링 엔진의 단계적 발전.
 
 | 날짜 | 내용 |
 |------|------|
 | 02-28 | P20: Radial hierarchy display 설계 (D3.js, Canvas+SVG, LOD) |
-| 03-01 | Radial tree 구현 + 대폭 고도화 (pruned tree, collapse/expand, subtree, 컨텍스트 메뉴, 라벨 LOD) |
-| 03-02 | P23: Radial → Tree Chart 범용화 설계 (radial + rectangular 이중 레이아웃) |
-| 03-02 | `radial.js` → `tree_chart.js` 전환, rectangular cladogram 레이아웃 추가, backward compat |
-| 03-03 | Bottom-up 레이아웃 엔진으로 교체 (leaf 겹침 원천 방지), 라벨 위치 분기, rank별 X 정렬 |
+| 03-01 | Radial tree 구현 + pruned tree, collapse/expand, subtree, 컨텍스트 메뉴 |
+| 03-02 | P23: `radial.js` → `tree_chart.js` 전환, rectangular cladogram 추가 |
+| 03-03 | Bottom-up 레이아웃 엔진으로 교체 (leaf 겹침 원천 방지) |
+| 03-06 | Rectangular leaf 간격 최적화 (LEAF_GAP 12→6px) |
+| 03-07 | P24: `TreeChartInstance` 클래스 리팩토링 (전역 20+변수 → 인스턴스) |
+| 03-07 | Side-by-Side 뷰 + 5종 동기화 (zoom/hover/depth/collapse/subtree) |
+| 03-07 | Diff Tree 시각화 (status별 색상, 범례, moved re-parent) |
+| 03-09 | Morph animation (snapshotPositions, lerp, look-ahead, 각도 보간) |
+| 03-09 | 렌더링 단순화 (SVG label → canvas, bitmap scale, text scale A±) |
+| 03-11 | Tree Search 수정 (zoom 좌표 보정, bounding box fit) |
+| 03-11 | Watch 기능 (2x 확대 렌더, 금색 링, 패널, SBS sync) |
+| 03-11 | Removed Taxa 패널 (diff/morph 모드, 클릭 zoom) |
+| 03-13 | Visible depth 슬라이더 (gear 팝업, radial/rect/SBS/morph 동기화) |
+| 03-13 | `[`/`]` 단축키 텍스트 크기 조절 |
+| 03-14 | Timeline sub-view (`tree_chart_timeline`, 다중 축, 연쇄 morph, look-ahead) |
+| 03-14 | Vendor JS/CSS 내장 (D3, Bootstrap, BI → `/static/vendor/`, 오프라인) |
+| 03-15 | Removed Taxa 패널 접기/펼치기 (헤더 클릭 토글, 상태 유지) |
 
-### 10. CRUD 프레임워크 (P21, 03-01)
+### 10. Compound View (P25, 03-09)
+
+하나의 탭 안에 로컬 컨트롤 + 서브탭을 가진 복합 뷰 타입.
+
+| 날짜 | 내용 |
+|------|------|
+| 03-09 | `type: compound` manifest 타입 + `loadCompoundView()` |
+| 03-09 | `tree_chart_morph` display 타입 — Morph animation sub-view |
+| 03-14 | `tree_chart_timeline` display 타입 — Timeline sub-view |
+| 03-15 | 모바일 서브탭 미표시 수정 (flex-wrap: wrap, 2행 배치) |
+
+### 11. CRUD 프레임워크 (P21, 03-01)
 
 Manifest-driven 제네릭 CRUD 시스템 (Admin/Viewer 모드 분리).
 
 | 날짜 | 내용 |
 |------|------|
-| 03-01 | P21: CRUD 프레임워크 계획 (entity_schema + crud_engine + REST API + 편집 UI) |
 | 03-01 | `entity_schema.py` (FieldDef, EntitySchema, 입력 검증) |
-| 03-01 | `crud_engine.py` (parameterized SQL CRUD, FK 검증, unique 제약, post-mutation 훅) |
+| 03-01 | `crud_engine.py` (parameterized SQL CRUD, FK 검증, unique 제약, 훅) |
 | 03-01 | REST API 10개 엔드포인트 (`/api/entities/*`, `/api/search/*`) |
-| 03-01 | 편집 UI (detail Edit/Delete, 목록 Add, FK autocomplete, `readonly_on_edit`) |
+| 03-01 | 편집 UI (detail Edit/Delete, FK autocomplete, `readonly_on_edit`) |
 | 03-01 | 27개 CRUD 테스트 (`test_crud.py`) |
 
-### 11. 프로덕션 Docker 배포 (P22, 03-02)
+### 12. 프로덕션 Docker 배포 (P22, 03-02~03-06)
 
 읽기 전용 프로덕션 웹 뷰어를 단일 Docker 컨테이너로 배포.
 
 | 날짜 | 내용 |
 |------|------|
-| 03-02 | P22: 프로덕션 웹 뷰어 설계 (nginx + gunicorn + Docker Compose) |
 | 03-02 | `serve_web.py` (gunicorn 팩토리, CLI, MCP opt-in), `/healthz` 엔드포인트 |
 | 03-02 | `fetch_packages.py` — Docker 빌드 시 Hub에서 최신 .scoda 자동 다운로드 |
-| 03-02 | 2-컨테이너 → 단일 컨테이너 통합 (nginx + gunicorn in one image) |
-| 03-02 | Docker Hub 게시 (`honestjung/scoda-server:0.1.0`), GCP 서버 배포 |
+| 03-02 | 2-컨테이너 → 단일 컨테이너 통합 (nginx + gunicorn) |
+| 03-06 | nginx 완전 제거 → gunicorn 포트 8081 직접 서빙 |
+| 03-06 | Docker 빌드 타임 SSL 우회 (`SCODA_HUB_SSL_VERIFY=0`) |
 
-### 12. 설계 문서 (미구현)
+### 13. Multi-Package Serving (P29, 03-14)
+
+단일 인스턴스에서 여러 .scoda 패키지를 동시 서빙.
+
+| 날짜 | 내용 |
+|------|------|
+| 03-14 | `APIRouter(prefix="/api/{package}")` — URL prefix 기반 라우팅 |
+| 03-14 | `PackageRegistry.register_db()` + `_set_paths_for_testing()` 자동 등록 |
+| 03-14 | `GET /api/packages`, `GET /`, `GET /{package}/` 라우트 |
+| 03-14 | `landing.html` — D3 force 배경 + 패키지 카드 그리드 |
+| 03-14 | `API_BASE = '/api/{package_name}'` 프론트엔드 주입 + `resolveApiUrl()` |
+| 03-14 | Legacy `/api/...` fallback router (하위 호환) |
+
+### 14. 모바일 반응형 UI (P27/P30, 03-12~03-15)
+
+| 날짜 | 내용 |
+|------|------|
+| 03-12 | 768px 이하 햄버거 메뉴 (view-tabs 세로 드롭다운, 외부 클릭 닫힘) |
+| 03-15 | Landing `overflow-y: auto` (스크롤 허용) |
+| 03-15 | Tree 뷰 드로어 패턴 (tree-panel overlay, 슬라이드인, backdrop, 자동 닫힘) |
+| 03-15 | Compound View 서브탭 2행 배치 + 가로 스크롤 |
+| 03-15 | Removed Taxa 패널 접기/펼치기 |
+
+### 15. 설계 문서 (미구현)
 
 | 날짜 | 문서 | 주제 | 상태 |
 |------|------|------|------|
@@ -327,12 +498,18 @@ Manifest-driven 제네릭 CRUD 시스템 (Admin/Viewer 모드 분리).
 | 02-20 | P05 | SCODA Distribution and Architecture Strategy | 부분 구현 |
 | 02-22 | P11 | Tree Snapshot Design v1 Review | 설계 검토 완료, 구현 대기 |
 
-### 13. 버그 수정
+### 16. 버그 수정
 
 | 날짜 | 내용 | 문서 |
 |------|------|------|
 | 02-24 | Hub 업데이트 다운로드 시 버전 비교 누락 | `20260224_016_fix_hub_update_download.md` |
 | 03-01 | 잘못된 .scoda 파일(BadZipFile) 에러 처리 보강 | `20260301_025_fix_invalid_scoda_error_handling.md` |
+| 03-11 | Morph animation에서 collapse 시 노드/엣지 안 숨겨지는 문제 | `20260311_P26_impl_tree_search_watch_removed.md` |
+| 03-11 | Tree left-click expand 안 되는 문제 (`_children` 체크 순서) | `20260311_P26_impl_tree_search_watch_removed.md` |
+| 03-11 | Morph 라벨 각도 갑작스러운 점프 (shortest-path angular interpolation) | `20260311_044_ui_polish_and_morph_label_fix.md` |
+| 03-13 | Composite detail 쿼리 파라미터 누락 (`None` 자동 채움) | `20260313_028_composite_bugfix_and_tree_depth_slider.md` |
+| 03-14 | Timeline 축 전환 시 빈 트리 잔류 (`fullRoot = null`) | `20260314_033_timeline_axis_switch_bugfix.md` |
+| 03-14 | Timeline play 빈 스텝 무한 루프 (`currentIdx` 갱신 보장) | `20260314_034_timeline_empty_step_infinite_loop_fix.md` |
 
 ---
 
@@ -340,8 +517,8 @@ Manifest-driven 제네릭 CRUD 시스템 (Admin/Viewer 모드 분리).
 
 | 유형 | 접두사 | 개수 | 설명 |
 |------|--------|------|------|
-| 작업 로그 | `NNN` (숫자) | 33 | 완료된 작업의 상세 기록 |
-| 계획 문서 | `PNN` | 23 | 작업 전 설계/계획 |
+| 작업 로그 | `NNN` (숫자) | 56 | 완료된 작업의 상세 기록 |
+| 계획 문서 | `PNN` | 33 | 작업 전 설계/계획 (구현 기록 포함) |
 
 ## 테스트 수 추이
 
@@ -352,6 +529,7 @@ Manifest-driven 제네릭 CRUD 시스템 (Admin/Viewer 모드 분리).
 | 02-24 | 255 | 임의 경로 로딩 5개 + Hub 클라이언트 25개 추가 |
 | 02-25 | 276 | Hub SSL fallback 21개 추가 |
 | 03-01 | 303 | CRUD 프레임워크 27개 추가 |
+| 03-06~ | 303 | 이후 전 세션 303 유지 (프론트엔드 위주 변경) |
 
 ## 버전 이력
 
@@ -363,3 +541,11 @@ Manifest-driven 제네릭 CRUD 시스템 (Admin/Viewer 모드 분리).
 | 03-01 | scoda-engine (Desktop) | 0.1.3 | Radial hierarchy display |
 | 03-02 | scoda-server (Docker) | 0.1.0 | 프로덕션 Docker 배포 (Docker Hub) |
 | 03-03 | scoda-engine (Desktop) | 0.1.5 | Tree Chart bottom-up 레이아웃 |
+| 03-06 | scoda-engine (Desktop) | 0.1.7 | Rectangular leaf 간격 최적화 |
+| 03-06 | scoda-engine (Desktop) | 0.1.8 | Release workflow Docker Hub 자동화 |
+| 03-07 | scoda-engine (Desktop) | 0.2.0 | TreeChartInstance 리팩토링 + SBS 뷰 |
+| 03-11 | scoda-engine (Desktop) | 0.2.3 | Watch/Removed 기능 + UI 개선 |
+| 03-14 | scoda-engine (Desktop) | 0.2.5 | Timeline sub-view + vendor 내장 |
+| 03-14 | scoda-engine (Desktop) | 0.3.0 | Multi-Package Serving |
+| 03-15 | scoda-engine (Desktop) | 0.3.1 | 모바일 UI 개선 (Landing + Tree 드로어) |
+| 03-15 | scoda-engine (Desktop) | 0.3.2 | Removed 패널 접기 + Compound 모바일 수정 |
