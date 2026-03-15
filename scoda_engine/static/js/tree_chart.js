@@ -115,6 +115,9 @@ class TreeChartInstance {
         // Watch list: Set of node IDs being watched
         this.watchedNodes = new Set();
 
+        // Removed panel collapse state
+        this._removedPanelCollapsed = false;
+
         // Morph animation state
         this._morphAnimId = null;
         this._morphing = false;
@@ -1578,13 +1581,29 @@ class TreeChartInstance {
             container.appendChild(panel);
         }
 
-        let html = `<div class="tc-removed-header"><i class="bi bi-dash-circle"></i> Removed (${removedNodes.length})</div>`;
+        const chevron = this._removedPanelCollapsed ? 'bi-chevron-up' : 'bi-chevron-down';
+        let html = `<div class="tc-removed-header">
+            <span><i class="bi bi-dash-circle"></i> Removed (${removedNodes.length})</span>
+            <i class="bi ${chevron} tc-removed-collapse-icon"></i>
+        </div>`;
         for (const n of removedNodes) {
             html += `<div class="tc-removed-item" data-nid="${n.id}">
                 <span class="tc-removed-label">${n.label}</span>
             </div>`;
         }
         panel.innerHTML = html;
+
+        // Apply collapsed state
+        if (this._removedPanelCollapsed) panel.classList.add('collapsed');
+        else panel.classList.remove('collapsed');
+
+        // Header click: toggle collapse
+        panel.querySelector('.tc-removed-header').addEventListener('click', () => {
+            this._removedPanelCollapsed = !this._removedPanelCollapsed;
+            panel.classList.toggle('collapsed', this._removedPanelCollapsed);
+            const icon = panel.querySelector('.tc-removed-collapse-icon');
+            if (icon) icon.className = `bi ${this._removedPanelCollapsed ? 'bi-chevron-up' : 'bi-chevron-down'} tc-removed-collapse-icon`;
+        });
 
         // Position below watch panel if it exists
         const watchPanel = container.querySelector('.tc-watch-panel');

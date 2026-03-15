@@ -1056,7 +1056,27 @@ html, body {
     border-radius: 6px 6px 0 0;
     display: flex;
     align-items: center;
-    gap: 6px;
+    justify-content: space-between;
+    cursor: pointer;
+    user-select: none;
+}
+.tc-removed-header:hover {
+    background: #f1c2c7;
+}
+.tc-removed-collapse-icon {
+    font-size: 0.7rem;
+    color: #842029;
+    opacity: 0.7;
+}
+.tc-removed-panel.collapsed {
+    max-height: none;
+    overflow: visible;
+}
+.tc-removed-panel.collapsed .tc-removed-item {
+    display: none;
+}
+.tc-removed-panel.collapsed {
+    border-radius: 6px;
 }
 
 .tc-removed-item {
