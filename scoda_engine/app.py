@@ -1114,6 +1114,7 @@ def healthz():
     return {
         "status": "ok",
         "engine_version": ENGINE_VERSION,
+        "engine_name": ENGINE_NAME,
         "mode": SCODA_MODE,
         "packages": len(packages),
     }

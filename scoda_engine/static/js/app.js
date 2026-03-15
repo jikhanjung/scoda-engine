@@ -140,6 +140,14 @@ async function loadManifest() {
             if (sepEl) sepEl.style.display = 'none';
         }
 
+        // Show engine info on the right side of navbar
+        const engineInfoEl = document.getElementById('navbar-engine-info');
+        if (engineInfoEl && (data.engine_name || data.engine_version)) {
+            const name = data.engine_name || 'SCODA Desktop';
+            const ver = data.engine_version ? ` v${data.engine_version}` : '';
+            engineInfoEl.textContent = `Powered by ${name}${ver}`;
+        }
+
         // Hide Hub Refresh button in Desktop mode (no /api/hub/sync endpoint)
         if ((data.engine_name || 'SCODA Desktop') === 'SCODA Desktop') {
             const hubBtn = document.getElementById('hub-refresh-btn');

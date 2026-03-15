@@ -69,6 +69,10 @@
             text-align: center; padding: 4rem;
             color: #484f58;
         }
+        .engine-info {
+            position: fixed; bottom: 1rem; right: 1rem;
+            z-index: 1; color: #484f58; font-size: 0.7rem;
+        }
         @media (max-width: 640px) {
             .package-card { width: 100%; }
         }
@@ -85,13 +89,24 @@
     <div class="package-list" id="package-list">
         <div class="empty-state">Loading packages...</div>
     </div>
+    <div class="engine-info" id="engine-info"></div>
 
     <script src="/static/vendor/d3.v7.min.js"></script>
     <script>
     (async () => {
-        // Load packages
-        const resp = await fetch('/api/packages');
+        // Load packages + engine info in parallel
+        const [resp, healthResp] = await Promise.all([
+            fetch('/api/packages'),
+            fetch('/healthz'),
+        ]);
         const packages = await resp.json();
+        const health = await healthResp.json();
+
+        const engineInfoEl = document.getElementById('engine-info');
+        if (engineInfoEl && health.engine_name) {
+            const ver = health.engine_version ? ` v${health.engine_version}` : '';
+            engineInfoEl.textContent = `Powered by ${health.engine_name}${ver}`;
+        }
         const container = document.getElementById('package-list');
 
         if (!packages.length) {
