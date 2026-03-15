@@ -1764,6 +1764,23 @@ html, body {
         width: 320px;
     }
 
+    /* Compound view: controls + sub-tabs wrap to two rows */
+    .compound-header {
+        flex-wrap: wrap;
+        gap: 6px 16px;
+    }
+
+    .compound-controls {
+        width: 100%;
+    }
+
+    .compound-sub-tabs {
+        width: 100%;
+        overflow-x: auto;
+        padding-bottom: 2px;
+        flex-wrap: nowrap;
+    }
+
     /* Mobile tree toggle button: show */
     .mobile-tree-toggle {
         display: inline-block;
