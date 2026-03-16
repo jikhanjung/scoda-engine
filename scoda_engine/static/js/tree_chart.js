@@ -1145,7 +1145,7 @@ class TreeChartInstance {
         html += `<button class="tc-layout-btn tc-layout-radial${radialActive}" title="Radial layout"><i class="bi bi-bullseye"></i></button>`;
         html += `<button class="tc-layout-btn tc-layout-rect${rectActive}" title="Rectangular layout"><i class="bi bi-diagram-3"></i></button>`;
 
-        // Radius scale slider (radial mode only)
+        // Text size buttons
         html += `<span class="tc-radius-scale">
             <button class="tc-text-smaller" title="Smaller text"><i class="bi bi-fonts"></i>−</button>
             <button class="tc-text-larger" title="Larger text"><i class="bi bi-fonts"></i>+</button>
@@ -1154,16 +1154,41 @@ class TreeChartInstance {
         // Reset zoom
         html += '<button class="tc-reset-btn" title="Reset zoom"><i class="bi bi-arrows-fullscreen"></i></button>';
 
-        // Display settings gear (visible depth slider)
-        if (this._rankOrder.length > 1) {
+        // Settings gear popup (always rendered; contains layout+text for mobile, depth slider if multi-rank)
+        {
             const maxDepth = this._rankOrder.length;
-            html += `<span class="tc-settings-wrap" style="position:relative">
-                <button class="tc-settings-btn" title="Display settings"><i class="bi bi-gear"></i></button>
-                <div class="tc-settings-popup" style="display:none">
+            let popupContent = '';
+
+            // Layout section (hidden on desktop via CSS, shown on mobile)
+            popupContent += `<div class="tc-settings-section tc-popup-layout">
+                <div class="tc-settings-title">Layout</div>
+                <div class="tc-settings-row">
+                    <button class="tc-layout-btn tc-layout-radial${radialActive}" title="Radial layout"><i class="bi bi-bullseye"></i> Radial</button>
+                    <button class="tc-layout-btn tc-layout-rect${rectActive}" title="Rectangular layout"><i class="bi bi-diagram-3"></i> Rect</button>
+                </div>
+            </div>`;
+
+            // Text size section (hidden on desktop via CSS, shown on mobile)
+            popupContent += `<div class="tc-settings-section tc-popup-text">
+                <div class="tc-settings-title">Text size</div>
+                <div class="tc-settings-row">
+                    <button class="tc-text-smaller" title="Smaller text"><i class="bi bi-fonts"></i>−</button>
+                    <button class="tc-text-larger" title="Larger text"><i class="bi bi-fonts"></i>+</button>
+                </div>
+            </div>`;
+
+            // Depth slider (only if multiple ranks)
+            if (maxDepth > 1) {
+                popupContent += `<div class="tc-settings-section">
                     <div class="tc-settings-title">Visible depth</div>
                     <input type="range" class="tc-depth-slider" min="1" max="${maxDepth}" value="${this.visibleDepth || maxDepth}" step="1">
                     <div class="tc-depth-label">${this.visibleDepth ? `→ ${this._rankOrder[this.visibleDepth - 1]}` : `All (${this._rankOrder[this._rankOrder.length - 1] || ''})`}</div>
-                </div>
+                </div>`;
+            }
+
+            html += `<span class="tc-settings-wrap" style="position:relative">
+                <button class="tc-settings-btn" title="Display settings"><i class="bi bi-gear"></i></button>
+                <div class="tc-settings-popup" style="display:none">${popupContent}</div>
             </span>`;
         }
 
@@ -1179,13 +1204,11 @@ class TreeChartInstance {
             });
         }
 
-        // Event: layout toggle
-        const radialBtn = toolbar.querySelector('.tc-layout-radial');
-        const rectBtn = toolbar.querySelector('.tc-layout-rect');
-        if (radialBtn && rectBtn) {
-            radialBtn.addEventListener('click', () => this.switchLayout('radial'));
-            rectBtn.addEventListener('click', () => this.switchLayout('rectangular'));
-        }
+        // Event: layout toggle (bind all instances: toolbar + popup)
+        toolbar.querySelectorAll('.tc-layout-radial').forEach(btn =>
+            btn.addEventListener('click', () => this.switchLayout('radial')));
+        toolbar.querySelectorAll('.tc-layout-rect').forEach(btn =>
+            btn.addEventListener('click', () => this.switchLayout('rectangular')));
 
 
         // Event: reset
@@ -1203,10 +1226,7 @@ class TreeChartInstance {
             });
         }
 
-        // Event: text size buttons
-        const textSmaller = toolbar.querySelector('.tc-text-smaller');
-        const textLarger = toolbar.querySelector('.tc-text-larger');
-
+        // Event: text size buttons (bind all instances: toolbar + popup)
         const applyTextScale = (val) => {
             val = Math.round(val * 10) / 10;
             val = Math.max(0.3, Math.min(5, val));
@@ -1214,12 +1234,10 @@ class TreeChartInstance {
             if (this.onTextScaleSync) this.onTextScaleSync(val);
         };
 
-        if (textSmaller) {
-            textSmaller.addEventListener('click', () => applyTextScale(this.textScale - 0.1));
-        }
-        if (textLarger) {
-            textLarger.addEventListener('click', () => applyTextScale(this.textScale + 0.1));
-        }
+        toolbar.querySelectorAll('.tc-text-smaller').forEach(btn =>
+            btn.addEventListener('click', () => applyTextScale(this.textScale - 0.1)));
+        toolbar.querySelectorAll('.tc-text-larger').forEach(btn =>
+            btn.addEventListener('click', () => applyTextScale(this.textScale + 0.1)));
 
         // Event: keyboard shortcut for text scale ([ = smaller, ] = larger)
         const keyHandler = (e) => {
@@ -1262,12 +1280,10 @@ class TreeChartInstance {
         if (mode === this.layoutMode) return;
         this.layoutMode = mode;
 
-        // Update toolbar button active states
+        // Update button active states (toolbar + popup)
         if (this.toolbarEl) {
-            const radialBtn = this.toolbarEl.querySelector('.tc-layout-radial');
-            const rectBtn = this.toolbarEl.querySelector('.tc-layout-rect');
-            if (radialBtn) radialBtn.classList.toggle('active', mode === 'radial');
-            if (rectBtn) rectBtn.classList.toggle('active', mode === 'rectangular');
+            this.toolbarEl.querySelectorAll('.tc-layout-radial').forEach(btn => btn.classList.toggle('active', mode === 'radial'));
+            this.toolbarEl.querySelectorAll('.tc-layout-rect').forEach(btn => btn.classList.toggle('active', mode === 'rectangular'));
         }
 
         if (this.root) {

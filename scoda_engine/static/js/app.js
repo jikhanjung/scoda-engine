@@ -480,15 +480,32 @@ async function loadCompoundView(viewKey, view) {
     const subViews = view.sub_views || {};
     const subKeys = Object.keys(subViews);
     let tabsHtml = '';
+    const allTabKeys = [];
     for (const sk of subKeys) {
         const sv = subViews[sk];
-        tabsHtml += `<li><button class="compound-sub-tab" data-sub-view="${sk}"
-                        onclick="switchCompoundSubView('${sk}')">${sv.title || sk}</button></li>`;
+        const axisModes = sv.timeline_options?.axis_modes;
+        if (sv.display === 'tree_chart_timeline' && axisModes && axisModes.length > 1) {
+            // Expand each axis mode into its own sub-tab
+            for (let i = 0; i < axisModes.length; i++) {
+                const compositeKey = `${sk}__axis${i}`;
+                allTabKeys.push(compositeKey);
+                tabsHtml += `<li><button class="compound-sub-tab" data-sub-view="${compositeKey}"
+                                onclick="switchCompoundSubView('${compositeKey}')">${axisModes[i].label || axisModes[i].key}</button></li>`;
+            }
+        } else {
+            allTabKeys.push(sk);
+            tabsHtml += `<li><button class="compound-sub-tab" data-sub-view="${sk}"
+                            onclick="switchCompoundSubView('${sk}')">${sv.title || sk}</button></li>`;
+        }
     }
     subTabsEl.innerHTML = tabsHtml;
 
-    // Activate default sub-view
-    const defaultSub = view.default_sub_view || subKeys[0];
+    // Activate default sub-view (map original key to first composite key if it was expanded)
+    let defaultSub = view.default_sub_view || subKeys[0];
+    if (!allTabKeys.includes(defaultSub)) {
+        const firstComposite = allTabKeys.find(k => k.startsWith(defaultSub + '__axis'));
+        if (firstComposite) defaultSub = firstComposite;
+    }
     compoundCurrentSubView = null;
     switchCompoundSubView(defaultSub);
 }
@@ -498,11 +515,20 @@ async function loadCompoundView(viewKey, view) {
  * Merges compoundControls into query params for sub-view data fetching.
  */
 async function switchCompoundSubView(subKey) {
+    // Parse composite key for timeline axis (e.g. "timeline__axis1")
+    let realSubKey = subKey;
+    let axisIdx = 0;
+    const axisMatch = subKey.match(/^(.+)__axis(\d+)$/);
+    if (axisMatch) {
+        realSubKey = axisMatch[1];
+        axisIdx = parseInt(axisMatch[2], 10);
+    }
+
     const view = manifest.views[compoundViewKey];
-    if (!view || !view.sub_views || !view.sub_views[subKey]) return;
+    if (!view || !view.sub_views || !view.sub_views[realSubKey]) return;
 
     compoundCurrentSubView = subKey;
-    const subView = view.sub_views[subKey];
+    const subView = view.sub_views[realSubKey];
 
     // Update sub-tab active state
     document.querySelectorAll('.compound-sub-tab').forEach(btn => {
@@ -515,15 +541,15 @@ async function switchCompoundSubView(subKey) {
     const display = subView.display || (subView.type === 'table' ? 'table' : 'tree_chart');
 
     if (display === 'table') {
-        await renderCompoundTableSubView(subKey, subView, contentEl);
+        await renderCompoundTableSubView(realSubKey, subView, contentEl);
     } else if (display === 'tree_chart') {
-        await renderCompoundTreeChartSubView(subKey, subView, contentEl);
+        await renderCompoundTreeChartSubView(realSubKey, subView, contentEl);
     } else if (display === 'side_by_side') {
-        await renderCompoundSbsSubView(subKey, subView, contentEl);
+        await renderCompoundSbsSubView(realSubKey, subView, contentEl);
     } else if (display === 'tree_chart_morph') {
-        await renderCompoundMorphSubView(subKey, subView, contentEl);
+        await renderCompoundMorphSubView(realSubKey, subView, contentEl);
     } else if (display === 'tree_chart_timeline') {
-        await renderCompoundTimelineSubView(subKey, subView, contentEl);
+        await renderCompoundTimelineSubView(realSubKey, subView, contentEl, axisIdx);
     }
 }
 
@@ -1089,7 +1115,7 @@ async function renderCompoundMorphSubView(subKey, subView, containerEl) {
  * Shows a tree chart with a time-axis slider (e.g. geologic periods, publication years).
  * Supports chained morph animation between consecutive timeline steps.
  */
-async function renderCompoundTimelineSubView(subKey, subView, containerEl) {
+async function renderCompoundTimelineSubView(subKey, subView, containerEl, initialAxisIdx = 0) {
     const tlOpts = subView.timeline_options;
     if (!tlOpts || !tlOpts.axis_modes || tlOpts.axis_modes.length === 0) {
         containerEl.innerHTML = '<div class="text-danger">timeline_options with axis_modes required</div>';
@@ -1103,26 +1129,23 @@ async function renderCompoundTimelineSubView(subKey, subView, containerEl) {
         <div class="tc-tooltip" id="compound-tl-tooltip" style="display:none;"></div>
         <div class="tc-context-menu" id="compound-tl-context-menu" style="display:none;"></div>
         <div class="timeline-controls" id="compound-tl-controls">
-            <div class="tl-axis-row">
-                <select id="tl-axis-mode" class="tl-axis-select"></select>
-                <label class="tl-step-label">Step <input type="number" id="tl-step-size" value="${tlOpts.default_step_size || 1}" min="1" class="tl-step-input"></label>
-            </div>
             <div class="tl-transport-row">
                 <button id="tl-rewind-btn" title="Rewind"><i class="bi bi-skip-start-fill"></i></button>
-                <button id="tl-play-rev-btn" title="Play backward"><i class="bi bi-caret-left-fill"></i></button>
                 <button id="tl-pause-btn" title="Pause"><i class="bi bi-pause-fill"></i></button>
                 <button id="tl-play-fwd-btn" title="Play forward"><i class="bi bi-caret-right-fill"></i></button>
                 <button id="tl-ff-btn" title="Fast forward"><i class="bi bi-skip-end-fill"></i></button>
                 <button id="tl-step-fwd-btn" title="Step forward"><i class="bi bi-skip-forward-fill"></i></button>
-                <span class="tl-step-info" id="tl-step-info"></span>
-                <input type="range" id="tl-scrubber" min="0" max="0" value="0">
                 <span class="tl-step-label-display" id="tl-step-label-display"></span>
+                <span class="tl-step-info" id="tl-step-info"></span>
                 <select id="tl-speed" class="tl-speed-select">
                     <option value="0.5">0.5x</option>
                     <option value="1" selected>1x</option>
                     <option value="2">2x</option>
                     <option value="4">4x</option>
                 </select>
+            </div>
+            <div class="tl-scrubber-row">
+                <input type="range" id="tl-scrubber" min="0" max="0" value="0">
             </div>
         </div>
     </div>`;
@@ -1141,14 +1164,11 @@ async function renderCompoundTimelineSubView(subKey, subView, containerEl) {
     _singletonTC = inst;
 
     // DOM refs
-    const axisModeSel = document.getElementById('tl-axis-mode');
-    const stepSizeInput = document.getElementById('tl-step-size');
     const scrubber = document.getElementById('tl-scrubber');
     const stepInfo = document.getElementById('tl-step-info');
     const stepLabelDisplay = document.getElementById('tl-step-label-display');
     const speedSel = document.getElementById('tl-speed');
     const rewindBtn = document.getElementById('tl-rewind-btn');
-    const playRevBtn = document.getElementById('tl-play-rev-btn');
     const pauseBtn = document.getElementById('tl-pause-btn');
     const playFwdBtn = document.getElementById('tl-play-fwd-btn');
     const ffBtn = document.getElementById('tl-ff-btn');
@@ -1161,11 +1181,7 @@ async function renderCompoundTimelineSubView(subKey, subView, containerEl) {
     let playing = false;
     let tlAnimId = null;
     const paramName = tlOpts.param_name || 'timeline_value';
-
-    // Populate axis mode dropdown
-    axisModeSel.innerHTML = tlOpts.axis_modes.map((m, i) =>
-        `<option value="${i}">${m.label || m.key}</option>`
-    ).join('');
+    const stepSize = tlOpts.default_step_size || 1;
 
     // --- Axis loading ---
     async function loadAxis(modeIdx) {
@@ -1205,9 +1221,8 @@ async function renderCompoundTimelineSubView(subKey, subView, containerEl) {
     }
 
     function applyStepSize() {
-        const sz = Math.max(1, parseInt(stepSizeInput.value, 10) || 1);
         steps = [];
-        for (let i = 0; i < allSteps.length; i += sz) {
+        for (let i = 0; i < allSteps.length; i += stepSize) {
             steps.push(allSteps[i]);
         }
         // Always include last step
@@ -1375,34 +1390,6 @@ async function renderCompoundTimelineSubView(subKey, subView, containerEl) {
     }
 
     // --- Event handlers ---
-    axisModeSel.addEventListener('change', async () => {
-        console.log(`[timeline] axis dropdown changed to index=${axisModeSel.value}`);
-        try {
-            stopPlaying();
-            queryCache = {};
-            await loadAxis(parseInt(axisModeSel.value, 10));
-        } catch (e) {
-            console.error('[timeline] loadAxis error:', e);
-        }
-    });
-
-    stepSizeInput.addEventListener('change', async () => {
-        stopPlaying();
-        const prevValue = steps[currentIdx]?.value;
-        applyStepSize();
-        // Snap to closest step
-        currentIdx = 0;
-        if (prevValue != null) {
-            for (let i = 0; i < steps.length; i++) {
-                if (steps[i].value === prevValue) { currentIdx = i; break; }
-                if (steps[i].value > prevValue) { currentIdx = Math.max(0, i - 1); break; }
-                currentIdx = i;
-            }
-        }
-        updateScrubber();
-        await loadStep(currentIdx);
-    });
-
     scrubber.addEventListener('input', async () => {
         stopPlaying();
         const idx = parseInt(scrubber.value, 10);
@@ -1432,11 +1419,6 @@ async function renderCompoundTimelineSubView(subKey, subView, containerEl) {
         playTimeline(true);
     });
 
-    playRevBtn.addEventListener('click', () => {
-        if (playing) return;
-        playTimeline(false);
-    });
-
     pauseBtn.addEventListener('click', () => stopPlaying());
 
     // --- Initial load ---
@@ -1462,7 +1444,7 @@ async function renderCompoundTimelineSubView(subKey, subView, containerEl) {
     await inst.load(subKey, resolvedView);
 
     // Then load axis data and show first step
-    await loadAxis(0);
+    await loadAxis(initialAxisIdx);
 }
 
 /**
