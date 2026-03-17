@@ -37,3 +37,6 @@ ScodaDesktop.cfg
 
 # Screenshots
 shot/
+
+# Images (local assets)
+images/
