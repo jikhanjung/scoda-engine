@@ -1,6 +1,6 @@
 # SCODA Engine — Project Handoff Document
 
-**Last updated:** 2026-03-15
+**Last updated:** 2026-03-17
 
 ---
 
@@ -77,6 +77,14 @@
 | P29: Multi-Package Serving | Done | `devlog/20260314_035_P29_multi_package_serving_impl.md` |
 | Desktop v0.3.0 버전 업 | Done | `scoda_engine/__init__.py`, `pyproject.toml` |
 | P30: 모바일 UI 개선 (Landing 스크롤 + Tree 드로어) | Done | `devlog/20260315_P30_mobile_ui_improvements.md` |
+| Removed Taxa 패널 접기/펼치기 | Done | `devlog/20260315_036_removed_panel_collapsible.md` |
+| Compound view 서브메뉴 모바일 수정 | Done | `devlog/20260315_037_compound_view_mobile_subtabs.md` |
+| Navbar/Landing 엔진 버전 표시 | Done | `devlog/20260315_038_engine_version_in_navbar.md` |
+| Desktop v0.3.1 ~ v0.3.3 버전 업 | Done | 모바일 반응형, 엔진 버전 표시 등 |
+| Timeline UX 개선 + 툴바 모바일 정리 | Done | `devlog/20260317_039_timeline_mobile_ux_improvements.md` |
+| 모바일 반응형 고도화 + Timeline 녹화 버튼 | Done | `devlog/20260317_040_mobile_responsive_and_timeline_record.md` |
+| Bar chart 서브뷰 + Statistics 탭 구조 개편 | Done | `devlog/20260317_041_bar_chart_and_statistics_tab.md` |
+| Desktop v0.3.4 버전 업 | Done | `scoda_engine/__init__.py`, `pyproject.toml` |
 
 ### Test Status
 
@@ -90,36 +98,28 @@
 
 - 없음
 
-### Recent Sessions (2026-03-12 ~ 2026-03-14) Summary
+### Recent Sessions (2026-03-14 ~ 2026-03-17) Summary
 
-**2026-03-14: P29 Multi-Package Serving + GUI 개선**
-1. **APIRouter 리팩토링**: 모든 per-package 엔드포인트를 `pkg_router = APIRouter(prefix="/api/{package}")` 로 이동. `Depends(get_package_db)` dependency로 자동 conn lifecycle 관리.
-2. **글로벌 엔드포인트**: `GET /api/packages` (패키지 목록), `GET /healthz` (패키지 수 포함), `POST /api/hub/sync` (기존 유지).
-3. **페이지 라우트**: `GET /` — 단일 패키지 시 `/{name}/`으로 302 redirect, 복수 패키지 시 `landing.html` 렌더. `GET /{package}/` — 패키지 뷰어.
-4. **Frontend `API_BASE`**: `index.html`에 `const API_BASE = '/api/{package_name}'` 주입, `app.js`의 18개 fetch URL을 `${API_BASE}/...`로 교체. `resolveApiUrl()` 유틸로 manifest `view.source` URL 변환.
-5. **랜딩 페이지**: `landing.html` — D3 force simulation 배경, 패키지 카드 그리드, 다크 테마.
-6. **Home breadcrumb**: navbar에 🏠 SCODA / 패키지명 구조. 홈 아이콘 클릭 시 패키지 목록으로 이동.
-7. **serve_web.py**: 디렉토리 모드에서 `set_active_package()` 제거 (모든 패키지 동시 서빙).
-8. **Core 변경**: `PackageRegistry.register_db()` 메서드 추가, `_set_paths_for_testing()`에 registry "test" 등록 추가, `check_same_thread=False` 적용.
-9. **GUI 개선**: Start Server 패키지 선택 불요 (모든 패키지 동시 서빙), 패키지 목록 정보 표시 전용, 헤더에 버전 표시.
-10. **테스트**: 모든 `/api/...` URL → `/api/test/...` 변환, `GET /` 테스트 302 redirect 검증, 303개 전체 통과.
-11. **버전 업**: v0.2.5 → v0.3.0
+**2026-03-17: Bar chart 서브뷰 + 모바일 고도화**
+1. **Bar chart 서브뷰**: D3 stacked bar chart, "Group by" 드롭다운(rank 선택), 툴팁, 범례. `diversity_by_age` SQL 쿼리 (recursive CTE).
+2. **Statistics 탭 구조 개편**: 단일 Timeline → 3개 서브탭 (Geologic Timeline, Publication Timeline, Diversity Chart).
+3. **Timeline UX 개선**: 컨트롤 패널 위치 조정, axis mode를 compound 서브탭으로 승격, 툴바 버튼 기어 팝업 통합.
+4. **Timeline 녹화**: Timeline 서브뷰에 동영상 녹화 기능 추가 (WebMWriter 오프라인 렌더 + Safari MediaRecorder fallback).
+5. **모바일 반응형 고도화**: Profile 드롭다운 라벨 숨김, navbar 말줄임, 컨트롤 패널 뷰포트 제한, 검색 입력 `max-width: 30vw`.
+6. **버전 업**: v0.3.3 → v0.3.4
 
-**2026-03-12: P27 구현**
-1. **Hub Refresh 버튼**: Web navbar ↻ 버튼 (`POST /api/hub/sync`), Desktop GUI "Check Hub" 버튼, 새 패키지 감지 시 자동 페이지 리로드.
-2. **모바일 반응형 UI**: 768px breakpoint, 햄버거 메뉴(☰↔✕), 세로 드롭다운 탭, 검색바·단축키 힌트 숨김.
-3. **Animation 동영상 다운로드**: Chrome/Edge/Firefox: 오프라인 30fps `webm-writer` 렌더링, Safari: captureStream + MediaRecorder, 1920×1080 고정, ⏺ 녹화 버튼.
+**2026-03-15: P30 모바일 UI + 엔진 버전 표시**
+1. **P30 모바일 UI**: Landing 스크롤 수정, tree 패널 slide-out 드로어, Removed Taxa 패널 접기/펼치기.
+2. **Compound view 모바일 수정**: 서브탭 2행 레이아웃 (profile 드롭다운 + 서브탭 가로 스크롤).
+3. **엔진 버전 표시**: Navbar + Landing에 "Powered by {engine_name} v{version}" 표시, `/healthz`에 `engine_name` 추가.
+4. **버전 업**: v0.3.0 → v0.3.3
 
-**2026-03-13: 버그 수정 + Tree 기능 강화**
-1. **Composite detail bugfix**: `_execute_query()` 누락 파라미터 자동 None 채움, 에러 체크 순서 수정.
-2. **Tree visible depth slider**: 기어 아이콘 팝업, rank 기반 depth 제한, Radial/Rect/SBS 동기화.
-3. **Text scale 단축키**: `[`/`]` 키로 텍스트 크기 조절 (0.3~5.0 범위).
-
-**2026-03-14: P28 Timeline sub-view**
-1. **Timeline sub-view**: `tree_chart_timeline` display type, 다중 axis mode (지질시대/출판연도), 동적 query override.
-2. **Timeline playback**: ⏮◀⏸▶⏭⏩ 컨트롤, scrubber 슬라이더, speed selector (0.5x~4x), step 간 morph animation, look-ahead 캐싱.
-3. **Vendor JS 번들링**: CDN → `/static/vendor/` (D3, Bootstrap, icons) — Desktop 오프라인 지원.
-4. **버그 수정**: 축 전환 시 빈 트리 처리 (`fullRoot = null`), 빈 스텝 무한 루프 방지 (`currentIdx` 증가 보장).
+**2026-03-14: P29 Multi-Package Serving**
+1. **APIRouter 리팩토링**: 모든 per-package 엔드포인트를 `pkg_router = APIRouter(prefix="/api/{package}")` 로 이동. `Depends(get_package_db)` dependency.
+2. **글로벌 엔드포인트**: `GET /api/packages`, `GET /healthz`, `POST /api/hub/sync`.
+3. **페이지 라우트**: `GET /` — 단일 패키지 시 302 redirect, 복수 시 `landing.html`. `GET /{package}/` — 뷰어.
+4. **Frontend `API_BASE`**: `index.html`에 주입, `app.js`의 18개 fetch URL 교체. `resolveApiUrl()` 유틸.
+5. **버전 업**: v0.2.5 → v0.3.0
 
 ---
 
@@ -183,7 +183,9 @@ scoda-engine contains no domain-specific code. All domain logic comes from `.sco
 - `/api/{package}/composite/<view>?id=N`: multi-query composite response
 - Generic viewer supports: hierarchy (tree/nested_table/tree_chart with radial+rectangular+side-by-side+diff layout), table, detail modal, global search, annotations, compare mode, node watch, removed taxa panel, timeline sub-view
 - Tree chart features: visible depth slider, text scale shortcut (`[`/`]`), morph animation video export (WebM)
-- Timeline sub-view: `tree_chart_timeline` display type, multiple axis modes, step slider, playback controls, morph between steps, look-ahead caching
+- Timeline sub-view: `tree_chart_timeline` display type, multiple axis modes, step slider, playback controls, morph between steps, look-ahead caching, video recording
+- Bar chart sub-view: D3 stacked bar chart, rank-based grouping, `diversity_by_age` query
+- Statistics tab: 3 sub-tabs (Geologic Timeline, Publication Timeline, Diversity Chart)
 - Boolean columns: customizable via `true_label`/`false_label`, defaults `BOOLEAN_TRUE_LABEL`/`BOOLEAN_FALSE_LABEL`
 - `label_map` 동적 컬럼 label: 행 데이터의 특정 필드 값에 따라 테이블 헤더를 동적으로 결정 (혼합 시 fallback)
 - `editable_entities`: admin 모드에서 CRUD UI 자동 생성 (FK autocomplete, readonly_on_edit, post-mutation hooks)
@@ -204,7 +206,7 @@ core/scoda_engine_core/     # PyPI: scoda-engine-core v0.1.1 (pure stdlib, zero 
 ├── hub_client.py           # Hub: fetch index, compare, download, SSL fallback
 └── validate_manifest.py    # Manifest validator/linter (pure functions)
 
-scoda_engine/               # PyPI: scoda-engine v0.3.0 (desktop/server)
+scoda_engine/               # PyPI: scoda-engine v0.3.4 (desktop/server)
 ├── scoda_package.py        # Backward-compat shim → scoda_engine_core
 ├── app.py                  # FastAPI web server (multi-package APIRouter + CRUD)
 ├── entity_schema.py        # P21: FieldDef/EntitySchema parser + validation
@@ -309,3 +311,10 @@ pytest tests/
 | Timeline 축 전환 빈 트리 bugfix | `devlog/20260314_033_timeline_axis_switch_bugfix.md` |
 | Timeline 빈 스텝 무한 루프 bugfix | `devlog/20260314_034_timeline_empty_step_infinite_loop_fix.md` |
 | P29 구현 (Multi-Package Serving) | `devlog/20260314_035_P29_multi_package_serving_impl.md` |
+| P30 모바일 UI 개선 | `devlog/20260315_P30_mobile_ui_improvements.md` |
+| Removed Panel 접기/펼치기 | `devlog/20260315_036_removed_panel_collapsible.md` |
+| Compound view 모바일 서브탭 | `devlog/20260315_037_compound_view_mobile_subtabs.md` |
+| 엔진 버전 표시 (Navbar/Landing) | `devlog/20260315_038_engine_version_in_navbar.md` |
+| Timeline 모바일 UX 개선 | `devlog/20260317_039_timeline_mobile_ux_improvements.md` |
+| 모바일 반응형 + Timeline 녹화 | `devlog/20260317_040_mobile_responsive_and_timeline_record.md` |
+| Bar chart + Statistics 탭 | `devlog/20260317_041_bar_chart_and_statistics_tab.md` |

@@ -53,8 +53,8 @@ scoda-engine/
 │   ├── templates/landing.html  # Multi-package landing page (D3 force)
 │   └── static/
 │       ├── css/style.css       # Viewer styles (responsive, timeline)
-│       ├── js/app.js           # Viewer main logic (timeline, morph, video export)
-│       ├── js/tree_chart.js    # D3 tree chart (radial/rect/SBS/diff/timeline)
+│       ├── js/app.js           # Viewer main logic (timeline, morph, video export, bar chart)
+│       ├── js/tree_chart.js    # D3 tree chart (radial/rect/SBS/diff/timeline/bar chart)
 │       └── vendor/             # Offline vendor libs (D3, Bootstrap, icons)
 ├── deploy/                     # Docker deployment (docker-compose.yml)
 ├── design/                     # Design & concept documents (originals)
