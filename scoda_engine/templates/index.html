@@ -12,13 +12,13 @@
     <!-- Header -->
     <nav class="navbar navbar-dark bg-dark">
         <div class="container-fluid">
-            <span class="navbar-brand mb-0 h1" id="navbar-brand">
+            <span class="navbar-brand mb-0 h1" id="navbar-brand" style="overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0;">
                 <a href="/" title="All packages" style="color: inherit; text-decoration: none;" id="navbar-home"><i class="bi bi-house-door-fill"></i> <span style="font-size: 0.85em;">SCODA</span></a>
                 <span id="navbar-sep" style="margin: 0 6px; opacity: 0.4;">/</span>
                 <span id="navbar-title"></span>
                 <small id="navbar-subtitle" class="text-white-50" style="font-size: 0.6em; margin-left: 8px;"></small>
             </span>
-            <div class="d-flex align-items-center gap-2">
+            <div class="d-flex align-items-center gap-2 flex-shrink-0">
                 <span id="navbar-engine-info" class="text-white-50" style="font-size: 0.65em; white-space: nowrap;"></span>
                 <button class="btn btn-outline-light btn-sm" id="hub-refresh-btn"
                         title="Refresh Hub packages" onclick="hubRefresh()">

@@ -550,6 +550,8 @@ async function switchCompoundSubView(subKey) {
         await renderCompoundMorphSubView(realSubKey, subView, contentEl);
     } else if (display === 'tree_chart_timeline') {
         await renderCompoundTimelineSubView(realSubKey, subView, contentEl, axisIdx);
+    } else if (display === 'bar_chart') {
+        await renderCompoundBarChartSubView(realSubKey, subView, contentEl);
     }
 }
 
@@ -820,7 +822,6 @@ async function renderCompoundMorphSubView(subKey, subView, containerEl) {
         <div class="tc-context-menu" id="compound-morph-context-menu" style="display:none;"></div>
         <div class="morph-controls" id="compound-morph-controls">
             <button id="morph-rewind-btn" title="Rewind to From"><i class="bi bi-skip-start-fill"></i></button>
-            <button id="morph-play-rev-btn" title="Play backward"><i class="bi bi-caret-left-fill"></i></button>
             <button id="morph-pause-btn" title="Pause"><i class="bi bi-pause-fill"></i></button>
             <button id="morph-play-fwd-btn" title="Play forward"><i class="bi bi-caret-right-fill"></i></button>
             <button id="morph-ff-btn" title="Fast forward to To"><i class="bi bi-skip-end-fill"></i></button>
@@ -831,7 +832,7 @@ async function renderCompoundMorphSubView(subKey, subView, containerEl) {
                 <option value="1" selected>1x</option>
                 <option value="2">2x</option>
             </select>
-            <button id="morph-record-btn" title="Record animation as video"><i class="bi bi-record-circle"></i></button>
+            <button id="morph-record-btn" title="Record animation as video"><i class="bi bi-circle-fill record-icon"></i></button>
         </div>
     </div>`;
 
@@ -865,7 +866,6 @@ async function renderCompoundMorphSubView(subKey, subView, containerEl) {
 
     // Wire up morph UI controls
     const rewindBtn = document.getElementById('morph-rewind-btn');
-    const playRevBtn = document.getElementById('morph-play-rev-btn');
     const pauseBtn = document.getElementById('morph-pause-btn');
     const playFwdBtn = document.getElementById('morph-play-fwd-btn');
     const ffBtn = document.getElementById('morph-ff-btn');
@@ -903,7 +903,6 @@ async function renderCompoundMorphSubView(subKey, subView, containerEl) {
         updateScrubber(0);
     });
 
-    playRevBtn.addEventListener('click', () => startPlaying(true));
     pauseBtn.addEventListener('click', () => stopPlaying());
     playFwdBtn.addEventListener('click', () => startPlaying(false));
 
@@ -1143,6 +1142,7 @@ async function renderCompoundTimelineSubView(subKey, subView, containerEl, initi
                     <option value="2">2x</option>
                     <option value="4">4x</option>
                 </select>
+                <button id="tl-record-btn" title="Record animation as video"><i class="bi bi-circle-fill record-icon"></i></button>
             </div>
             <div class="tl-scrubber-row">
                 <input type="range" id="tl-scrubber" min="0" max="0" value="0">
@@ -1421,6 +1421,216 @@ async function renderCompoundTimelineSubView(subKey, subView, containerEl, initi
 
     pauseBtn.addEventListener('click', () => stopPlaying());
 
+    // --- Record timeline as video ---
+    const tlRecordBtn = document.getElementById('tl-record-btn');
+    let tlRecording = false;
+    const tlIsSafari = /^((?!chrome|android).)*safari/i.test(navigator.userAgent);
+
+    tlRecordBtn.addEventListener('click', async () => {
+        if (tlRecording || steps.length < 2) return;
+
+        const canvas = inst.canvas;
+        if (!canvas) { alert('No canvas found.'); return; }
+
+        if (tlIsSafari || typeof WebMWriter === 'undefined') {
+            await tlRecordRealtime(canvas);
+        } else {
+            await tlRecordOffline(canvas);
+        }
+    });
+
+    function tlSetupRecordCanvas(canvas, recW, recH) {
+        inst.dpr = 1;
+        inst.width = recW;
+        inst.height = recH;
+        canvas.width = recW;
+        canvas.height = recH;
+        inst.ctx = canvas.getContext('2d');
+        inst.ctx.setTransform(1, 0, 0, 1, 0, 0);
+        inst._recordBg = '#ffffff';
+    }
+
+    function tlRestoreCanvas(origW, origH, origDpr, origTransform) {
+        inst._recordBg = null;
+        inst.dpr = origDpr;
+        inst.width = origW;
+        inst.height = origH;
+        inst.transform = origTransform;
+        inst.resizeCanvas();
+        inst.render();
+    }
+
+    /** Offline frame-by-frame recording for timeline */
+    async function tlRecordOffline(canvas) {
+        tlRecording = true;
+        tlRecordBtn.classList.add('active');
+        tlRecordBtn.title = 'Rendering frames...';
+        stopPlaying();
+
+        const fps = 30;
+        const speed = parseFloat(speedSel.value);
+        const morphDurationMs = 1600 / speed;
+        const holdFrames = Math.ceil(fps * 0.3); // hold each step 0.3s
+        const morphFrames = Math.ceil(morphDurationMs / 1000 * fps);
+        const recW = 1920, recH = 1080;
+
+        const origW = inst.width, origH = inst.height, origDpr = inst.dpr;
+        const origTransform = inst.transform;
+
+        tlSetupRecordCanvas(canvas, recW, recH);
+
+        const writer = new WebMWriter({ quality: 0.95, frameRate: fps });
+
+        // Render first step statically
+        await loadStep(0);
+        // Fit to recording canvas
+        inst.transform = inst.computeFitTransform();
+        inst.render();
+        for (let h = 0; h < holdFrames; h++) writer.addFrame(canvas);
+
+        // Morph through each step transition
+        for (let s = 0; s < steps.length - 1; s++) {
+            // Build morph snapshots for this transition
+            const overridesFrom = { ...compoundControls };
+            if (overridesFrom.base_profile_id) overridesFrom.profile_id = overridesFrom.base_profile_id;
+            overridesFrom[paramName] = steps[s].value;
+            inst.overrideParams = overridesFrom;
+            await inst.buildHierarchy(subView);
+            inst.root = inst.fullRoot;
+            if (!inst.root) continue;
+            inst.computeLayout(inst.root, subView);
+            inst.assignColors(inst.root, subView);
+            const baseBW = inst.cladoBoundsW, baseBH = inst.cladoBoundsH;
+            inst._morphBasePositions = inst.snapshotPositions(inst.root);
+            inst._morphBaseLinks = inst.snapshotLinks(inst.root);
+            inst._morphBaseRoot = inst.root;
+
+            const overridesTo = { ...compoundControls };
+            if (overridesTo.base_profile_id) overridesTo.profile_id = overridesTo.base_profile_id;
+            overridesTo[paramName] = steps[s + 1].value;
+            inst.overrideParams = overridesTo;
+            await inst.buildHierarchy(subView);
+            const compareRoot = inst.fullRoot;
+            if (!compareRoot) continue;
+            inst.computeLayout(compareRoot, subView);
+            inst.assignColors(compareRoot, subView);
+            inst.cladoBoundsW = Math.max(baseBW, inst.cladoBoundsW);
+            inst.cladoBoundsH = Math.max(baseBH, inst.cladoBoundsH);
+            inst._morphComparePositions = inst.snapshotPositions(compareRoot);
+            inst._morphCompareLinks = inst.snapshotLinks(compareRoot);
+            inst._morphCompareRoot = compareRoot;
+
+            inst._morphAllNodeIds = new Set([
+                ...inst._morphBasePositions.keys(),
+                ...inst._morphComparePositions.keys(),
+            ]);
+            inst.root = inst._morphBaseRoot;
+            inst.buildQuadtree(inst.root);
+            inst._morphing = true;
+            inst._morphReversed = false;
+
+            // Render morph frames
+            for (let f = 0; f <= morphFrames; f++) {
+                const t = Math.min(f / morphFrames, 1);
+                inst.renderMorphFrame(t);
+                writer.addFrame(canvas);
+                if (f % 5 === 0) await new Promise(r => setTimeout(r, 0));
+            }
+
+            // Hold on final frame
+            for (let h = 0; h < holdFrames; h++) writer.addFrame(canvas);
+
+            currentIdx = s + 1;
+            updateScrubber();
+            tlRecordBtn.title = `Rendering... ${s + 1}/${steps.length - 1}`;
+        }
+
+        tlRestoreCanvas(origW, origH, origDpr, origTransform);
+
+        tlRecordBtn.title = 'Encoding video...';
+        try {
+            const blob = await writer.complete();
+            tlDownloadBlob(blob, 'timeline-animation.webm');
+        } catch (e) {
+            alert(`Video encoding failed: ${e.message}`);
+        }
+        tlFinishRecording();
+        // Reload current step to restore normal state
+        await loadStep(currentIdx);
+    }
+
+    /** Real-time recording via MediaRecorder (Safari fallback) */
+    async function tlRecordRealtime(canvas) {
+        if (!canvas.captureStream) {
+            alert('Video recording is not supported in this browser.');
+            return;
+        }
+        const mimeTypes = ['video/webm;codecs=vp9', 'video/webm;codecs=vp8', 'video/webm', 'video/mp4'];
+        let mimeType = '';
+        for (const mt of mimeTypes) {
+            if (MediaRecorder.isTypeSupported(mt)) { mimeType = mt; break; }
+        }
+        if (!mimeType) { alert('No supported video format found.'); return; }
+
+        tlRecording = true;
+        tlRecordBtn.classList.add('active');
+        tlRecordBtn.title = 'Recording... (real-time)';
+        stopPlaying();
+
+        const recW = 1920, recH = 1080;
+        const origW = inst.width, origH = inst.height, origDpr = inst.dpr;
+        const origTransform = inst.transform;
+
+        tlSetupRecordCanvas(canvas, recW, recH);
+        await loadStep(0);
+        inst.transform = inst.computeFitTransform();
+        inst.render();
+
+        const stream = canvas.captureStream(30);
+        const recorder = new MediaRecorder(stream, { mimeType, videoBitsPerSecond: 5000000 });
+        const chunks = [];
+
+        recorder.ondataavailable = (e) => {
+            if (e.data && e.data.size > 0) chunks.push(e.data);
+        };
+
+        recorder.onstop = async () => {
+            tlRestoreCanvas(origW, origH, origDpr, origTransform);
+            const ext = mimeType.startsWith('video/mp4') ? 'mp4' : 'webm';
+            const blob = new Blob(chunks, { type: mimeType });
+            tlDownloadBlob(blob, `timeline-animation.${ext}`);
+            tlFinishRecording();
+            await loadStep(currentIdx);
+        };
+
+        recorder.start();
+        // Play through all steps — recorder captures in real-time
+        const speed = Math.min(parseFloat(speedSel.value), 1);
+        for (let s = 0; s < steps.length - 1; s++) {
+            if (!tlRecording) break;
+            await morphToStep(s, s + 1, speed);
+        }
+        playing = false;
+        setTimeout(() => recorder.stop(), 200);
+    }
+
+    function tlDownloadBlob(blob, filename) {
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = filename;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        setTimeout(() => URL.revokeObjectURL(url), 5000);
+    }
+
+    function tlFinishRecording() {
+        tlRecording = false;
+        tlRecordBtn.classList.remove('active');
+        tlRecordBtn.title = 'Record animation as video';
+    }
+
     // --- Initial load ---
     // Load tree chart first (sets up canvas, toolbar etc)
     const overrides = { ...compoundControls };
@@ -1445,6 +1655,258 @@ async function renderCompoundTimelineSubView(subKey, subView, containerEl, initi
 
     // Then load axis data and show first step
     await loadAxis(initialAxisIdx);
+}
+
+/**
+ * Render a bar chart sub-view (stacked bar chart for diversity statistics).
+ *
+ * bar_chart_options:
+ *   data_query      — named query returning rows with x, group, and value columns
+ *   x_key           — column name for X axis categories (default: "age_label")
+ *   x_order_key     — column name for X axis ordering (default: "age_order")
+ *   group_key        — column name for grouping/coloring (default: "group_name")
+ *   value_key        — column name for Y values (default: "count")
+ *   grouping_param   — query parameter name for rank (default: "grouping_rank")
+ *   grouping_ranks   — [{value, label}] options for the grouping selector
+ *   default_grouping — default grouping rank value (optional)
+ */
+async function renderCompoundBarChartSubView(subKey, subView, containerEl) {
+    const opts = subView.bar_chart_options || {};
+    const dataQuery = subView.source_query || opts.data_query;
+    if (!dataQuery) {
+        containerEl.innerHTML = '<div class="text-danger">bar_chart_options.data_query or source_query required</div>';
+        return;
+    }
+
+    const xKey = opts.x_key || 'age_label';
+    const xOrderKey = opts.x_order_key || 'age_order';
+    const groupKey = opts.group_key || 'group_name';
+    const valueKey = opts.value_key || 'count';
+    const groupingParam = opts.grouping_param || 'grouping_rank';
+    const groupingRanks = opts.grouping_ranks || [];
+    let currentGrouping = opts.default_grouping || (groupingRanks[0]?.value ?? 'family');
+
+    // Build toolbar HTML
+    let toolbarHtml = '';
+    if (groupingRanks.length > 0) {
+        toolbarHtml += '<div class="bar-chart-control"><label class="bar-chart-control-label">Group by</label>';
+        toolbarHtml += '<select id="bar-group-select" class="bar-chart-select">';
+        for (const r of groupingRanks) {
+            const sel = r.value === currentGrouping ? ' selected' : '';
+            toolbarHtml += `<option value="${r.value}"${sel}>${r.label}</option>`;
+        }
+        toolbarHtml += '</select></div>';
+    }
+
+    containerEl.innerHTML = `<div class="bar-chart-view" style="height:100%; display:flex; flex-direction:column;">
+        <div class="bar-chart-toolbar" id="bar-chart-toolbar">${toolbarHtml}</div>
+        <div class="bar-chart-container" id="bar-chart-container" style="flex:1; min-height:0; overflow:hidden;"></div>
+        <div class="bar-chart-legend" id="bar-chart-legend"></div>
+    </div>`;
+
+    await ensureD3Loaded();
+
+    const chartContainer = document.getElementById('bar-chart-container');
+    const groupSelect = document.getElementById('bar-group-select');
+
+    async function renderChart() {
+        const params = { [groupingParam]: currentGrouping };
+        const rows = await fetchCompoundQuery(dataQuery, params);
+
+        if (!rows || rows.length === 0) {
+            chartContainer.innerHTML = '<div class="text-muted text-center p-4">No data available</div>';
+            return;
+        }
+
+        // Parse data: build ordered X categories and grouped stacks
+        const xMap = new Map(); // value → { label, order }
+        for (const r of rows) {
+            const xVal = String(r[xKey]);
+            if (!xMap.has(xVal)) {
+                xMap.set(xVal, { label: xVal, order: r[xOrderKey] ?? 0 });
+            }
+        }
+        const categories = [...xMap.entries()]
+            .sort((a, b) => a[1].order - b[1].order)
+            .map(e => e[0]);
+
+        // Collect unique groups
+        const groupSet = new Set();
+        for (const r of rows) groupSet.add(String(r[groupKey]));
+        const groups = [...groupSet].sort();
+
+        // Build matrix: category → group → value
+        const dataMatrix = new Map();
+        for (const cat of categories) {
+            const gMap = new Map();
+            for (const g of groups) gMap.set(g, 0);
+            dataMatrix.set(cat, gMap);
+        }
+        for (const r of rows) {
+            const cat = String(r[xKey]);
+            const g = String(r[groupKey]);
+            const gMap = dataMatrix.get(cat);
+            if (gMap) gMap.set(g, (gMap.get(g) || 0) + (Number(r[valueKey]) || 0));
+        }
+
+        // Compute totals per group for sorting legend
+        const groupTotals = new Map();
+        for (const g of groups) {
+            let total = 0;
+            for (const gMap of dataMatrix.values()) total += gMap.get(g) || 0;
+            groupTotals.set(g, total);
+        }
+        groups.sort((a, b) => (groupTotals.get(b) || 0) - (groupTotals.get(a) || 0));
+
+        // Build D3 stack data
+        const stackData = categories.map(cat => {
+            const entry = { _category: cat };
+            const gMap = dataMatrix.get(cat);
+            for (const g of groups) entry[g] = gMap.get(g) || 0;
+            return entry;
+        });
+
+        const stack = d3.stack().keys(groups);
+        const series = stack(stackData);
+
+        // Dimensions
+        const rect = chartContainer.getBoundingClientRect();
+        const margin = { top: 20, right: 20, bottom: 80, left: 50 };
+        const width = rect.width - margin.left - margin.right;
+        const height = rect.height - margin.top - margin.bottom;
+        if (width < 50 || height < 50) return;
+
+        // Clear previous
+        chartContainer.innerHTML = '';
+
+        const svg = d3.select(chartContainer)
+            .append('svg')
+            .attr('width', rect.width)
+            .attr('height', rect.height);
+
+        const g = svg.append('g')
+            .attr('transform', `translate(${margin.left},${margin.top})`);
+
+        // Scales
+        const x = d3.scaleBand()
+            .domain(categories)
+            .range([0, width])
+            .padding(0.15);
+
+        const yMax = d3.max(series, s => d3.max(s, d => d[1])) || 1;
+        const y = d3.scaleLinear()
+            .domain([0, yMax])
+            .nice()
+            .range([height, 0]);
+
+        const color = d3.scaleOrdinal()
+            .domain(groups)
+            .range(d3.schemeTableau10.concat(d3.schemePastel1, d3.schemeSet3));
+
+        // X axis
+        g.append('g')
+            .attr('transform', `translate(0,${height})`)
+            .call(d3.axisBottom(x))
+            .selectAll('text')
+            .attr('transform', 'rotate(-45)')
+            .style('text-anchor', 'end')
+            .style('font-size', '0.7rem');
+
+        // Y axis
+        g.append('g')
+            .call(d3.axisLeft(y).ticks(Math.min(10, yMax)))
+            .selectAll('text')
+            .style('font-size', '0.75rem');
+
+        // Y axis label
+        g.append('text')
+            .attr('transform', 'rotate(-90)')
+            .attr('y', -margin.left + 14)
+            .attr('x', -height / 2)
+            .attr('text-anchor', 'middle')
+            .style('font-size', '0.75rem')
+            .style('fill', '#6c757d')
+            .text('Genera');
+
+        // Bars
+        const barGroups = g.selectAll('.bar-series')
+            .data(series)
+            .join('g')
+            .attr('class', 'bar-series')
+            .attr('fill', d => color(d.key));
+
+        barGroups.selectAll('rect')
+            .data(d => d)
+            .join('rect')
+            .attr('x', d => x(d.data._category))
+            .attr('y', d => y(d[1]))
+            .attr('height', d => y(d[0]) - y(d[1]))
+            .attr('width', x.bandwidth());
+
+        // Tooltip
+        const tooltip = d3.select(chartContainer)
+            .append('div')
+            .style('position', 'absolute')
+            .style('pointer-events', 'none')
+            .style('background', 'rgba(255,255,255,0.95)')
+            .style('border', '1px solid #dee2e6')
+            .style('border-radius', '4px')
+            .style('padding', '6px 10px')
+            .style('font-size', '0.8rem')
+            .style('box-shadow', '0 2px 8px rgba(0,0,0,0.12)')
+            .style('display', 'none')
+            .style('z-index', '20');
+
+        barGroups.selectAll('rect')
+            .on('mouseover', function (event, d) {
+                const groupName = d3.select(this.parentNode).datum().key;
+                const value = d[1] - d[0];
+                tooltip
+                    .style('display', 'block')
+                    .html(`<strong>${d.data._category}</strong><br>${groupName}: <strong>${value}</strong>`);
+                d3.select(this).style('opacity', 0.8);
+            })
+            .on('mousemove', function (event) {
+                const [mx, my] = d3.pointer(event, chartContainer);
+                tooltip
+                    .style('left', (mx + 12) + 'px')
+                    .style('top', (my - 10) + 'px');
+            })
+            .on('mouseout', function () {
+                tooltip.style('display', 'none');
+                d3.select(this).style('opacity', 1);
+            });
+
+        // Legend — HTML div below the chart (outside overflow:hidden container)
+        const legendDiv = document.getElementById('bar-chart-legend');
+        legendDiv.innerHTML = '';
+        for (const gName of groups) {
+            const item = document.createElement('span');
+            item.className = 'bar-legend-item';
+            item.innerHTML = `<span class="bar-legend-swatch" style="background:${color(gName)}"></span>${gName}`;
+            legendDiv.appendChild(item);
+        }
+    }
+
+    // Initial render
+    await renderChart();
+
+    // Grouping selector change
+    if (groupSelect) {
+        groupSelect.addEventListener('change', async () => {
+            currentGrouping = groupSelect.value;
+            queryCache = {};
+            await renderChart();
+        });
+    }
+
+    // Resize handler
+    let resizeTimer;
+    const resizeObserver = new ResizeObserver(() => {
+        clearTimeout(resizeTimer);
+        resizeTimer = setTimeout(() => renderChart(), 150);
+    });
+    resizeObserver.observe(chartContainer);
 }
 
 /**
