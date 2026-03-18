@@ -59,10 +59,20 @@ let searchExpandedCategories = {};
 let searchDebounceTimer = null;
 let searchCategories = [];
 
+// Meta-package state
+let isMetaPackage = false;
+let metaManifestData = null;
+
 // Initialize
 document.addEventListener('DOMContentLoaded', async () => {
     detailModal = new bootstrap.Modal(document.getElementById('detailModal'));
     await loadManifest();
+
+    // Meta-package: render dedicated UI
+    if (isMetaPackage) {
+        renderMetaPackageUI();
+        return;
+    }
 
     // Determine initial view from manifest
     if (manifest && manifest.views) {
@@ -112,6 +122,12 @@ async function loadManifest() {
                 globalControls[ctrl.param] = (ctrl.param in savedPrefs) ? savedPrefs[ctrl.param] : ctrl.default;
             }
             renderGlobalControls();
+        }
+
+        // Detect meta-package
+        if (data.kind === 'meta-package') {
+            isMetaPackage = true;
+            metaManifestData = data;
         }
 
         // Capture admin mode
@@ -4142,4 +4158,208 @@ function closeMobileTree() {
     if (!panel || !backdrop) return;
     panel.classList.remove('mobile-open');
     backdrop.classList.remove('visible');
+}
+
+// ---------------------------------------------------------------------------
+// Meta-Package UI
+// ---------------------------------------------------------------------------
+
+async function renderMetaPackageUI() {
+    // Hide tabs and global controls
+    const tabContainer = document.getElementById('view-tabs');
+    if (tabContainer) tabContainer.innerHTML = '';
+    const gcContainer = document.getElementById('global-controls');
+    if (gcContainer) gcContainer.innerHTML = '';
+
+    // Use main content area
+    const main = document.getElementById('main-content') || document.querySelector('main') || document.body;
+    main.innerHTML = `
+        <div id="meta-tree-container" style="padding: 1rem; max-width: 900px; margin: 0 auto;">
+            <div id="meta-tree-loading" class="text-center text-muted py-4">
+                <div class="spinner-border spinner-border-sm me-2"></div> Loading taxonomy tree...
+            </div>
+            <div id="meta-tree-root"></div>
+        </div>
+    `;
+
+    try {
+        const resp = await fetch(`${API_BASE}/meta/composite-tree`);
+        if (!resp.ok) throw new Error('Failed to load composite tree');
+        const data = await resp.json();
+        document.getElementById('meta-tree-loading').style.display = 'none';
+        renderMetaTree(data.nodes);
+    } catch (e) {
+        document.getElementById('meta-tree-loading').innerHTML =
+            `<div class="text-danger">Error: ${e.message}</div>`;
+    }
+}
+
+function renderMetaTree(nodes) {
+    const root = document.getElementById('meta-tree-root');
+    if (!root) return;
+
+    // Build node map and find root nodes
+    const nodeMap = {};
+    nodes.forEach(n => { nodeMap[n.id] = n; });
+    const rootNodes = nodes.filter(n => {
+        // Find nodes whose parent is not in the node list
+        const parentId = nodes.find(p => p.children && p.children.includes(n.id));
+        return !parentId && n.children && n.children.length > 0;
+    });
+
+    // Actually find the true root (node with no parent pointing to it)
+    const childSet = new Set();
+    nodes.forEach(n => (n.children || []).forEach(c => childSet.add(c)));
+    const trueRoots = nodes.filter(n => !childSet.has(n.id));
+
+    const ul = document.createElement('ul');
+    ul.className = 'meta-tree-list list-unstyled';
+    trueRoots.forEach(n => {
+        ul.appendChild(buildMetaTreeNode(n, nodeMap));
+    });
+    root.appendChild(ul);
+
+    // Add styles
+    if (!document.getElementById('meta-tree-styles')) {
+        const style = document.createElement('style');
+        style.id = 'meta-tree-styles';
+        style.textContent = `
+            .meta-tree-list { font-size: 0.95rem; }
+            .meta-tree-list ul { list-style: none; padding-left: 1.5rem; border-left: 1px solid #30363d; }
+            .meta-tree-node { margin: 0.25rem 0; }
+            .meta-tree-toggle {
+                cursor: pointer; user-select: none; padding: 0.25rem 0.5rem;
+                border-radius: 4px; display: inline-block;
+            }
+            .meta-tree-toggle:hover { background: #161b22; }
+            .meta-tree-rank { color: #8b949e; font-size: 0.8rem; margin-left: 0.5rem; }
+            .meta-tree-label { font-weight: 500; }
+            .meta-tree-badge {
+                font-size: 0.65rem; padding: 0.1rem 0.4rem; border-radius: 3px;
+                margin-left: 0.5rem; vertical-align: middle;
+            }
+            .meta-tree-pkg-badge { background: #1f6feb33; color: #58a6ff; }
+            .meta-tree-no-data { color: #484f58; font-style: italic; }
+            .meta-tree-children { margin-top: 0.15rem; }
+            .meta-tree-loading { color: #8b949e; font-size: 0.85rem; padding-left: 1.5rem; }
+            .meta-tree-taxon {
+                padding: 0.15rem 0.4rem; display: inline-block; cursor: pointer;
+                border-radius: 3px;
+            }
+            .meta-tree-taxon:hover { background: #161b22; }
+            .meta-tree-child-count { color: #484f58; font-size: 0.75rem; margin-left: 0.3rem; }
+        `;
+        document.head.appendChild(style);
+    }
+}
+
+function buildMetaTreeNode(node, nodeMap) {
+    const li = document.createElement('li');
+    li.className = 'meta-tree-node';
+
+    const hasChildren = node.children && node.children.length > 0;
+    const hasBindings = node.bindings && node.bindings.length > 0;
+    const hasData = node.has_data;
+
+    const chevron = hasChildren || hasBindings
+        ? '<i class="bi bi-chevron-right me-1 meta-tree-chevron" style="font-size:0.75rem;"></i>'
+        : '<i class="bi bi-dot me-1" style="color:#484f58;"></i>';
+
+    const bindingBadges = (node.bindings || [])
+        .filter(b => b.available)
+        .map(b => `<span class="meta-tree-badge meta-tree-pkg-badge">${b.package_id}</span>`)
+        .join('');
+
+    const noDataClass = (!hasData && hasBindings) ? 'meta-tree-no-data' : '';
+
+    const toggle = document.createElement('span');
+    toggle.className = `meta-tree-toggle ${noDataClass}`;
+    toggle.innerHTML = `${chevron}<span class="meta-tree-label">${node.label}</span>`
+        + `<span class="meta-tree-rank">${node.rank}</span>${bindingBadges}`;
+
+    li.appendChild(toggle);
+
+    // Children container (initially hidden)
+    const childContainer = document.createElement('div');
+    childContainer.className = 'meta-tree-children';
+    childContainer.style.display = 'none';
+    li.appendChild(childContainer);
+
+    let expanded = false;
+    let loaded = false;
+
+    toggle.addEventListener('click', async () => {
+        if (!hasChildren && !hasBindings) return;
+
+        expanded = !expanded;
+        childContainer.style.display = expanded ? '' : 'none';
+        const chevronEl = toggle.querySelector('.meta-tree-chevron');
+        if (chevronEl) {
+            chevronEl.className = expanded
+                ? 'bi bi-chevron-down me-1 meta-tree-chevron'
+                : 'bi bi-chevron-right me-1 meta-tree-chevron';
+            chevronEl.style.fontSize = '0.75rem';
+        }
+
+        if (loaded) return;
+        loaded = true;
+
+        // Render meta-tree children (other meta nodes)
+        if (hasChildren) {
+            const ul = document.createElement('ul');
+            node.children.forEach(childId => {
+                const childNode = nodeMap[childId];
+                if (childNode) {
+                    ul.appendChild(buildMetaTreeNode(childNode, nodeMap));
+                }
+            });
+            childContainer.appendChild(ul);
+        }
+
+        // Lazy load bound package subtrees
+        if (hasBindings && hasData) {
+            const loadingEl = document.createElement('div');
+            loadingEl.className = 'meta-tree-loading';
+            loadingEl.innerHTML = '<div class="spinner-border spinner-border-sm me-1"></div> Loading...';
+            childContainer.appendChild(loadingEl);
+
+            try {
+                const resp = await fetch(`${API_BASE}/meta/composite-tree?node_id=${node.id}`);
+                if (!resp.ok) throw new Error('Failed');
+                const data = await resp.json();
+                loadingEl.remove();
+
+                if (data.children && data.children.length > 0) {
+                    // Group by package
+                    const byPkg = {};
+                    data.children.forEach(c => {
+                        (byPkg[c.package] = byPkg[c.package] || []).push(c);
+                    });
+
+                    for (const [pkgId, taxa] of Object.entries(byPkg)) {
+                        const pkgUl = document.createElement('ul');
+                        taxa.forEach(t => {
+                            const tLi = document.createElement('li');
+                            tLi.className = 'meta-tree-node';
+                            const childInfo = t.child_count > 0
+                                ? `<span class="meta-tree-child-count">(${t.child_count})</span>` : '';
+                            tLi.innerHTML = `
+                                <a href="/${pkgId}/" class="meta-tree-taxon" title="Open in ${pkgId}">
+                                    <i class="bi bi-box-arrow-up-right" style="font-size:0.7rem; color:#484f58;"></i>
+                                    <span class="meta-tree-label">${t.name}</span>
+                                    <span class="meta-tree-rank">${t.rank}</span>${childInfo}
+                                    <span class="meta-tree-badge meta-tree-pkg-badge">${pkgId}</span>
+                                </a>`;
+                            pkgUl.appendChild(tLi);
+                        });
+                        childContainer.appendChild(pkgUl);
+                    }
+                }
+            } catch (e) {
+                loadingEl.innerHTML = `<span class="text-danger">Error loading subtree</span>`;
+            }
+        }
+    });
+
+    return li;
 }

@@ -114,17 +114,31 @@
             return;
         }
 
-        container.innerHTML = packages.map(p => `
+        // Sort: meta-packages first
+        packages.sort((a, b) => (a.kind === 'meta-package' ? 0 : 1) - (b.kind === 'meta-package' ? 0 : 1));
+
+        container.innerHTML = packages.map(p => {
+            const isMeta = p.kind === 'meta-package';
+            const icon = isMeta ? 'bi-diagram-3' : 'bi-box-seam';
+            const badge = isMeta ? '<span class="badge bg-info ms-2" style="font-size:0.65rem;">META</span>' : '';
+            const members = isMeta && p.member_packages
+                ? `<div class="stats"><i class="bi bi-collection"></i> ${p.member_packages.length} packages: ${p.member_packages.join(', ')}</div>`
+                : '';
+            const records = !isMeta && p.record_count
+                ? `<i class="bi bi-table"></i> ${p.record_count.toLocaleString()} records`
+                : '';
+            return `
             <a href="/${p.name}/" class="package-card">
-                <h3><i class="bi bi-box-seam"></i> ${p.title || p.name}</h3>
+                <h3><i class="bi ${icon}"></i> ${p.title || p.name}${badge}</h3>
                 <span class="version">v${p.version}</span>
                 <div class="desc">${p.description || ''}</div>
                 <div class="stats">
-                    ${p.record_count ? `<i class="bi bi-table"></i> ${p.record_count.toLocaleString()} records` : ''}
-                    ${p.has_dependencies ? ' <i class="bi bi-link-45deg"></i> deps' : ''}
+                    ${records}
+                    ${p.has_dependencies && !isMeta ? ' <i class="bi bi-link-45deg"></i> deps' : ''}
                 </div>
-            </a>
-        `).join('');
+                ${members}
+            </a>`;
+        }).join('');
 
         // D3 force background — floating circles
         const svg = d3.select('#canvas');
