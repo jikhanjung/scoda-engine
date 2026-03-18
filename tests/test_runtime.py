@@ -1161,6 +1161,120 @@ class TestActivePackage:
 
 # ---------------------------------------------------------------------------
 
+
+class TestMetaPackage:
+    """Tests for meta-package (.scoda without data.db) support."""
+
+    @pytest.fixture
+    def meta_scoda(self, tmp_path):
+        """Create a minimal meta-package .scoda file."""
+        manifest = {
+            "format": "scoda",
+            "format_version": "1.0",
+            "name": "test-meta",
+            "version": "0.1.0",
+            "title": "Test Meta-Package",
+            "kind": "meta-package",
+            "dependencies": [
+                {"name": "paleocore", "alias": "pc", "version": ">=0.1.0", "required": True},
+            ],
+            "entry_points": [
+                {"node_id": "node:root", "label": "Root", "default_view": "tree"}
+            ],
+            "meta_tree_file": "meta_tree.json",
+            "package_bindings_file": "package_bindings.json",
+        }
+        meta_tree = {
+            "schema_version": "1.0",
+            "nodes": [
+                {"id": "node:root", "label": "Root", "rank": "root"},
+                {"id": "node:phylum_a", "label": "PhylumA", "rank": "phylum", "parent": "node:root"},
+            ],
+        }
+        bindings = {
+            "schema_version": "1.0",
+            "bindings": [
+                {
+                    "node_id": "node:phylum_a",
+                    "package_id": "sample-data",
+                    "root_taxon": {"name": "SampleRoot", "rank": "Phylum"},
+                    "binding_type": "subtree",
+                    "priority": 1,
+                },
+            ],
+        }
+        scoda_path = str(tmp_path / "test-meta-0.1.0.scoda")
+        with zipfile.ZipFile(scoda_path, "w") as zf:
+            zf.writestr("manifest.json", json.dumps(manifest))
+            zf.writestr("meta_tree.json", json.dumps(meta_tree))
+            zf.writestr("package_bindings.json", json.dumps(bindings))
+        return scoda_path
+
+    def test_meta_package_loads(self, meta_scoda):
+        """Meta-package should load without data.db."""
+        with ScodaPackage(meta_scoda) as pkg:
+            assert pkg.name == "test-meta"
+            assert pkg.version == "0.1.0"
+
+    def test_meta_package_kind(self, meta_scoda):
+        """kind property should return 'meta-package'."""
+        with ScodaPackage(meta_scoda) as pkg:
+            assert pkg.kind == "meta-package"
+            assert pkg.is_meta_package is True
+
+    def test_regular_package_kind(self, generic_db, tmp_path):
+        """Regular package kind should be 'package'."""
+        canonical_db, _ = generic_db
+        scoda_path = str(tmp_path / "regular.scoda")
+        ScodaPackage.create(canonical_db, scoda_path)
+        with ScodaPackage(scoda_path) as pkg:
+            assert pkg.kind == "package"
+            assert pkg.is_meta_package is False
+
+    def test_meta_package_no_db_path(self, meta_scoda):
+        """Meta-package db_path should be None."""
+        with ScodaPackage(meta_scoda) as pkg:
+            assert pkg.db_path is None
+
+    def test_meta_package_record_count_zero(self, meta_scoda):
+        """Meta-package record_count should be 0."""
+        with ScodaPackage(meta_scoda) as pkg:
+            assert pkg.record_count == 0
+
+    def test_meta_package_checksum_skip(self, meta_scoda):
+        """Meta-package verify_checksum should always return True."""
+        with ScodaPackage(meta_scoda) as pkg:
+            assert pkg.verify_checksum() is True
+
+    def test_meta_tree_property(self, meta_scoda):
+        """meta_tree should return parsed JSON."""
+        with ScodaPackage(meta_scoda) as pkg:
+            tree = pkg.meta_tree
+            assert tree is not None
+            assert tree["schema_version"] == "1.0"
+            assert len(tree["nodes"]) == 2
+            assert tree["nodes"][0]["id"] == "node:root"
+
+    def test_package_bindings_property(self, meta_scoda):
+        """package_bindings should return parsed JSON."""
+        with ScodaPackage(meta_scoda) as pkg:
+            bindings = pkg.package_bindings
+            assert bindings is not None
+            assert len(bindings["bindings"]) == 1
+            assert bindings["bindings"][0]["package_id"] == "sample-data"
+
+    def test_regular_package_meta_tree_none(self, generic_db, tmp_path):
+        """Regular package meta_tree should be None."""
+        canonical_db, _ = generic_db
+        scoda_path = str(tmp_path / "regular.scoda")
+        ScodaPackage.create(canonical_db, scoda_path)
+        with ScodaPackage(scoda_path) as pkg:
+            assert pkg.meta_tree is None
+            assert pkg.package_bindings is None
+
+
+# ---------------------------------------------------------------------------
+
 class TestScodaPackageSPA:
     """Tests for Reference SPA features in ScodaPackage."""
 

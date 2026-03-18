@@ -87,25 +87,31 @@ class ScodaPackage:
             self.close()
             raise ValueError("Invalid .scoda package: malformed manifest.json")
 
-        logger.debug("Manifest: name=%s version=%s records=%s",
+        logger.debug("Manifest: name=%s version=%s records=%s kind=%s",
                       self.manifest.get('name'), self.manifest.get('version'),
-                      self.manifest.get('record_count'))
+                      self.manifest.get('record_count'),
+                      self.manifest.get('kind', 'package'))
 
-        # Extract data.db to temp directory
-        data_file = self.manifest.get('data_file', 'data.db')
-        try:
-            self._zf.extract(data_file, self._tmp_dir)
-        except KeyError:
-            self.close()
-            raise ValueError(f"Invalid .scoda package: missing {data_file}")
+        # Meta-packages have no data.db
+        if self.is_meta_package:
+            self.db_path = None
+            logger.info("Meta-package loaded: %s (no data.db)", self.name)
+        else:
+            # Extract data.db to temp directory
+            data_file = self.manifest.get('data_file', 'data.db')
+            try:
+                self._zf.extract(data_file, self._tmp_dir)
+            except KeyError:
+                self.close()
+                raise ValueError(f"Invalid .scoda package: missing {data_file}")
 
-        self.db_path = os.path.join(self._tmp_dir, data_file)
+            self.db_path = os.path.join(self._tmp_dir, data_file)
 
-        # Verify checksum (Phase 3: spec step 6)
-        if verify_checksum and not self.verify_checksum():
-            self.close()
-            raise ScodaChecksumError(
-                f"Checksum mismatch for {os.path.basename(scoda_path)}")
+            # Verify checksum (Phase 3: spec step 6)
+            if verify_checksum and not self.verify_checksum():
+                self.close()
+                raise ScodaChecksumError(
+                    f"Checksum mismatch for {os.path.basename(scoda_path)}")
 
         # Register cleanup
         atexit.register(self.close)
@@ -123,7 +129,17 @@ class ScodaPackage:
         return self.manifest.get('title', self.name)
 
     @property
+    def kind(self):
+        return self.manifest.get('kind', 'package')
+
+    @property
+    def is_meta_package(self):
+        return self.kind == 'meta-package'
+
+    @property
     def record_count(self):
+        if self.is_meta_package:
+            return 0
         return self.manifest.get('record_count', 0)
 
     @property
@@ -132,10 +148,34 @@ class ScodaPackage:
 
     def verify_checksum(self):
         """Verify data.db SHA-256 matches manifest."""
+        if self.is_meta_package:
+            return True  # meta-packages have no data.db
         if not self.data_checksum:
             return True  # no checksum in manifest, skip
         actual = _sha256_file(self.db_path)
         return actual == self.data_checksum
+
+    @property
+    def meta_tree(self):
+        """Load meta_tree.json from meta-package. Returns dict or None."""
+        if not self.is_meta_package:
+            return None
+        tree_file = self.manifest.get('meta_tree_file', 'meta_tree.json')
+        try:
+            return json.loads(self._zf.read(tree_file))
+        except KeyError:
+            return None
+
+    @property
+    def package_bindings(self):
+        """Load package_bindings.json from meta-package. Returns dict or None."""
+        if not self.is_meta_package:
+            return None
+        bindings_file = self.manifest.get('package_bindings_file', 'package_bindings.json')
+        try:
+            return json.loads(self._zf.read(bindings_file))
+        except KeyError:
+            return None
 
     def get_asset(self, asset_path):
         """Read a file from the assets/ directory inside the package."""
@@ -353,6 +393,17 @@ class PackageRegistry:
         entry = self._packages[name]
         db_path = entry['db_path']
         overlay_path = entry['overlay_path']
+        pkg = entry['pkg']
+
+        # Meta-packages: create in-memory DB with member packages ATTACHed
+        if pkg and pkg.is_meta_package:
+            conn = sqlite3.connect(':memory:', check_same_thread=False)
+            conn.row_factory = sqlite3.Row
+            validated_deps = self._resolve_and_validate_deps(name)
+            for alias, dep_db_path in validated_deps:
+                conn.execute(f"ATTACH DATABASE '{dep_db_path}' AS {alias}")
+                logger.debug("get_db(%s): meta-package attached %s", name, alias)
+            return conn
 
         # Ensure overlay DB exists
         _ensure_overlay_for_package(db_path, overlay_path)
@@ -431,7 +482,13 @@ class PackageRegistry:
                 'has_dependencies': len(entry['deps']) > 0,
                 'source_type': 'scoda' if pkg else 'db',
                 'deps': entry['deps'],
+                'kind': pkg.kind if pkg else 'package',
             }
+            if pkg and pkg.is_meta_package:
+                info['member_packages'] = [
+                    d['name'] for d in entry['deps']
+                    if d.get('name') != 'paleocore'
+                ]
             result.append(info)
         return result
 
@@ -441,7 +498,7 @@ class PackageRegistry:
             raise KeyError(f'Package not found: {name}')
         entry = self._packages[name]
         pkg = entry['pkg']
-        return {
+        info = {
             'name': name,
             'title': pkg.title if pkg else name,
             'version': pkg.version if pkg else 'unknown',
@@ -449,11 +506,20 @@ class PackageRegistry:
             'description': pkg.manifest.get('description', '') if pkg else '',
             'has_dependencies': len(entry['deps']) > 0,
             'source_type': 'scoda' if pkg else 'db',
+            'kind': pkg.kind if pkg else 'package',
             'db_path': entry['db_path'],
             'overlay_path': entry['overlay_path'],
             'deps': entry['deps'],
             'manifest': pkg.manifest if pkg else None,
         }
+        if pkg and pkg.is_meta_package:
+            info['meta_tree'] = pkg.meta_tree
+            info['package_bindings'] = pkg.package_bindings
+            info['member_packages'] = [
+                d['name'] for d in entry['deps']
+                if d.get('name') != 'paleocore'
+            ]
+        return info
 
     def get_mcp_tools(self, name):
         """Return mcp_tools.json content for a specific package, or None."""
