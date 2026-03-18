@@ -86,6 +86,7 @@ scoda-engine/
 - **Composite detail**: `/api/{package}/composite/<view>?id=N` assembles multi-query responses
 - **MCP tools**: Built-in (7) + dynamic from `mcp_tools.json` in `.scoda` package
 - **3-DB architecture**: canonical (main) + overlay (user annotations) + dependency (ATTACH)
+- **Meta-package**: `kind: "meta-package"` — `meta_tree.json` + `package_bindings.json`으로 하위 패키지 집약, D3 radial tree 시각화
 
 ## Testing
 
