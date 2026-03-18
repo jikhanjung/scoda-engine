@@ -114,10 +114,16 @@
             return;
         }
 
-        // Sort: meta-packages first
-        packages.sort((a, b) => (a.kind === 'meta-package' ? 0 : 1) - (b.kind === 'meta-package' ? 0 : 1));
+        // Filter: show only top-level / independent packages
+        const depNames = new Set();
+        packages.forEach(p => (p.deps || []).forEach(d => depNames.add(d.name)));
+        const topLevel = packages.filter(p => !depNames.has(p.name));
+        const displayPackages = topLevel.length > 0 ? topLevel : packages;
 
-        container.innerHTML = packages.map(p => {
+        // Sort: meta-packages first
+        displayPackages.sort((a, b) => (a.kind === 'meta-package' ? 0 : 1) - (b.kind === 'meta-package' ? 0 : 1));
+
+        container.innerHTML = displayPackages.map(p => {
             const isMeta = p.kind === 'meta-package';
             const icon = isMeta ? 'bi-diagram-3' : 'bi-box-seam';
             const badge = isMeta ? '<span class="badge bg-info ms-2" style="font-size:0.65rem;">META</span>' : '';
@@ -145,7 +151,7 @@
         const w = window.innerWidth, h = window.innerHeight;
         svg.attr('width', w).attr('height', h);
 
-        const nodes = packages.map((p, i) => ({
+        const nodes = displayPackages.map((p, i) => ({
             x: w/2 + (Math.random()-0.5)*300,
             y: h/2 + (Math.random()-0.5)*300,
             r: 30 + Math.min(p.record_count || 0, 10000) / 200,

@@ -610,7 +610,8 @@ def api_manifest(package: str, conn: sqlite3.Connection = Depends(get_package_db
 
     if info.get('kind') == 'meta-package':
         pkg_obj = reg._packages[package]['pkg']
-        return {
+        # Return JSONResponse to bypass ManifestResponse model filtering
+        return JSONResponse({
             'name': 'meta-package',
             'description': pkg_obj.manifest.get('description', ''),
             'manifest': {
@@ -636,7 +637,7 @@ def api_manifest(package: str, conn: sqlite3.Connection = Depends(get_package_db
             'kind': 'meta-package',
             'meta_tree': pkg_obj.meta_tree,
             'package_bindings': pkg_obj.package_bindings,
-        }
+        })
 
     result = _fetch_manifest(conn)
     if result:
@@ -960,6 +961,143 @@ def api_entity_search(entity_type: str, request: Request, q: str = '',
 
 
 # ---------------------------------------------------------------------------
+# Meta-package API endpoints (must come BEFORE the catch-all entity detail)
+# ---------------------------------------------------------------------------
+
+@pkg_router.get('/meta/tree')
+def api_meta_tree(package: str):
+    """Get meta_tree.json for a meta-package."""
+    reg = get_registry()
+    try:
+        info = reg.get_package(package)
+    except KeyError:
+        raise HTTPException(status_code=404, detail=f"Package not found: {package}")
+    if info.get('kind') != 'meta-package':
+        raise HTTPException(status_code=400, detail="Not a meta-package")
+    return info.get('meta_tree')
+
+
+@pkg_router.get('/meta/bindings')
+def api_meta_bindings(package: str):
+    """Get package_bindings.json for a meta-package."""
+    reg = get_registry()
+    try:
+        info = reg.get_package(package)
+    except KeyError:
+        raise HTTPException(status_code=404, detail=f"Package not found: {package}")
+    if info.get('kind') != 'meta-package':
+        raise HTTPException(status_code=400, detail="Not a meta-package")
+    return info.get('package_bindings')
+
+
+@pkg_router.get('/meta/composite-tree')
+def api_meta_composite_tree(package: str, node_id: str = None):
+    """Build composite tree from meta_tree + package bindings.
+
+    If node_id is given, returns children of that node (lazy loading).
+    If omitted, returns the full meta_tree with binding info.
+    """
+    reg = get_registry()
+    try:
+        info = reg.get_package(package)
+    except KeyError:
+        raise HTTPException(status_code=404, detail=f"Package not found: {package}")
+    if info.get('kind') != 'meta-package':
+        raise HTTPException(status_code=400, detail="Not a meta-package")
+
+    meta_tree = info.get('meta_tree', {})
+    bindings_data = info.get('package_bindings', {})
+    nodes = meta_tree.get('nodes', [])
+
+    # Index nodes
+    node_map = {n['id']: n for n in nodes}
+
+    # Index bindings by node_id
+    binding_map = {}
+    for b in bindings_data.get('bindings', []):
+        binding_map.setdefault(b['node_id'], []).append(b)
+
+    # Determine which member packages are available
+    available = {p['name'] for p in reg.list_packages()}
+
+    if node_id is None:
+        # Return full tree structure
+        result_nodes = []
+        for n in nodes:
+            children_ids = [c['id'] for c in nodes if c.get('parent') == n['id']]
+            node_bindings = binding_map.get(n['id'], [])
+            result = {
+                'id': n['id'],
+                'label': n['label'],
+                'rank': n.get('rank', ''),
+                'children': children_ids,
+                'bindings': [],
+            }
+            for b in node_bindings:
+                result['bindings'].append({
+                    'package_id': b['package_id'],
+                    'root_taxon': b['root_taxon'],
+                    'available': b['package_id'] in available,
+                    'source': b.get('source', ''),
+                    'priority': b.get('priority', 99),
+                })
+            result['has_data'] = any(
+                bi['available'] for bi in result['bindings']
+            )
+            result_nodes.append(result)
+        return {'nodes': result_nodes}
+
+    # Lazy load: expand a specific node's bindings
+    if node_id not in node_map:
+        raise HTTPException(status_code=404, detail=f"Node not found: {node_id}")
+
+    node_bindings = binding_map.get(node_id, [])
+    children = []
+
+    for b in sorted(node_bindings, key=lambda x: x.get('priority', 99)):
+        pkg_id = b['package_id']
+        if pkg_id not in available:
+            continue
+        root = b['root_taxon']
+        try:
+            conn = reg.get_db(pkg_id)
+            cursor = conn.cursor()
+            # Find root taxon id
+            cursor.execute(
+                "SELECT id FROM taxon WHERE name = ? AND rank = ?",
+                (root['name'], root['rank'])
+            )
+            row = cursor.fetchone()
+            if not row:
+                conn.close()
+                continue
+            root_id = row['id']
+            # Get children from default profile edge_cache
+            cursor.execute("""
+                SELECT t.id, t.name, t.rank,
+                       (SELECT COUNT(*) FROM classification_edge_cache c2
+                        WHERE c2.parent_id = t.id AND c2.profile_id = 1) as child_count
+                FROM taxon t
+                JOIN classification_edge_cache c ON c.child_id = t.id AND c.profile_id = 1
+                WHERE c.parent_id = ?
+                ORDER BY t.name
+            """, (root_id,))
+            for r in cursor.fetchall():
+                children.append({
+                    'package': pkg_id,
+                    'taxon_id': r['id'],
+                    'name': r['name'],
+                    'rank': r['rank'],
+                    'child_count': r['child_count'],
+                })
+            conn.close()
+        except Exception as e:
+            logger.warning("Error loading subtree from %s: %s", pkg_id, e)
+
+    return {'node_id': node_id, 'children': children}
+
+
+# ---------------------------------------------------------------------------
 # Entity detail endpoint — serves manifest source URLs like /api/{pkg}/genus/123
 # Runs {entity}_detail query + discovered sub-queries → composite JSON
 # MUST be registered last in pkg_router: catch-all /{name}/{id} pattern.
@@ -1130,143 +1268,6 @@ def legacy_preferences(conn: sqlite3.Connection = Depends(get_legacy_db)):
 
 app.include_router(legacy_router)
 
-# ---------------------------------------------------------------------------
-# Meta-package API endpoints
-# ---------------------------------------------------------------------------
-
-@pkg_router.get('/meta/tree')
-def api_meta_tree(package: str):
-    """Get meta_tree.json for a meta-package."""
-    reg = get_registry()
-    try:
-        info = reg.get_package(package)
-    except KeyError:
-        raise HTTPException(status_code=404, detail=f"Package not found: {package}")
-    if info.get('kind') != 'meta-package':
-        raise HTTPException(status_code=400, detail="Not a meta-package")
-    return info.get('meta_tree')
-
-
-@pkg_router.get('/meta/bindings')
-def api_meta_bindings(package: str):
-    """Get package_bindings.json for a meta-package."""
-    reg = get_registry()
-    try:
-        info = reg.get_package(package)
-    except KeyError:
-        raise HTTPException(status_code=404, detail=f"Package not found: {package}")
-    if info.get('kind') != 'meta-package':
-        raise HTTPException(status_code=400, detail="Not a meta-package")
-    return info.get('package_bindings')
-
-
-@pkg_router.get('/meta/composite-tree')
-def api_meta_composite_tree(package: str, node_id: str = None):
-    """Build composite tree from meta_tree + package bindings.
-
-    If node_id is given, returns children of that node (lazy loading).
-    If omitted, returns the full meta_tree with binding info.
-    """
-    reg = get_registry()
-    try:
-        info = reg.get_package(package)
-    except KeyError:
-        raise HTTPException(status_code=404, detail=f"Package not found: {package}")
-    if info.get('kind') != 'meta-package':
-        raise HTTPException(status_code=400, detail="Not a meta-package")
-
-    meta_tree = info.get('meta_tree', {})
-    bindings = info.get('package_bindings', {})
-    nodes = meta_tree.get('nodes', [])
-
-    # Index nodes
-    node_map = {n['id']: n for n in nodes}
-
-    # Index bindings by node_id
-    binding_map = {}
-    for b in bindings.get('bindings', []):
-        binding_map.setdefault(b['node_id'], []).append(b)
-
-    # Determine which member packages are available
-    available = {p['name'] for p in reg.list_packages()}
-
-    if node_id is None:
-        # Return full tree structure
-        result_nodes = []
-        for n in nodes:
-            children_ids = [c['id'] for c in nodes if c.get('parent') == n['id']]
-            node_bindings = binding_map.get(n['id'], [])
-            result = {
-                'id': n['id'],
-                'label': n['label'],
-                'rank': n.get('rank', ''),
-                'children': children_ids,
-                'bindings': [],
-            }
-            for b in node_bindings:
-                result['bindings'].append({
-                    'package_id': b['package_id'],
-                    'root_taxon': b['root_taxon'],
-                    'available': b['package_id'] in available,
-                    'source': b.get('source', ''),
-                    'priority': b.get('priority', 99),
-                })
-            result['has_data'] = any(
-                bi['available'] for bi in result['bindings']
-            )
-            result_nodes.append(result)
-        return {'nodes': result_nodes}
-
-    # Lazy load: expand a specific node's bindings
-    if node_id not in node_map:
-        raise HTTPException(status_code=404, detail=f"Node not found: {node_id}")
-
-    node_bindings = binding_map.get(node_id, [])
-    children = []
-
-    for b in sorted(node_bindings, key=lambda x: x.get('priority', 99)):
-        pkg_id = b['package_id']
-        if pkg_id not in available:
-            continue
-        root = b['root_taxon']
-        try:
-            conn = reg.get_db(pkg_id)
-            cursor = conn.cursor()
-            # Find root taxon id
-            cursor.execute(
-                "SELECT id FROM taxon WHERE name = ? AND rank = ?",
-                (root['name'], root['rank'])
-            )
-            row = cursor.fetchone()
-            if not row:
-                conn.close()
-                continue
-            root_id = row['id']
-            # Get children from default profile edge_cache
-            cursor.execute("""
-                SELECT t.id, t.name, t.rank,
-                       (SELECT COUNT(*) FROM classification_edge_cache c2
-                        WHERE c2.parent_id = t.id AND c2.profile_id = 1) as child_count
-                FROM taxon t
-                JOIN classification_edge_cache c ON c.child_id = t.id AND c.profile_id = 1
-                WHERE c.parent_id = ?
-                ORDER BY t.name
-            """, (root_id,))
-            for r in cursor.fetchall():
-                children.append({
-                    'package': pkg_id,
-                    'taxon_id': r['id'],
-                    'name': r['name'],
-                    'rank': r['rank'],
-                    'child_count': r['child_count'],
-                })
-            conn.close()
-        except Exception as e:
-            logger.warning("Error loading subtree from %s: %s", pkg_id, e)
-
-    return {'node_id': node_id, 'children': children}
-
-
 # Package router AFTER legacy router
 app.include_router(pkg_router)
 
@@ -1300,7 +1301,7 @@ def healthz():
 
 @app.get('/', response_class=HTMLResponse)
 def index(request: Request):
-    """Landing page — redirect to single package or show multi-package landing."""
+    """Landing page — redirect to single/top-level package or show landing."""
     packages = get_registry().list_packages()
 
     # SCODA_PACKAGE env var: redirect to specific package
@@ -1312,7 +1313,23 @@ def index(request: Request):
     if len(packages) == 1:
         return RedirectResponse(url=f'/{packages[0]["name"]}/', status_code=302)
 
-    # Multiple packages (or zero): landing page
+    # Multiple packages: find top-level (not a dependency of any other package)
+    if len(packages) > 1:
+        # Collect all names that appear as a dependency of another package
+        dep_names = set()
+        for p in packages:
+            for d in p.get('deps', []):
+                dep_names.add(d.get('name', ''))
+        # Top-level = not depended on by anyone
+        top_level = [p for p in packages if p['name'] not in dep_names]
+        if len(top_level) == 1:
+            return RedirectResponse(url=f'/{top_level[0]["name"]}/', status_code=302)
+        # Show only top-level/independent packages on landing
+        if top_level:
+            # Store filtered list for landing page to use
+            pass  # landing.html fetches /api/packages, filtering done client-side
+
+    # Multiple top-level packages (or zero): landing page
     return templates.TemplateResponse(request, "landing.html", {
         "cache_bust": int(time.time()),
     })

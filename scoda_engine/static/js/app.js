@@ -4171,195 +4171,328 @@ async function renderMetaPackageUI() {
     const gcContainer = document.getElementById('global-controls');
     if (gcContainer) gcContainer.innerHTML = '';
 
-    // Use main content area
-    const main = document.getElementById('main-content') || document.querySelector('main') || document.body;
-    main.innerHTML = `
-        <div id="meta-tree-container" style="padding: 1rem; max-width: 900px; margin: 0 auto;">
-            <div id="meta-tree-loading" class="text-center text-muted py-4">
-                <div class="spinner-border spinner-border-sm me-2"></div> Loading taxonomy tree...
-            </div>
-            <div id="meta-tree-root"></div>
-        </div>
-    `;
+    // Hide all existing view containers
+    document.querySelectorAll('.view-container').forEach(el => el.style.display = 'none');
 
+    // Create meta-package container (full viewport)
+    const wrapper = document.querySelector('.view-container')?.parentElement || document.body;
+    const metaView = document.createElement('div');
+    metaView.className = 'view-container';
+    metaView.id = 'view-meta';
+    metaView.style.cssText = 'display:flex; align-items:center; justify-content:center; height:calc(100vh - 56px); overflow:hidden;';
+    metaView.innerHTML = '<div id="meta-tree-root" style="width:100%; height:100%;"></div>';
+    wrapper.appendChild(metaView);
+
+    const mt = metaManifestData.meta_tree;
+    const bn = metaManifestData.package_bindings;
+    if (!mt || !bn) {
+        document.getElementById('meta-tree-root').innerHTML =
+            '<div class="text-danger p-4">Meta tree data not available</div>';
+        return;
+    }
+
+    // Get package info
+    let packageInfo = {};
     try {
-        const resp = await fetch(`${API_BASE}/meta/composite-tree`);
-        if (!resp.ok) throw new Error('Failed to load composite tree');
-        const data = await resp.json();
-        document.getElementById('meta-tree-loading').style.display = 'none';
-        renderMetaTree(data.nodes);
-    } catch (e) {
-        document.getElementById('meta-tree-loading').innerHTML =
-            `<div class="text-danger">Error: ${e.message}</div>`;
-    }
-}
+        const resp = await fetch('/api/packages');
+        if (resp.ok) {
+            const pkgs = await resp.json();
+            pkgs.forEach(p => { packageInfo[p.name] = p; });
+        }
+    } catch (e) { /* ignore */ }
 
-function renderMetaTree(nodes) {
-    const root = document.getElementById('meta-tree-root');
-    if (!root) return;
+    // Build D3 hierarchy data
+    const bindingMap = {};
+    bn.bindings.forEach(b => {
+        (bindingMap[b.node_id] = bindingMap[b.node_id] || []).push(b);
+    });
 
-    // Build node map and find root nodes
     const nodeMap = {};
-    nodes.forEach(n => { nodeMap[n.id] = n; });
-    const rootNodes = nodes.filter(n => {
-        // Find nodes whose parent is not in the node list
-        const parentId = nodes.find(p => p.children && p.children.includes(n.id));
-        return !parentId && n.children && n.children.length > 0;
-    });
+    mt.nodes.forEach(n => { nodeMap[n.id] = n; });
 
-    // Actually find the true root (node with no parent pointing to it)
-    const childSet = new Set();
-    nodes.forEach(n => (n.children || []).forEach(c => childSet.add(c)));
-    const trueRoots = nodes.filter(n => !childSet.has(n.id));
+    function buildHierarchy(nodeId) {
+        const node = nodeMap[nodeId];
+        if (!node) return null;
 
-    const ul = document.createElement('ul');
-    ul.className = 'meta-tree-list list-unstyled';
-    trueRoots.forEach(n => {
-        ul.appendChild(buildMetaTreeNode(n, nodeMap));
-    });
-    root.appendChild(ul);
+        const result = {
+            id: node.id,
+            name: node.label,
+            rank: node.rank || '',
+            type: 'meta', // internal meta node
+            children: [],
+        };
 
-    // Add styles
-    if (!document.getElementById('meta-tree-styles')) {
-        const style = document.createElement('style');
-        style.id = 'meta-tree-styles';
-        style.textContent = `
-            .meta-tree-list { font-size: 0.95rem; }
-            .meta-tree-list ul { list-style: none; padding-left: 1.5rem; border-left: 1px solid #30363d; }
-            .meta-tree-node { margin: 0.25rem 0; }
-            .meta-tree-toggle {
-                cursor: pointer; user-select: none; padding: 0.25rem 0.5rem;
-                border-radius: 4px; display: inline-block;
+        // Add child meta-nodes
+        mt.nodes.forEach(n => {
+            if (n.parent === nodeId) {
+                const child = buildHierarchy(n.id);
+                if (child) result.children.push(child);
             }
-            .meta-tree-toggle:hover { background: #161b22; }
-            .meta-tree-rank { color: #8b949e; font-size: 0.8rem; margin-left: 0.5rem; }
-            .meta-tree-label { font-weight: 500; }
-            .meta-tree-badge {
-                font-size: 0.65rem; padding: 0.1rem 0.4rem; border-radius: 3px;
-                margin-left: 0.5rem; vertical-align: middle;
-            }
-            .meta-tree-pkg-badge { background: #1f6feb33; color: #58a6ff; }
-            .meta-tree-no-data { color: #484f58; font-style: italic; }
-            .meta-tree-children { margin-top: 0.15rem; }
-            .meta-tree-loading { color: #8b949e; font-size: 0.85rem; padding-left: 1.5rem; }
-            .meta-tree-taxon {
-                padding: 0.15rem 0.4rem; display: inline-block; cursor: pointer;
-                border-radius: 3px;
-            }
-            .meta-tree-taxon:hover { background: #161b22; }
-            .meta-tree-child-count { color: #484f58; font-size: 0.75rem; margin-left: 0.3rem; }
-        `;
-        document.head.appendChild(style);
+        });
+
+        // Add package leaf nodes from bindings
+        const nodeBindings = (bindingMap[nodeId] || [])
+            .sort((a, b) => (a.priority || 99) - (b.priority || 99));
+        nodeBindings.forEach(b => {
+            const pkg = packageInfo[b.package_id];
+            result.children.push({
+                id: `pkg:${b.package_id}`,
+                name: b.root_taxon.name,
+                rank: b.root_taxon.rank,
+                type: pkg ? 'package' : 'unavailable',
+                packageId: b.package_id,
+                packageTitle: pkg ? (pkg.title || b.package_id) : b.package_id,
+                recordCount: pkg ? pkg.record_count : 0,
+                source: b.source || '',
+            });
+        });
+
+        return result;
     }
+
+    const roots = mt.nodes.filter(n => !n.parent);
+    let treeData;
+    if (roots.length === 1) {
+        treeData = buildHierarchy(roots[0].id);
+    } else {
+        treeData = { id: 'root', name: 'Life', rank: '', type: 'meta', children: [] };
+        roots.forEach(r => {
+            const child = buildHierarchy(r.id);
+            if (child) treeData.children.push(child);
+        });
+    }
+
+    // Load D3 and render
+    await ensureD3Loaded();
+    renderMetaRadialTree(treeData);
 }
 
-function buildMetaTreeNode(node, nodeMap) {
-    const li = document.createElement('li');
-    li.className = 'meta-tree-node';
+function upperFirst(s) {
+    if (!s) return s;
+    return s.charAt(0).toUpperCase() + s.slice(1).toLowerCase();
+}
 
-    const hasChildren = node.children && node.children.length > 0;
-    const hasBindings = node.bindings && node.bindings.length > 0;
-    const hasData = node.has_data;
+function renderMetaRadialTree(treeData) {
+    const container = document.getElementById('meta-tree-root');
+    const width = container.clientWidth || 800;
+    const height = container.clientHeight || 600;
+    const radius = Math.min(width, height) / 2 - 140;
 
-    const chevron = hasChildren || hasBindings
-        ? '<i class="bi bi-chevron-right me-1 meta-tree-chevron" style="font-size:0.75rem;"></i>'
-        : '<i class="bi bi-dot me-1" style="color:#484f58;"></i>';
+    const root = d3.hierarchy(treeData);
+    const treeLayout = d3.tree()
+        .size([2 * Math.PI, radius])
+        .separation((a, b) => (a.parent === b.parent ? 1 : 2) / a.depth);
 
-    const bindingBadges = (node.bindings || [])
-        .filter(b => b.available)
-        .map(b => `<span class="meta-tree-badge meta-tree-pkg-badge">${b.package_id}</span>`)
-        .join('');
+    treeLayout(root);
 
-    const noDataClass = (!hasData && hasBindings) ? 'meta-tree-no-data' : '';
+    const svg = d3.select(container)
+        .append('svg')
+        .attr('width', width)
+        .attr('height', height)
+        .style('font', '12px sans-serif');
 
-    const toggle = document.createElement('span');
-    toggle.className = `meta-tree-toggle ${noDataClass}`;
-    toggle.innerHTML = `${chevron}<span class="meta-tree-label">${node.label}</span>`
-        + `<span class="meta-tree-rank">${node.rank}</span>${bindingBadges}`;
+    const g = svg.append('g')
+        .attr('transform', `translate(${width / 2},${height / 2})`);
 
-    li.appendChild(toggle);
+    // Zoom
+    const zoom = d3.zoom()
+        .scaleExtent([0.3, 3])
+        .on('zoom', (event) => g.attr('transform',
+            `translate(${width/2 + event.transform.x},${height/2 + event.transform.y}) scale(${event.transform.k})`));
+    svg.call(zoom);
 
-    // Children container (initially hidden)
-    const childContainer = document.createElement('div');
-    childContainer.className = 'meta-tree-children';
-    childContainer.style.display = 'none';
-    li.appendChild(childContainer);
+    // Links (curved)
+    g.selectAll('.meta-link')
+        .data(root.links())
+        .join('path')
+        .attr('class', 'meta-link')
+        .attr('fill', 'none')
+        .attr('stroke', d => d.target.data.type === 'unavailable' ? '#21262d' : '#30363d')
+        .attr('stroke-width', 1.5)
+        .attr('d', d3.linkRadial()
+            .angle(d => d.x)
+            .radius(d => d.y));
 
-    let expanded = false;
-    let loaded = false;
+    // Nodes
+    const node = g.selectAll('.meta-node')
+        .data(root.descendants())
+        .join('g')
+        .attr('class', 'meta-node')
+        .attr('transform', d => `rotate(${d.x * 180 / Math.PI - 90}) translate(${d.y},0)`);
 
-    toggle.addEventListener('click', async () => {
-        if (!hasChildren && !hasBindings) return;
+    // Package node radius based on record count (log scale, /100 first)
+    function pkgRadius(d) {
+        const rc = d.data.recordCount || 0;
+        if (rc <= 100) return 5;
+        return 5 + Math.log10(rc / 100) * 8; // 1000→~8, 3000→~12, 20000→~18, 40000→~21
+    }
 
-        expanded = !expanded;
-        childContainer.style.display = expanded ? '' : 'none';
-        const chevronEl = toggle.querySelector('.meta-tree-chevron');
-        if (chevronEl) {
-            chevronEl.className = expanded
-                ? 'bi bi-chevron-down me-1 meta-tree-chevron'
-                : 'bi bi-chevron-right me-1 meta-tree-chevron';
-            chevronEl.style.fontSize = '0.75rem';
-        }
+    // Circles
+    node.append('circle')
+        .attr('r', d => {
+            if (d.data.type === 'package') return pkgRadius(d);
+            if (d.data.type === 'unavailable') return 3;
+            return d.children ? 4 : 3;
+        })
+        .attr('fill', d => {
+            if (d.data.type === 'package') return '#58a6ff';
+            if (d.data.type === 'unavailable') return '#21262d';
+            return d.children ? '#8b949e' : '#484f58';
+        })
+        .attr('stroke', d => d.data.type === 'package' ? '#1f6feb' : 'none')
+        .attr('stroke-width', 1.5)
+        .style('cursor', d => d.data.type === 'package' ? 'pointer' : 'default');
 
-        if (loaded) return;
-        loaded = true;
+    // Click handler for package nodes
+    node.filter(d => d.data.type === 'package')
+        .style('cursor', 'pointer')
+        .on('click', (event, d) => {
+            event.stopPropagation();
+            window.location.href = `/${d.data.packageId}/`;
+        });
 
-        // Render meta-tree children (other meta nodes)
-        if (hasChildren) {
-            const ul = document.createElement('ul');
-            node.children.forEach(childId => {
-                const childNode = nodeMap[childId];
-                if (childNode) {
-                    ul.appendChild(buildMetaTreeNode(childNode, nodeMap));
-                }
-            });
-            childContainer.appendChild(ul);
-        }
+    // Hover effect for package nodes
+    node.filter(d => d.data.type === 'package')
+        .on('mouseover', function(event, d) {
+            d3.select(this).select('circle').attr('r', pkgRadius(d) + 2).attr('fill', '#79c0ff');
+        })
+        .on('mouseout', function(event, d) {
+            d3.select(this).select('circle').attr('r', pkgRadius(d)).attr('fill', '#58a6ff');
+        });
 
-        // Lazy load bound package subtrees
-        if (hasBindings && hasData) {
-            const loadingEl = document.createElement('div');
-            loadingEl.className = 'meta-tree-loading';
-            loadingEl.innerHTML = '<div class="spinner-border spinner-border-sm me-1"></div> Loading...';
-            childContainer.appendChild(loadingEl);
+    // Two-line labels: rank (top, small) + name (bottom, main)
+    // First pass: measure and draw background rects for meta nodes
+    node.filter(d => d.data.type === 'meta').each(function(d) {
+        const g = d3.select(this);
+        const isRight = (d.x < Math.PI) === !d.children;
+        const xOff = isRight ? 10 : -10;
+        const name = upperFirst(d.data.name);
+        const rank = d.data.rank ? upperFirst(d.data.rank) : '';
+        const fontSize = d.depth === 0 ? 12 : 11;
 
-            try {
-                const resp = await fetch(`${API_BASE}/meta/composite-tree?node_id=${node.id}`);
-                if (!resp.ok) throw new Error('Failed');
-                const data = await resp.json();
-                loadingEl.remove();
+        // Measure with temporary texts
+        const tmpName = g.append('text').text(name).attr('font-size', fontSize + 'px').attr('font-weight', '500');
+        const tmpRank = g.append('text').text(rank).attr('font-size', '8px');
+        const nameW = tmpName.node().getBBox().width;
+        const rankW = tmpRank.node().getBBox().width;
+        tmpName.remove(); tmpRank.remove();
 
-                if (data.children && data.children.length > 0) {
-                    // Group by package
-                    const byPkg = {};
-                    data.children.forEach(c => {
-                        (byPkg[c.package] = byPkg[c.package] || []).push(c);
-                    });
-
-                    for (const [pkgId, taxa] of Object.entries(byPkg)) {
-                        const pkgUl = document.createElement('ul');
-                        taxa.forEach(t => {
-                            const tLi = document.createElement('li');
-                            tLi.className = 'meta-tree-node';
-                            const childInfo = t.child_count > 0
-                                ? `<span class="meta-tree-child-count">(${t.child_count})</span>` : '';
-                            tLi.innerHTML = `
-                                <a href="/${pkgId}/" class="meta-tree-taxon" title="Open in ${pkgId}">
-                                    <i class="bi bi-box-arrow-up-right" style="font-size:0.7rem; color:#484f58;"></i>
-                                    <span class="meta-tree-label">${t.name}</span>
-                                    <span class="meta-tree-rank">${t.rank}</span>${childInfo}
-                                    <span class="meta-tree-badge meta-tree-pkg-badge">${pkgId}</span>
-                                </a>`;
-                            pkgUl.appendChild(tLi);
-                        });
-                        childContainer.appendChild(pkgUl);
-                    }
-                }
-            } catch (e) {
-                loadingEl.innerHTML = `<span class="text-danger">Error loading subtree</span>`;
-            }
-        }
+        const w = Math.max(nameW, rankW);
+        const h = fontSize + 14; // rank line + name line
+        const pad = 4;
+        g.append('rect')
+            .attr('x', isRight ? xOff - pad : xOff - w - pad)
+            .attr('y', -h / 2 - pad + 2)
+            .attr('width', w + pad * 2)
+            .attr('height', h + pad * 2)
+            .attr('rx', 3)
+            .attr('fill', '#f0f0f0')
+            .attr('stroke', '#d0d0d0')
+            .attr('stroke-width', 0.5)
+            .attr('transform', d.x >= Math.PI ? 'rotate(180)' : null);
     });
 
-    return li;
+    // Text x-offset: accounts for circle radius on package nodes
+    function labelX(d) {
+        const base = d.data.type === 'package' ? pkgRadius(d) + 6 : 10;
+        const isRight = (d.x < Math.PI) === !d.children;
+        return isRight ? base : -base;
+    }
+
+    // Rank labels (top line) — all nodes with rank
+    node.filter(d => d.data.rank)
+        .append('text')
+        .attr('dy', d => d.data.type === 'meta' ? '-0.5em' : '-0.6em')
+        .attr('x', d => labelX(d))
+        .attr('text-anchor', d => (d.x < Math.PI) === !d.children ? 'start' : 'end')
+        .attr('transform', d => d.x >= Math.PI ? 'rotate(180)' : null)
+        .attr('fill', d => d.data.type === 'package' ? '#79c0ff' : '#888')
+        .attr('font-size', d => d.data.type === 'package' ? '10px' : '8px')
+        .style('cursor', d => d.data.type === 'package' ? 'pointer' : 'default')
+        .text(d => upperFirst(d.data.rank))
+        .on('click', (event, d) => {
+            if (d.data.type === 'package') {
+                event.stopPropagation();
+                window.location.href = `/${d.data.packageId}/`;
+            }
+        });
+
+    // Name labels (bottom line) — all nodes
+    node.append('text')
+        .attr('dy', d => d.data.rank ? '0.9em' : '0.31em')
+        .attr('x', d => labelX(d))
+        .attr('text-anchor', d => (d.x < Math.PI) === !d.children ? 'start' : 'end')
+        .attr('transform', d => d.x >= Math.PI ? 'rotate(180)' : null)
+        .attr('fill', d => {
+            if (d.data.type === 'package') return '#58a6ff';
+            if (d.data.type === 'unavailable') return '#484f58';
+            return '#222';
+        })
+        .attr('font-weight', d => d.data.type === 'package' ? '600' : '500')
+        .attr('font-size', d => d.data.type === 'package' ? '14px' : d.depth === 0 ? '12px' : '11px')
+        .style('cursor', d => d.data.type === 'package' ? 'pointer' : 'default')
+        .text(d => upperFirst(d.data.name))
+        .on('click', (event, d) => {
+            if (d.data.type === 'package') {
+                event.stopPropagation();
+                window.location.href = `/${d.data.packageId}/`;
+            }
+        });
+
+    // Brownian motion animation
+    const allNodes = root.descendants();
+    const drift = new Map(); // per-node velocity state
+    allNodes.forEach(d => {
+        drift.set(d, { vx: 0, vy: 0, dx: 0, dy: 0 });
+    });
+
+    const maxDrift = 12;    // max displacement in px
+    const damping = 0.99;   // velocity decay
+    const jitter = 0.02;    // random impulse strength
+
+    function animateBrownian() {
+        allNodes.forEach(d => {
+            const s = drift.get(d);
+            // Random impulse
+            s.vx += (Math.random() - 0.5) * jitter;
+            s.vy += (Math.random() - 0.5) * jitter;
+            // Damping
+            s.vx *= damping;
+            s.vy *= damping;
+            // Update displacement
+            s.dx += s.vx;
+            s.dy += s.vy;
+            // Clamp to max drift range
+            const dist = Math.sqrt(s.dx * s.dx + s.dy * s.dy);
+            if (dist > maxDrift) {
+                const scale = maxDrift / dist;
+                s.dx *= scale;
+                s.dy *= scale;
+                // Bounce back gently
+                s.vx -= s.dx * 0.05;
+                s.vy -= s.dy * 0.05;
+            }
+        });
+
+        node.attr('transform', d => {
+            const s = drift.get(d);
+            const angle = d.x * 180 / Math.PI - 90;
+            return `rotate(${angle}) translate(${d.y + s.dx},${s.dy})`;
+        });
+
+        g.selectAll('.meta-link')
+            .attr('d', d3.linkRadial()
+                .angle(d => {
+                    const s = drift.get(d);
+                    return d.x + (s ? s.dy * 0.002 : 0);
+                })
+                .radius(d => {
+                    const s = drift.get(d);
+                    return d.y + (s ? s.dx : 0);
+                }));
+
+        requestAnimationFrame(animateBrownian);
+    }
+
+    requestAnimationFrame(animateBrownian);
 }
