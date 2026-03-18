@@ -395,14 +395,11 @@ class PackageRegistry:
         overlay_path = entry['overlay_path']
         pkg = entry['pkg']
 
-        # Meta-packages: create in-memory DB with member packages ATTACHed
+        # Meta-packages: no data.db, return lightweight in-memory connection
+        # Individual member packages are accessed via get_db(member_name) as needed
         if pkg and pkg.is_meta_package:
             conn = sqlite3.connect(':memory:', check_same_thread=False)
             conn.row_factory = sqlite3.Row
-            validated_deps = self._resolve_and_validate_deps(name)
-            for alias, dep_db_path in validated_deps:
-                conn.execute(f"ATTACH DATABASE '{dep_db_path}' AS {alias}")
-                logger.debug("get_db(%s): meta-package attached %s", name, alias)
             return conn
 
         # Ensure overlay DB exists
