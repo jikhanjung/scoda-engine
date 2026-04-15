@@ -682,6 +682,63 @@ html, body {
     filter: none;
 }
 
+/* Correlation Chart */
+.correlation-chart {
+    table-layout: auto;
+}
+.correlation-chart td {
+    cursor: default;
+    text-align: left;
+    padding: 3px 8px;
+    font-size: 0.82rem;
+    font-weight: 400;
+}
+.correlation-chart td:hover {
+    filter: none;
+}
+.correlation-chart .corr-period {
+    background-color: #e9ecef;
+    font-weight: 700;
+    text-align: center;
+    writing-mode: vertical-lr;
+    text-orientation: mixed;
+    letter-spacing: 2px;
+    min-width: 30px;
+    padding: 8px 4px;
+}
+.correlation-chart .corr-stage {
+    background-color: #f1f3f5;
+    font-weight: 600;
+    text-align: center;
+    min-width: 80px;
+}
+.correlation-chart .corr-fm {
+    background-color: #f8f9fa;
+    font-weight: 600;
+    text-align: center;
+    min-width: 90px;
+    border-left: 2px solid #adb5bd;
+}
+.correlation-chart .corr-bz {
+    background-color: #fff;
+    font-weight: 400;
+    font-style: italic;
+    min-width: 140px;
+    text-align: center;
+}
+.ics-chart.correlation-chart td.corr-bz-cont {
+    border-top: 1px solid transparent;
+}
+.correlation-chart .corr-empty {
+    background: repeating-linear-gradient(
+        90deg, #e9ecef 0px, #e9ecef 2px, #fff 2px, #fff 5px
+    );
+}
+.correlation-chart thead th {
+    white-space: normal;
+    min-width: 60px;
+}
+
 /* Color Chip */
 .color-chip {
     display: inline-block;

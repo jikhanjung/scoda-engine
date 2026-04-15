@@ -415,9 +415,13 @@ function switchToView(viewKey) {
             currentTreeViewKey = viewKey;
             document.getElementById('view-tree').style.display = '';
             loadTree();
-        } else if (view.display === 'nested_table') {
+        } else if (view.display === 'nested_table' || view.display === 'correlation') {
             document.getElementById('view-chart').style.display = '';
-            renderNestedTableView(viewKey);
+            if (view.display === 'correlation') {
+                renderCorrelationView(viewKey);
+            } else {
+                renderNestedTableView(viewKey);
+            }
         } else if (view.display === 'tree_chart') {
             document.getElementById('view-tree-chart').style.display = '';
             loadRadialView(viewKey);
@@ -2130,6 +2134,88 @@ async function renderNestedTableView(viewKey) {
 
         // Render HTML table
         body.innerHTML = renderChartHTML(leafRows, opts);
+    } catch (error) {
+        body.innerHTML = `<div class="text-danger">Error: ${error.message}</div>`;
+    }
+}
+
+/**
+ * Render a correlation chart — pre-computed rows with explicit rowspan values.
+ * Each row has columns with _rowspan suffix fields; rowspan=0 means skip (covered by previous).
+ */
+async function renderCorrelationView(viewKey) {
+    const view = manifest.views[viewKey];
+    if (!view) return;
+
+    const corrOpts = view.correlation_display || {};
+    const columns = corrOpts.columns || [];
+
+    const header = document.getElementById('chart-view-header');
+    const body = document.getElementById('chart-view-body');
+
+    header.innerHTML = `<h5><i class="bi ${view.icon || 'bi-layers-half'}"></i> ${view.title}</h5>
+                        <p class="text-muted mb-0">${view.description || ''}</p>`;
+    body.innerHTML = '<div class="loading">Loading...</div>';
+
+    try {
+        const rows = await fetchQuery(view.source_query);
+
+        // Build column groups for header
+        const colGroups = corrOpts.column_groups || [];
+
+        let html = '<table class="ics-chart correlation-chart">';
+
+        // Header row 1: group spans
+        if (colGroups.length > 0) {
+            html += '<thead><tr>';
+            colGroups.forEach(g => {
+                const cs = g.colspan > 1 ? ` colspan="${g.colspan}"` : '';
+                html += `<th${cs}>${g.label}</th>`;
+            });
+            html += '</tr>';
+        } else {
+            html += '<thead>';
+        }
+
+        // Header row 2: individual column labels
+        html += '<tr>';
+        columns.forEach(col => {
+            html += `<th>${col.label}</th>`;
+        });
+        html += '</tr></thead><tbody>';
+
+        // Data rows
+        rows.forEach(row => {
+            html += '<tr>';
+            columns.forEach(col => {
+                const val = row[col.key];
+                const rsField = col.rowspan_key;
+                const rs = rsField ? (row[rsField] || 0) : 1;
+
+                // rowspan 0 = skip (covered by previous row's cell)
+                if (rsField && rs === 0) return;
+
+                const rsAttr = rs > 1 ? ` rowspan="${rs}"` : '';
+                let cls = col.css_class || '';
+                // border_follow: hide top border when the referenced formation is a continuation row
+                const hideBorder = col.border_follow && (row[col.border_follow] || 0) === 0;
+                const showBottom = col.border_bottom_values && col.border_bottom_values.includes(val);
+                const italic = col.italic ? 'font-style:italic;' : '';
+                const borderStyle = (hideBorder ? 'border-top:hidden;' : '')
+                                  + (showBottom ? 'border-bottom:1px solid rgba(0,0,0,0.3);' : '');
+                const styleStr = (italic || borderStyle) ? ` style="${italic}${borderStyle}"` : '';
+
+                if (val) {
+                    html += `<td${rsAttr} class="${cls}"${styleStr}>${val}</td>`;
+                } else {
+                    html += `<td${rsAttr} class="${cls}"${styleStr}></td>`;
+                }
+            });
+            html += '</tr>';
+        });
+
+        html += '</tbody></table>';
+        body.innerHTML = html;
     } catch (error) {
         body.innerHTML = `<div class="text-danger">Error: ${error.message}</div>`;
     }
