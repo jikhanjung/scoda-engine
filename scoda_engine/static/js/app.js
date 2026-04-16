@@ -74,6 +74,15 @@ document.addEventListener('DOMContentLoaded', async () => {
         return;
     }
 
+    // Supergroup map landing: show map first, defer tabs
+    if (manifest && manifest.supergroup_map) {
+        showMapLanding();
+        // Preload tabs but don't show yet
+        initGlobalSearch();
+        preloadSearchIndex();
+        return;
+    }
+
     // Determine initial view from manifest
     if (manifest && manifest.views) {
         const viewKeys = Object.keys(manifest.views).filter(k => manifest.views[k].type !== 'detail');
@@ -120,6 +129,13 @@ async function loadManifest() {
             } catch (e) { /* use defaults */ }
             for (const ctrl of manifest.global_controls) {
                 globalControls[ctrl.param] = (ctrl.param in savedPrefs) ? savedPrefs[ctrl.param] : ctrl.default;
+            }
+            // Sync provenance_id to match supergroup_id on load
+            if (manifest.supergroup_map && globalControls.supergroup_id) {
+                const sg = manifest.supergroup_map.supergroups.find(s => s.id === globalControls.supergroup_id);
+                if (sg && sg.provenance_ids && !sg.provenance_ids.includes(globalControls.provenance_id)) {
+                    globalControls.provenance_id = sg.provenance_ids[0];
+                }
             }
             renderGlobalControls();
         }
@@ -184,7 +200,7 @@ async function renderGlobalControls() {
 
     let html = '';
     for (const ctrl of manifest.global_controls) {
-        if (ctrl.type === 'select' && ctrl.source_query) {
+        if (ctrl.type === 'select' && (ctrl.source_query || ctrl.source)) {
             const isCompare = ctrl.compare_control;
             const hidden = isCompare && !compareMode ? ' style="display:none"' : '';
             html += `<div class="global-control-item" data-compare-control="${isCompare ? 'true' : 'false'}"${hidden}>
@@ -197,33 +213,65 @@ async function renderGlobalControls() {
     }
     container.innerHTML = html;
 
-    // Populate select options from source queries
+    // Populate select options
     for (const ctrl of manifest.global_controls) {
-        if (ctrl.type === 'select' && ctrl.source_query) {
-            try {
-                const rows = await fetchQuery(ctrl.source_query);
-                const sel = document.getElementById(`gc-${ctrl.param}`);
-                if (!sel) continue;
-                const valueKey = ctrl.value_key || 'id';
-                const labelKey = ctrl.label_key || 'name';
-                sel.innerHTML = rows.map(r =>
-                    `<option value="${r[valueKey]}" ${r[valueKey] == globalControls[ctrl.param] ? 'selected' : ''}>${r[labelKey]}</option>`
-                ).join('');
-                sel.addEventListener('change', () => {
-                    const val = parseInt(sel.value, 10);
-                    globalControls[ctrl.param] = isNaN(val) ? sel.value : val;
-                    // Fire-and-forget save to overlay DB
-                    fetch(`${API_BASE}/preferences/${ctrl.param}`, {
-                        method: 'PUT',
-                        headers: {'Content-Type': 'application/json'},
-                        body: JSON.stringify({value: globalControls[ctrl.param]})
-                    }).catch(() => {});
-                    queryCache = {};
-                    switchToView(currentView);
-                });
-            } catch (e) {
-                console.warn(`Failed to load options for ${ctrl.param}:`, e);
+        if (ctrl.type !== 'select') continue;
+        const sel = document.getElementById(`gc-${ctrl.param}`);
+        if (!sel) continue;
+        const valueKey = ctrl.value_key || 'id';
+        const labelKey = ctrl.label_key || 'name';
+
+        try {
+            let rows;
+            if (ctrl.source === 'supergroup_map' && manifest.supergroup_map) {
+                // Static options from manifest supergroup_map
+                rows = manifest.supergroup_map.supergroups || [];
+            } else if (ctrl.source_query) {
+                rows = await fetchQuery(ctrl.source_query);
+            } else {
+                continue;
             }
+
+            sel.innerHTML = rows.map(r =>
+                `<option value="${r[valueKey]}" ${r[valueKey] == globalControls[ctrl.param] ? 'selected' : ''}>${r[labelKey]}</option>`
+            ).join('');
+
+            sel.addEventListener('change', () => {
+                const val = parseInt(sel.value, 10);
+                globalControls[ctrl.param] = isNaN(val) ? sel.value : val;
+                // Fire-and-forget save to overlay DB
+                fetch(`${API_BASE}/preferences/${ctrl.param}`, {
+                    method: 'PUT',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({value: globalControls[ctrl.param]})
+                }).catch(() => {});
+
+                // If supergroup changed, auto-update provenance
+                if (ctrl.param === 'supergroup_id' && manifest.supergroup_map) {
+                    const sg = manifest.supergroup_map.supergroups.find(s => s.id === globalControls.supergroup_id);
+                    if (sg && sg.provenance_ids && sg.provenance_ids.length > 0) {
+                        globalControls.provenance_id = sg.provenance_ids[0];
+                        const pvSel = document.getElementById('gc-provenance_id');
+                        if (pvSel) {
+                            pvSel.value = sg.provenance_ids[0];
+                            updateProvenanceFilter(sg.provenance_ids);
+                        }
+                    }
+                }
+
+                queryCache = {};
+                switchToView(currentView);
+            });
+
+            // Apply initial provenance filter if supergroup is set
+            if (ctrl.param === 'provenance_id' && manifest.supergroup_map) {
+                const sg = manifest.supergroup_map.supergroups.find(s => s.id === globalControls.supergroup_id);
+                if (sg && sg.provenance_ids) {
+                    updateProvenanceFilter(sg.provenance_ids);
+                }
+            }
+        } catch (e) {
+            console.warn(`Failed to load options for ${ctrl.param}:`, e);
         }
     }
 }
@@ -345,8 +393,9 @@ function buildViewTabs() {
     let html = '';
 
     for (const [key, view] of Object.entries(manifest.views)) {
-        // Skip detail type views (they're not top-level tabs)
+        // Skip detail and map_selector views (they're not top-level tabs)
         if (view.type === 'detail') continue;
+        if (view.display === 'map_selector') continue;
 
         const isActive = key === currentView;
         const icon = view.icon || 'bi-square';
@@ -401,7 +450,7 @@ function switchToView(viewKey) {
     }
 
     // Show/hide view containers
-    const allContainers = ['view-tree', 'view-table', 'view-chart', 'view-tree-chart', 'view-side-by-side', 'view-compound'];
+    const allContainers = ['view-tree', 'view-table', 'view-chart', 'view-tree-chart', 'view-side-by-side', 'view-compound', 'view-map'];
     allContainers.forEach(id => {
         const el = document.getElementById(id);
         if (el) el.style.display = 'none';
@@ -2140,12 +2189,168 @@ async function renderNestedTableView(viewKey) {
 }
 
 /**
+ * Resolve view variants: if the view defines variant_key + variants,
+ * merge the matching variant (by current global param value) over the base view.
+ * This lets a single view definition switch source_query, correlation_display, etc.
+ * based on a global control like provenance_id.
+ */
+function resolveViewVariant(view) {
+    if (!view.variants || !view.variant_key) return view;
+    const paramValue = String(globalControls[view.variant_key] ?? view.default_variant ?? '');
+    const variant = view.variants[paramValue];
+    if (!variant) return view;
+    // Shallow merge: variant properties override base view properties
+    return { ...view, ...variant };
+}
+
+/**
+ * Render a map-based supergroup selector (e.g. Korean peninsula with clickable markers).
+ * Reads map data from manifest.supergroup_map.
+ */
+function renderMapSelectorView(viewKey) {
+    const container = document.getElementById('map-selector-content');
+    if (!container) return;
+
+    const mapData = manifest.supergroup_map;
+    if (!mapData || !mapData.supergroups) {
+        container.innerHTML = '<div class="text-muted p-4">No map data available</div>';
+        return;
+    }
+
+    const vb = mapData.map?.viewBox || '0 0 200 360';
+    const paths = mapData.map?.paths || {};
+    const supergroups = mapData.supergroups;
+    const currentSg = globalControls.supergroup_id || supergroups[0]?.id;
+
+    const [, , vbW, vbH] = vb.split(/\s+/).map(Number);
+    const bgImage = mapData.map?.background_image || '/static/images/kmap.png';
+
+    // SVG overlay: transparent background, markers only
+    let svg = `<svg viewBox="${vb}" class="map-selector-overlay" xmlns="http://www.w3.org/2000/svg">`;
+    svg += '<defs><filter id="map-shadow"><feDropShadow dx="0" dy="1" stdDeviation="2" flood-opacity="0.15"/></filter></defs>';
+
+    // Supergroup markers
+    for (const sg of supergroups) {
+        const m = sg.marker;
+        const isActive = sg.id === currentSg;
+        const r = 50;
+        svg += `<g class="map-marker" data-sg-id="${sg.id}" style="cursor:pointer">`;
+        svg += `<circle cx="${m.x}" cy="${m.y}" r="${r}" fill="${sg.color}" fill-opacity="0.75" stroke="white" stroke-width="4" filter="url(#map-shadow)" />`;
+        svg += `<text x="${m.x}" y="${m.y - r - 16}" text-anchor="middle" class="map-marker-name">${sg.name_ko}</text>`;
+        svg += `<text x="${m.x}" y="${m.y - r - 48}" text-anchor="middle" class="map-marker-age">${sg.age_range}</text>`;
+        svg += `</g>`;
+    }
+
+    svg += '</svg>';
+
+    // Title + subtitle
+    const title = mapData.map?.title || 'Stratigraphy';
+    const subtitle = mapData.map?.subtitle || '';
+    container.innerHTML = `
+        <div class="map-selector-header">
+            <h4>${title}</h4>
+            <p class="text-muted">${subtitle}</p>
+        </div>
+        <div class="map-selector-body">
+            <div class="map-selector-frame">
+                <img src="${bgImage}" class="map-selector-bg" alt="Korean Peninsula" />
+                ${svg}
+            </div>
+        </div>
+    `;
+
+    // Click handlers
+    container.querySelectorAll('.map-marker').forEach(g => {
+        g.addEventListener('click', () => {
+            const sgId = g.dataset.sgId;
+            enterSupergroupView(sgId);
+        });
+    });
+}
+
+/**
+ * Filter provenance dropdown to only show entries matching the given IDs.
+ */
+function updateProvenanceFilter(allowedIds) {
+    const pvSelect = document.getElementById('gc-provenance_id');
+    if (!pvSelect) return;
+    for (const opt of pvSelect.options) {
+        const val = parseInt(opt.value, 10);
+        opt.style.display = allowedIds.includes(val) ? '' : 'none';
+    }
+}
+
+/**
+ * Show the map landing page (hides tabs and controls, full-screen map).
+ */
+function showMapLanding() {
+    // Hide tabs bar and all view containers
+    document.querySelector('.view-tabs-bar').style.display = 'none';
+    document.querySelectorAll('.view-container').forEach(el => el.style.display = 'none');
+
+    // Show map container
+    const mapEl = document.getElementById('view-map');
+    mapEl.style.display = '';
+    renderMapSelectorView('map_selector');
+
+    // Wire up Home button to return to map landing
+    const homeLink = document.getElementById('navbar-home');
+    if (homeLink) {
+        homeLink.onclick = (e) => {
+            e.preventDefault();
+            showMapLanding();
+        };
+    }
+}
+
+/**
+ * Enter a supergroup: show tabs + controls, switch to the supergroup's default view.
+ */
+function enterSupergroupView(sgId) {
+    const sg = manifest.supergroup_map.supergroups.find(s => s.id === sgId);
+    if (!sg) return;
+
+    // Set global controls
+    globalControls.supergroup_id = sgId;
+    if (sg.provenance_ids && sg.provenance_ids.length > 0) {
+        globalControls.provenance_id = sg.provenance_ids[0];
+    }
+
+    // Save preference
+    fetch(`${API_BASE}/preferences/supergroup_id`, {
+        method: 'PUT', headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({value: sgId})
+    }).catch(() => {});
+
+    // Hide map, show tabs bar
+    document.getElementById('view-map').style.display = 'none';
+    document.querySelector('.view-tabs-bar').style.display = '';
+
+    // Build tabs (excluding map_selector) and render global controls
+    const viewKeys = Object.keys(manifest.views).filter(k =>
+        manifest.views[k].type !== 'detail' && manifest.views[k].display !== 'map_selector'
+    );
+    currentView = sg.default_view || viewKeys[0] || 'strat_tree';
+    buildViewTabs();
+    renderGlobalControls();
+    queryCache = {};
+    switchToView(currentView);
+
+    // Init search if not done
+    initGlobalSearch();
+    preloadSearchIndex();
+}
+
+/**
  * Render a correlation chart — pre-computed rows with explicit rowspan values.
  * Each row has columns with _rowspan suffix fields; rowspan=0 means skip (covered by previous).
  */
 async function renderCorrelationView(viewKey) {
-    const view = manifest.views[viewKey];
-    if (!view) return;
+    const baseView = manifest.views[viewKey];
+    if (!baseView) return;
+
+    // Resolve variant: merge variant-specific config over base view
+    const view = resolveViewVariant(baseView);
 
     const corrOpts = view.correlation_display || {};
     const columns = corrOpts.columns || [];
@@ -2205,11 +2410,8 @@ async function renderCorrelationView(viewKey) {
                                   + (showBottom ? 'border-bottom:1px solid rgba(0,0,0,0.3);' : '');
                 const styleStr = (italic || borderStyle) ? ` style="${italic}${borderStyle}"` : '';
 
-                if (val) {
-                    html += `<td${rsAttr} class="${cls}"${styleStr}>${val}</td>`;
-                } else {
-                    html += `<td${rsAttr} class="${cls}"${styleStr}></td>`;
-                }
+                const displayVal = val ? (val + (col.suffix || '')) : '';
+                html += `<td${rsAttr} class="${cls}"${styleStr}>${displayVal}</td>`;
             });
             html += '</tr>';
         });
@@ -2518,10 +2720,11 @@ function createTreeNode(node) {
     }
     content.appendChild(icon);
 
-    // Label
+    // Label (with rank abbreviation from manifest.rank_display)
     const label = document.createElement('span');
     label.className = 'tree-label';
-    label.textContent = node[labelKey];
+    const rankAbbr = manifest?.rank_display?.[node[rankKey]]?.abbr;
+    label.textContent = node[labelKey] + (rankAbbr ? ' ' + rankAbbr : '');
     content.appendChild(label);
 
     // Count (for leaf nodes)
