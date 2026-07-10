@@ -1,8 +1,8 @@
 # SCODA Engine 개발 기록 요약
 
-**최종 업데이트:** 2026-03-15
-**총 문서:** 89개 (작업 로그 56개, 계획 문서 33개)
-**개발 기간:** 2026-02-19 ~ 2026-03-15 (25일)
+**최종 업데이트:** 2026-07-10
+**총 문서:** 98개 (작업 로그 63개, 계획 문서 35개)
+**개발 기간:** 2026-02-19 ~ 2026-07-10
 
 ---
 
@@ -315,6 +315,47 @@ Landing 페이지 스크롤, Tree 뷰 드로어 패턴, Removed Taxa 패널 접�
 
 ---
 
+### 2026-03-17 (Day 27) — Timeline 모바일 UX + Bar chart + Statistics 탭
+
+Timeline 모바일 컨트롤 정리, 모바일 반응형 고도화, Bar chart 서브뷰 및 Statistics 탭 구조 개편.
+
+| # | 유형 | 제목 | 문서 |
+|---|------|------|------|
+| 039 | 작업 | Timeline 모바일 UX 개선 (컨트롤 위치, axis mode 승격, 기어 팝업) | `20260317_039_timeline_mobile_ux_improvements.md` |
+| 040 | 작업 | 모바일 반응형 고도화 + Timeline 녹화 버튼 (WebMWriter/MediaRecorder) | `20260317_040_mobile_responsive_and_timeline_record.md` |
+| 041 | 작업 | Bar chart 서브뷰 + Statistics 탭 3-서브탭 개편 (`diversity_by_age`) | `20260317_041_bar_chart_and_statistics_tab.md` |
+
+**결과:** Statistics 탭 3개 서브탭(Geologic/Publication Timeline, Diversity Chart). D3 stacked bar chart + rank 그룹핑. Timeline 녹화. 모바일 라벨/입력 폭 정리. v0.3.2→v0.3.4.
+
+---
+
+### 2026-03-18 (Day 28) — Meta-Package 지원 (P31)
+
+paleobase meta-package를 scoda-engine에서 인식·로딩·표시. Core 인식 → API → 프론트엔드 4단계 구현 후 UI 개선/버그 수정.
+
+| # | 유형 | 제목 | 문서 |
+|---|------|------|------|
+| P31 | 계획 | scoda-engine Meta-Package 지원 계획 (paleobase) | `20260318_P31_paleobase_meta_package_engine_support.md` |
+| 042 | 작업 | Meta-Package 지원 구현 (Phase 1-4: kind 인식, meta/tree·bindings·composite-tree API, 전용 트리 UI) | `20260318_042_meta_package_support.md` |
+| 043 | 작업 | Meta-Package UI 개선 (manifest JSONResponse, 라우트 순서, top-level 자동 진입, D3 radial tree) | `20260318_043_meta_package_ui_polish.md` |
+
+**결과:** `kind: meta-package` 인식, `meta_tree.json`/`package_bindings.json` 로딩. Darwin tree-of-life 스타일 D3 radial tree. top-level 패키지 자동 리다이렉트. meta-package `get_db()`에서 ATTACH 제거(SQLite 10개 제한 회피). v0.3.4→v0.3.5. 232 tests passing.
+
+---
+
+### 2026-07-10 (Day 29) — temp-dir 누수 수정 + OG 메타태그
+
+장기 실행 서버의 temp-dir 누수 수정 및 뷰어 브랜딩 정리.
+
+| # | 유형 | 제목 | 문서 |
+|---|------|------|------|
+| 044 | 작업 | Registry 반복 스캔 시 temp-dir 누수 수정 (원자적 swap + close, atexit 재구성) | `20260710_044_fix_temp_dir_leak_registry_scan.md` |
+| 045 | 작업 | 뷰어 타이틀 통일 + OpenGraph 메타태그 + v0.3.6 | `20260710_045_og_meta_tags_and_title.md` |
+
+**결과:** `scan()` 원자적 교체 후 이전 패키지 temp dir close, per-instance `atexit.register` 제거, `__del__` 안전망 + `close_all()` atexit 1회 등록 (프로덕션 3.5개월간 2.9G/3198개 누수 해결). index.html title `SCODA Engine` + OG 태그. v0.3.5→v0.3.6.
+
+---
+
 ## 주제별 분류
 
 ### 1. 테스트 인프라 (S-1, 02-20)
@@ -510,6 +551,22 @@ Manifest-driven 제네릭 CRUD 시스템 (Admin/Viewer 모드 분리).
 | 03-13 | Composite detail 쿼리 파라미터 누락 (`None` 자동 채움) | `20260313_028_composite_bugfix_and_tree_depth_slider.md` |
 | 03-14 | Timeline 축 전환 시 빈 트리 잔류 (`fullRoot = null`) | `20260314_033_timeline_axis_switch_bugfix.md` |
 | 03-14 | Timeline play 빈 스텝 무한 루프 (`currentIdx` 갱신 보장) | `20260314_034_timeline_empty_step_infinite_loop_fix.md` |
+| 03-18 | Meta-package manifest 응답에서 `kind` 필드 누락 (JSONResponse 우회) | `20260318_043_meta_package_ui_polish.md` |
+| 03-18 | Meta 엔드포인트가 catch-all 라우트 뒤라 404 (라우트 순서 조정) | `20260318_043_meta_package_ui_polish.md` |
+| 03-18 | Meta-package `get_db()` ATTACH로 SQLite 10-DB 제한 초과 (ATTACH 제거) | `20260318_043_meta_package_ui_polish.md` |
+| 07-10 | Registry 반복 스캔 시 temp-dir 누수 (원자적 swap + close, atexit 재구성) | `20260710_044_fix_temp_dir_leak_registry_scan.md` |
+
+---
+
+### 17. Meta-Package 지원 (P31, 03-18)
+
+| 날짜 | 내용 |
+|------|------|
+| 03-18 | `ScodaPackage.kind`/`is_meta_package`, `meta_tree.json`/`package_bindings.json` 로딩 |
+| 03-18 | `/api/{pkg}/meta/tree`, `/meta/bindings`, `/meta/composite-tree` API (lazy taxa load) |
+| 03-18 | Landing META 배지 + member packages 표시, top-level 자동 리다이렉트 |
+| 03-18 | D3 radial tree (Darwin tree-of-life 스타일, brownian motion, 줌/팬) |
+| 03-18 | meta-package `get_db()` ATTACH 제거 (SQLite 10-DB 제한 회피) |
 
 ---
 
@@ -517,8 +574,8 @@ Manifest-driven 제네릭 CRUD 시스템 (Admin/Viewer 모드 분리).
 
 | 유형 | 접두사 | 개수 | 설명 |
 |------|--------|------|------|
-| 작업 로그 | `NNN` (숫자) | 56 | 완료된 작업의 상세 기록 |
-| 계획 문서 | `PNN` | 33 | 작업 전 설계/계획 (구현 기록 포함) |
+| 작업 로그 | `NNN` (숫자) | 63 | 완료된 작업의 상세 기록 |
+| 계획 문서 | `PNN` | 35 | 작업 전 설계/계획 (구현 기록 포함) |
 
 ## 테스트 수 추이
 
@@ -529,7 +586,8 @@ Manifest-driven 제네릭 CRUD 시스템 (Admin/Viewer 모드 분리).
 | 02-24 | 255 | 임의 경로 로딩 5개 + Hub 클라이언트 25개 추가 |
 | 02-25 | 276 | Hub SSL fallback 21개 추가 |
 | 03-01 | 303 | CRUD 프레임워크 27개 추가 |
-| 03-06~ | 303 | 이후 전 세션 303 유지 (프론트엔드 위주 변경) |
+| 03-06~ | 303 | 프론트엔드 위주 변경 (303 유지) |
+| 03-18 | 232 | Meta-Package 9개 추가 (devlog #042 기준: 기존 223 + 9) |
 
 ## 버전 이력
 
@@ -549,3 +607,7 @@ Manifest-driven 제네릭 CRUD 시스템 (Admin/Viewer 모드 분리).
 | 03-14 | scoda-engine (Desktop) | 0.3.0 | Multi-Package Serving |
 | 03-15 | scoda-engine (Desktop) | 0.3.1 | 모바일 UI 개선 (Landing + Tree 드로어) |
 | 03-15 | scoda-engine (Desktop) | 0.3.2 | Removed 패널 접기 + Compound 모바일 수정 |
+| 03-15 | scoda-engine (Desktop) | 0.3.3 | Navbar/Landing 엔진 버전 표시 |
+| 03-17 | scoda-engine (Desktop) | 0.3.4 | Bar chart 서브뷰 + Statistics 탭 + 모바일 고도화 |
+| 03-18 | scoda-engine (Desktop) | 0.3.5 | Meta-Package 지원 (P31) |
+| 07-10 | scoda-engine (Desktop) | 0.3.6 | temp-dir 누수 수정 + OpenGraph 메타태그 |

@@ -1,6 +1,6 @@
 # SCODA Engine — Project Handoff Document
 
-**Last updated:** 2026-03-18
+**Last updated:** 2026-07-10
 
 ---
 
@@ -85,14 +85,18 @@
 | 모바일 반응형 고도화 + Timeline 녹화 버튼 | Done | `devlog/20260317_040_mobile_responsive_and_timeline_record.md` |
 | Bar chart 서브뷰 + Statistics 탭 구조 개편 | Done | `devlog/20260317_041_bar_chart_and_statistics_tab.md` |
 | Desktop v0.3.4 버전 업 | Done | `scoda_engine/__init__.py`, `pyproject.toml` |
-| P31: Meta-package 지원 (Phase 1-4) | Done | `devlog/20260318_042_meta_package_support.md` |
-| Meta-package UI 개선 (라우트, D3 radial, top-level 자동 진입) | Done | `devlog/20260318_043_meta_package_ui_polish.md` |
-| Meta-package get_db() ATTACH 제거 (SQLite 10개 제한 회피) | Done | `e33aca0` |
-| Desktop v0.3.5 버전 업 | Done | `scoda_engine/__init__.py`, `pyproject.toml` |
+| P31: Meta-Package 지원 (paleobase) — 인식/로딩/API/UI | Done | `devlog/20260318_042_meta_package_support.md` |
+| Meta-Package UI 개선 (라우트 순서, top-level 자동 진입, D3 radial tree) | Done | `devlog/20260318_043_meta_package_ui_polish.md` |
+| Fix: meta-package `get_db()` ATTACH 제거 (SQLite 10-DB 제한) | Done | `e33aca0` |
+| Desktop v0.3.5 버전 업 | Done | `bb79cfe` |
+| Fix: Registry 반복 스캔 시 temp-dir 누수 | Done | `devlog/20260710_044_fix_temp_dir_leak_registry_scan.md` |
+| 뷰어 타이틀 통일 + OpenGraph 메타태그 | Done | `devlog/20260710_045_og_meta_tags_and_title.md` |
+| Desktop v0.3.6 버전 업 | Done | `scoda_engine/__init__.py`, `pyproject.toml` |
 
 ### Test Status
 
-- All 312 tests passing: `pytest tests/` (runtime 218 + MCP 7 + hub_client 24 + CRUD 27 + meta-package 9 + etc.)
+- 232 tests passing (devlog #042 기준: 기존 223 + Meta-Package 9). `pytest tests/`
+- `TestMetaPackage` (9 tests) in `tests/test_runtime.py` — kind 인식, meta/tree·bindings·composite-tree
 - All fixtures converted to domain-independent generic data
 - MCP subprocess tests support `SCODA_DB_PATH` environment variable
 - CRUD tests: `tests/test_crud.py` (27 tests) — generic item/category fixture
@@ -102,16 +106,19 @@
 
 - 없음
 
-### Recent Sessions (2026-03-14 ~ 2026-03-18) Summary
+### Recent Sessions (2026-03-14 ~ 2026-07-10) Summary
 
-**2026-03-18: P31 Meta-package 지원**
-1. **Core 지원 (Phase 1-2)**: `ScodaPackage`에 `is_meta_package`, `meta_tree`, `package_bindings` 프로퍼티 추가. `PackageRegistry`에서 meta-package용 in-memory DB 반환, `list_packages()`에 `kind`/`member_packages` 포함.
-2. **API 엔드포인트 (Phase 3)**: `GET /api/{pkg}/meta/tree`, `/meta/bindings`, `/meta/composite-tree` (lazy-loading 지원). manifest 엔드포인트에서 meta-package 전용 응답.
-3. **프론트엔드 (Phase 4)**: D3 radial tree (Darwin tree-of-life 스타일), Brownian motion 애니메이션, lazy-loading 노드 확장. Landing 페이지에서 top-level 패키지만 표시, META 뱃지.
-4. **UI 개선**: 라우트 순서 수정, top-level 자동 진입 (meta-package 하나일 때 redirect).
-5. **get_db() 수정**: ATTACH 제거로 SQLite 10개 연결 제한 회피.
-6. **테스트**: 9개 meta-package 테스트 추가 (TestMetaPackage 클래스).
-7. **버전 업**: v0.3.4 → v0.3.5
+**2026-07-10: temp-dir 누수 수정 + OpenGraph 메타태그**
+1. **temp-dir 누수 수정**: `PackageRegistry.scan()`이 재빌드 시 이전 `ScodaPackage`를 닫지 않아 스캔마다 temp dir 고아화 (프로덕션 3.5개월 2.9G/3198개). 로컬 dict 원자적 swap 후 이전 패키지 close, per-instance `atexit.register` 제거, `__del__` 안전망 + `close_all()` atexit 1회 등록.
+2. **OpenGraph 메타태그**: index.html title `SCODA Desktop` → `SCODA Engine`, og:title/description/type 추가 (링크 공유 미리보기).
+3. **버전 업**: v0.3.5 → v0.3.6
+
+**2026-03-18: P31 Meta-Package 지원 (paleobase)**
+1. **Core 인식**: `ScodaPackage.kind`/`is_meta_package`, `meta_tree.json`/`package_bindings.json` 로딩 (`data.db` 없는 패키지).
+2. **API**: `/api/{pkg}/meta/tree`, `/meta/bindings`, `/meta/composite-tree` (바인딩 패키지 taxa lazy load), manifest는 meta 전용 필드 위해 JSONResponse 직접 반환.
+3. **프론트엔드**: meta-package 감지 → D3 radial tree (Darwin tree-of-life 스타일, brownian motion, 줌/팬), Landing META 배지 + member packages, top-level 패키지 자동 리다이렉트.
+4. **버그 수정**: meta 엔드포인트 라우트 순서(catch-all 앞으로), `get_db()` ATTACH 제거(SQLite 10-DB 제한 회피).
+5. **버전 업**: v0.3.4 → v0.3.5, 232 tests passing.
 
 **2026-03-17: Bar chart 서브뷰 + 모바일 고도화**
 1. **Bar chart 서브뷰**: D3 stacked bar chart, "Group by" 드롭다운(rank 선택), 툴팁, 범례. `diversity_by_age` SQL 쿼리 (recursive CTE).
@@ -213,6 +220,14 @@ scoda-engine contains no domain-specific code. All domain logic comes from `.sco
 - Hub Refresh: 서버 재시작 없이 Hub 패키지 갱신 (`POST /api/hub/sync`)
 - Mobile responsive: 768px 이하에서 햄버거 메뉴로 전환
 
+### Meta-Package (P31)
+
+- `.scoda` 패키지에 `kind: "meta-package"` — `data.db` 없이 `meta_tree.json` + `package_bindings.json`로 여러 하위 패키지를 하나의 통합 트리로 구성 (예: paleobase → trilobita/brachiopoda/…)
+- `ScodaPackage.kind`/`is_meta_package`, `PackageRegistry`가 meta 및 member 패키지 함께 로드
+- API: `/api/{pkg}/meta/tree`, `/meta/bindings`, `/meta/composite-tree` (member taxa lazy load)
+- `get_db()`는 meta-package에서 ATTACH를 쓰지 않음 (SQLite 10-DB ATTACH 제한 회피)
+- UI: D3 radial tree (Darwin tree-of-life 스타일), Landing META 배지, top-level 패키지 자동 리다이렉트
+
 ### MCP Tools
 
 - 7 built-in tools + dynamic tools loaded from `mcp_tools.json` in `.scoda` packages
@@ -226,7 +241,7 @@ core/scoda_engine_core/     # PyPI: scoda-engine-core v0.1.1 (pure stdlib, zero 
 ├── hub_client.py           # Hub: fetch index, compare, download, SSL fallback
 └── validate_manifest.py    # Manifest validator/linter (pure functions)
 
-scoda_engine/               # PyPI: scoda-engine v0.3.5 (desktop/server)
+scoda_engine/               # PyPI: scoda-engine v0.3.6 (desktop/server)
 ├── scoda_package.py        # Backward-compat shim → scoda_engine_core
 ├── app.py                  # FastAPI web server (multi-package APIRouter + CRUD)
 ├── entity_schema.py        # P21: FieldDef/EntitySchema parser + validation
@@ -338,6 +353,8 @@ pytest tests/
 | Timeline 모바일 UX 개선 | `devlog/20260317_039_timeline_mobile_ux_improvements.md` |
 | 모바일 반응형 + Timeline 녹화 | `devlog/20260317_040_mobile_responsive_and_timeline_record.md` |
 | Bar chart + Statistics 탭 | `devlog/20260317_041_bar_chart_and_statistics_tab.md` |
-| P31 Meta-package 설계 | `devlog/20260318_P31_paleobase_meta_package_engine_support.md` |
-| Meta-package 구현 (#042) | `devlog/20260318_042_meta_package_support.md` |
-| Meta-package UI 개선 (#043) | `devlog/20260318_043_meta_package_ui_polish.md` |
+| P31 계획 (Meta-Package 지원) | `devlog/20260318_P31_paleobase_meta_package_engine_support.md` |
+| Meta-Package 구현 (Phase 1-4) | `devlog/20260318_042_meta_package_support.md` |
+| Meta-Package UI 개선 + 버그 수정 | `devlog/20260318_043_meta_package_ui_polish.md` |
+| temp-dir 누수 수정 | `devlog/20260710_044_fix_temp_dir_leak_registry_scan.md` |
+| OpenGraph 메타태그 + 타이틀 | `devlog/20260710_045_og_meta_tags_and_title.md` |
