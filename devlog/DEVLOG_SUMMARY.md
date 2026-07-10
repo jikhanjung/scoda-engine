@@ -588,6 +588,7 @@ Manifest-driven 제네릭 CRUD 시스템 (Admin/Viewer 모드 분리).
 | 03-01 | 303 | CRUD 프레임워크 27개 추가 |
 | 03-06~ | 303 | 프론트엔드 위주 변경 (303 유지) |
 | 03-18 | 232 | Meta-Package 9개 추가 (devlog #042 기준: 기존 223 + 9) |
+| 07-10 | 312 | 실측 (`pytest tests/`) — title 어서션 수정 포함 |
 
 ## 버전 이력
 

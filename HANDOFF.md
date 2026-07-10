@@ -95,7 +95,7 @@
 
 ### Test Status
 
-- 232 tests passing (devlog #042 기준: 기존 223 + Meta-Package 9). `pytest tests/`
+- 312 tests passing: `pytest tests/` (2026-07-10 실측)
 - `TestMetaPackage` (9 tests) in `tests/test_runtime.py` — kind 인식, meta/tree·bindings·composite-tree
 - All fixtures converted to domain-independent generic data
 - MCP subprocess tests support `SCODA_DB_PATH` environment variable
@@ -118,7 +118,7 @@
 2. **API**: `/api/{pkg}/meta/tree`, `/meta/bindings`, `/meta/composite-tree` (바인딩 패키지 taxa lazy load), manifest는 meta 전용 필드 위해 JSONResponse 직접 반환.
 3. **프론트엔드**: meta-package 감지 → D3 radial tree (Darwin tree-of-life 스타일, brownian motion, 줌/팬), Landing META 배지 + member packages, top-level 패키지 자동 리다이렉트.
 4. **버그 수정**: meta 엔드포인트 라우트 순서(catch-all 앞으로), `get_db()` ATTACH 제거(SQLite 10-DB 제한 회피).
-5. **버전 업**: v0.3.4 → v0.3.5, 232 tests passing.
+5. **버전 업**: v0.3.4 → v0.3.5.
 
 **2026-03-17: Bar chart 서브뷰 + 모바일 고도화**
 1. **Bar chart 서브뷰**: D3 stacked bar chart, "Group by" 드롭다운(rank 선택), 툴팁, 범례. `diversity_by_age` SQL 쿼리 (recursive CTE).

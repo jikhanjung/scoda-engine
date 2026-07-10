@@ -1335,7 +1335,7 @@ class TestGenericViewer:
         response = generic_client.get('/test/')
         assert response.status_code == 200
         html = response.text
-        assert 'SCODA Desktop' in html
+        assert 'SCODA Engine' in html
 
 
 
@@ -1465,7 +1465,7 @@ class TestGenericViewerFallback:
         assert response.status_code == 200
         html = response.text
         assert '<html' in html
-        assert 'SCODA Desktop' in html
+        assert 'SCODA Engine' in html
 
     def test_spa_404_for_nonexistent_files(self, generic_client):
         """Requests for non-existent SPA files should return 404."""
