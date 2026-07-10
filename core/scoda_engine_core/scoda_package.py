@@ -113,8 +113,11 @@ class ScodaPackage:
                 raise ScodaChecksumError(
                     f"Checksum mismatch for {os.path.basename(scoda_path)}")
 
-        # Register cleanup
-        atexit.register(self.close)
+        # NOTE: no per-instance atexit.register(self.close) here — it would pin
+        # every ScodaPackage in the atexit registry for the life of the process,
+        # preventing GC and leaking the extracted temp dir of any package the
+        # registry drops on re-scan. Cleanup is handled by close()/__del__ and by
+        # PackageRegistry's single close_all() at process exit.
 
     @property
     def version(self):
@@ -234,6 +237,14 @@ class ScodaPackage:
     def __exit__(self, *args):
         self.close()
 
+    def __del__(self):
+        # GC safety net: release the temp dir if this package was dropped without
+        # an explicit close() (e.g. an orphan from a registry re-scan).
+        try:
+            self.close()
+        except Exception:
+            pass
+
     @staticmethod
     def create(db_path, output_path, metadata=None, extra_assets=None,
                mcp_tools_path=None, changelog_path=None):
@@ -331,12 +342,25 @@ class PackageRegistry:
     def __init__(self):
         self._packages = {}   # name → {pkg: ScodaPackage, db_path, overlay_path, deps: [...]}
         self._scan_dir = None
+        # Single process-exit cleanup for all held packages (replaces the old
+        # per-ScodaPackage atexit registration, which pinned every instance).
+        atexit.register(self.close_all)
 
     def scan(self, directory):
-        """Scan directory for *.scoda files and register each package."""
+        """Scan directory for *.scoda files and register each package.
+
+        Rebuilds the registry from disk. Packages opened by a previous scan are
+        closed afterwards so their extracted temp dirs (/tmp/scoda_*) are
+        released — otherwise repeated scans (e.g. the periodic Hub sync) leak
+        one temp dir per package per scan.
+        """
         directory = os.path.abspath(directory)
         self._scan_dir = directory
         logger.info("Scanning for packages in: %s", directory)
+
+        # Build the fresh registry into a local dict, then swap atomically so
+        # concurrent get_db() calls never observe a half-built registry.
+        new_packages = {}
 
         # Find .scoda files
         scoda_files = sorted(glob_mod.glob(os.path.join(directory, '*.scoda')))
@@ -347,7 +371,7 @@ class PackageRegistry:
                 name = pkg.name
                 overlay_path = os.path.join(directory, f'{name}_overlay.db')
                 deps = pkg.manifest.get('dependencies', [])
-                self._packages[name] = {
+                new_packages[name] = {
                     'pkg': pkg,
                     'db_path': pkg.db_path,
                     'overlay_path': overlay_path,
@@ -360,7 +384,7 @@ class PackageRegistry:
                 continue  # skip invalid packages
 
         # Fallback: if no .scoda found, look for *.db files
-        if not self._packages:
+        if not new_packages:
             for db_path in sorted(glob_mod.glob(os.path.join(directory, '*.db'))):
                 db_name = os.path.basename(db_path)
                 # Skip overlay DBs
@@ -368,12 +392,26 @@ class PackageRegistry:
                     continue
                 name = os.path.splitext(db_name)[0]
                 overlay_path = os.path.join(directory, f'{name}_overlay.db')
-                self._packages[name] = {
+                new_packages[name] = {
                     'pkg': None,
                     'db_path': db_path,
                     'overlay_path': overlay_path,
                     'deps': [],
                 }
+
+        # Swap in the freshly-scanned registry, then release the previous
+        # packages' temp dirs. In-flight sqlite connections keep working: on
+        # Linux the open fd survives the unlink until the connection closes.
+        old_packages = self._packages
+        self._packages = new_packages
+        for entry in old_packages.values():
+            pkg = entry.get('pkg')
+            if pkg is not None:
+                try:
+                    pkg.close()
+                except Exception:
+                    logger.debug("scan(): error closing stale package",
+                                 exc_info=True)
 
     def get_db(self, name):
         """Get DB connection for a specific package with dependencies ATTACHed.
