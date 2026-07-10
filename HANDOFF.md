@@ -91,7 +91,7 @@
 | Desktop v0.3.5 버전 업 | Done | `bb79cfe` |
 | Fix: Registry 반복 스캔 시 temp-dir 누수 | Done | `devlog/20260710_044_fix_temp_dir_leak_registry_scan.md` |
 | 뷰어 타이틀 통일 + OpenGraph 메타태그 | Done | `devlog/20260710_045_og_meta_tags_and_title.md` |
-| Desktop v0.3.6 버전 업 | Done | `scoda_engine/__init__.py`, `pyproject.toml` |
+| Desktop v0.3.7 버전 업 (0.3.6 태그 충돌 회피) | Done | `scoda_engine/__init__.py`, `pyproject.toml` |
 
 ### Test Status
 
@@ -111,7 +111,7 @@
 **2026-07-10: temp-dir 누수 수정 + OpenGraph 메타태그**
 1. **temp-dir 누수 수정**: `PackageRegistry.scan()`이 재빌드 시 이전 `ScodaPackage`를 닫지 않아 스캔마다 temp dir 고아화 (프로덕션 3.5개월 2.9G/3198개). 로컬 dict 원자적 swap 후 이전 패키지 close, per-instance `atexit.register` 제거, `__del__` 안전망 + `close_all()` atexit 1회 등록.
 2. **OpenGraph 메타태그**: index.html title `SCODA Desktop` → `SCODA Engine`, og:title/description/type 추가 (링크 공유 미리보기).
-3. **버전 업**: v0.3.5 → v0.3.6
+3. **버전 업**: v0.3.5 → v0.3.7 (0.3.6은 03-26 빌드 태그가 이미 게시·배포 중이라 건너뜀). Docker 이미지 빌드/푸시 + 컨테이너 교체.
 
 **2026-03-18: P31 Meta-Package 지원 (paleobase)**
 1. **Core 인식**: `ScodaPackage.kind`/`is_meta_package`, `meta_tree.json`/`package_bindings.json` 로딩 (`data.db` 없는 패키지).
@@ -241,7 +241,7 @@ core/scoda_engine_core/     # PyPI: scoda-engine-core v0.1.1 (pure stdlib, zero 
 ├── hub_client.py           # Hub: fetch index, compare, download, SSL fallback
 └── validate_manifest.py    # Manifest validator/linter (pure functions)
 
-scoda_engine/               # PyPI: scoda-engine v0.3.6 (desktop/server)
+scoda_engine/               # PyPI: scoda-engine v0.3.7 (desktop/server)
 ├── scoda_package.py        # Backward-compat shim → scoda_engine_core
 ├── app.py                  # FastAPI web server (multi-package APIRouter + CRUD)
 ├── entity_schema.py        # P21: FieldDef/EntitySchema parser + validation

@@ -350,9 +350,9 @@ paleobase meta-package를 scoda-engine에서 인식·로딩·표시. Core 인식
 | # | 유형 | 제목 | 문서 |
 |---|------|------|------|
 | 044 | 작업 | Registry 반복 스캔 시 temp-dir 누수 수정 (원자적 swap + close, atexit 재구성) | `20260710_044_fix_temp_dir_leak_registry_scan.md` |
-| 045 | 작업 | 뷰어 타이틀 통일 + OpenGraph 메타태그 + v0.3.6 | `20260710_045_og_meta_tags_and_title.md` |
+| 045 | 작업 | 뷰어 타이틀 통일 + OpenGraph 메타태그 + v0.3.7 | `20260710_045_og_meta_tags_and_title.md` |
 
-**결과:** `scan()` 원자적 교체 후 이전 패키지 temp dir close, per-instance `atexit.register` 제거, `__del__` 안전망 + `close_all()` atexit 1회 등록 (프로덕션 3.5개월간 2.9G/3198개 누수 해결). index.html title `SCODA Engine` + OG 태그. v0.3.5→v0.3.6.
+**결과:** `scan()` 원자적 교체 후 이전 패키지 temp dir close, per-instance `atexit.register` 제거, `__del__` 안전망 + `close_all()` atexit 1회 등록 (프로덕션 3.5개월간 2.9G/3198개 누수 해결). index.html title `SCODA Engine` + OG 태그. v0.3.5→v0.3.7 (0.3.6 태그가 이미 게시·배포되어 있어 건너뜀).
 
 ---
 
@@ -611,4 +611,4 @@ Manifest-driven 제네릭 CRUD 시스템 (Admin/Viewer 모드 분리).
 | 03-15 | scoda-engine (Desktop) | 0.3.3 | Navbar/Landing 엔진 버전 표시 |
 | 03-17 | scoda-engine (Desktop) | 0.3.4 | Bar chart 서브뷰 + Statistics 탭 + 모바일 고도화 |
 | 03-18 | scoda-engine (Desktop) | 0.3.5 | Meta-Package 지원 (P31) |
-| 07-10 | scoda-engine (Desktop) | 0.3.6 | temp-dir 누수 수정 + OpenGraph 메타태그 |
+| 07-10 | scoda-engine (Desktop) | 0.3.7 | temp-dir 누수 수정 + OpenGraph 메타태그 (0.3.6 태그 충돌 회피) |
