@@ -4,14 +4,15 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "scoda-engine"
-version = "0.3.7"
+version = "0.3.8"
 description = "SCODA Engine — runtime for Self-Contained Data Artifacts"
 requires-python = ">=3.10"
 dependencies = [
     "scoda-engine-core>=0.1.0,<1.0.0",
     "fastapi>=0.104.0",
     "httpx>=0.25.0",
-    "mcp>=1.0.0",
+    "certifi>=2026.10.19",  # emSign ECC Root CA - G3 removed (GHSA-6q48-6c7w-9gw2)
+    "mcp>=1.0.0,<2",  # mcp 2.x removed Server.list_tools (breaks app.py)
     "starlette>=0.27.0",
     "uvicorn>=0.24.0",
     "jinja2>=3.1.0",
