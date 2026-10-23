@@ -32,7 +32,10 @@ COPY deploy/gunicorn.conf.py /app/gunicorn.conf.py
 
 # Download all latest .scoda packages from Hub at build time
 COPY deploy/fetch_packages.py /tmp/fetch_packages.py
-ENV SCODA_HUB_SSL_VERIFY=0
+# TLS verification stays on. Only on a network that re-signs TLS (institutional
+# inspection proxy) build with --build-arg SCODA_HUB_SSL_VERIFY=0. It is a build arg,
+# not ENV, so it never reaches the running server's daily hub sync.
+ARG SCODA_HUB_SSL_VERIFY=1
 RUN mkdir -p /data && python /tmp/fetch_packages.py --dest /data/ && \
     chown -R scoda:scoda /data && rm /tmp/fetch_packages.py
 

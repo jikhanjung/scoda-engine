@@ -32,6 +32,7 @@ The viewer will be available at `http://localhost` (or the port set in `SCODA_PU
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `DEFAULT_PACKAGE` | _(auto)_ | Default package to serve (baked into image). If empty, first package is used |
+| `SCODA_HUB_SSL_VERIFY` (build arg) | `1` | Set `--build-arg SCODA_HUB_SSL_VERIFY=0` only when building behind a TLS-inspecting proxy. It applies to the build-time package fetch only; the running server always verifies TLS |
 
 ### Runtime (override without rebuild)
 
