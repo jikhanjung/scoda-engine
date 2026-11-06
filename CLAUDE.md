@@ -28,6 +28,7 @@ scoda-engine/
 ├── README.md
 ├── CLAUDE.md
 ├── HANDOFF.md                  # Project handoff document
+├── DEPLOY.md                   # Production (dolfinid) layout + ops change log
 ├── pytest.ini                  # pytest config (testpaths=tests)
 ├── ScodaDesktop.spec           # PyInstaller build spec
 ├── launcher_gui.py             # GUI entry point
