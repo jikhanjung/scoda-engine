@@ -20,10 +20,10 @@ docker compose up --build -d
 # SCODA_PACKAGE=other-pkg docker compose up -d
 
 # 5. Verify
-curl http://localhost/healthz
+curl http://127.0.0.1:8081/healthz
 ```
 
-The viewer will be available at `http://localhost` (or the port set in `SCODA_PUBLIC_PORT`).
+The viewer will be available at `http://127.0.0.1:8081` (or the address set in `SCODA_PUBLIC_PORT`). It listens on localhost only by default; put a reverse proxy in front, or set `SCODA_PUBLIC_PORT=8081` to listen on all interfaces.
 
 ## Configuration
 
@@ -39,7 +39,7 @@ The viewer will be available at `http://localhost` (or the port set in `SCODA_PU
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `SCODA_PACKAGE` | _from build_ | Override active package at runtime |
-| `SCODA_PUBLIC_PORT` | `80` | External port |
+| `SCODA_PUBLIC_PORT` | `127.0.0.1:8081` | Host address and port (`[ip:]port`). Default is localhost only |
 | `SCODA_WORKERS` | `2` | Gunicorn worker count |
 | `SCODA_LOG_LEVEL` | `info` | Log level (debug, info, warning, error) |
 
@@ -84,7 +84,7 @@ docker push honestjung/scoda-server:latest
 ## Health Check
 
 ```bash
-curl http://localhost/healthz
+curl http://127.0.0.1:8081/healthz
 # → {"status":"ok","engine_version":"0.1.4","mode":"viewer"}
 ```
 

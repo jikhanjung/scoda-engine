@@ -8,7 +8,9 @@ services:
       context: ..
       dockerfile: deploy/Dockerfile
     ports:
-      - "${SCODA_PUBLIC_PORT:-8081}:8081"
+      # 기본은 127.0.0.1 에만 연다 — 운영(dolfinid)은 nginx 가 127.0.0.1:8081 로 프록시한다 (2026-11-06,
+      # 0.0.0.0:8081 이 외부 IP 로 열려 있던 것). 모든 인터페이스에 열려면 SCODA_PUBLIC_PORT=8081.
+      - "${SCODA_PUBLIC_PORT:-127.0.0.1:8081}:8081"
     environment:
       - SCODA_PATH=/data/
       - SCODA_MODE=viewer
