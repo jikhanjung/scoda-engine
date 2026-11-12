@@ -40,3 +40,6 @@ shot/
 
 # Images (local assets)
 images/
+
+# shared guides: local symlink to ../devdocs/guides (devdocs is private)
+.guides
